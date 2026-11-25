@@ -180,8 +180,8 @@ impl TextureList {
     /// [`TextureListError`] if the text isn't a `textures.yml`, or a set
     /// has no category.
     pub fn from_yaml(text: &str) -> Result<Self, TextureListError> {
-        let file: ListFile = serde_saphyr::from_str(text)
-            .map_err(|error| TextureListError(error.to_string()))?;
+        let file: ListFile =
+            serde_saphyr::from_str(text).map_err(|error| TextureListError(error.to_string()))?;
         let mut sizes = file.sizes.unwrap_or_else(|| DEFAULT_SIZES.to_vec());
         sizes.sort();
         sizes.dedup();
@@ -328,17 +328,34 @@ sets:
         let list = TextureList::from_yaml(LIST).unwrap();
         assert_eq!(
             list.sizes(),
-            [TextureSize::Size128, TextureSize::Size512, TextureSize::Size1k]
+            [
+                TextureSize::Size128,
+                TextureSize::Size512,
+                TextureSize::Size1k
+            ]
         );
         assert_eq!(list.set("moss_002").unwrap().category, "misc");
         assert_eq!(list.set("moss_002").unwrap().average, Some([0.1, 0.2, 0.3]));
         assert_eq!(list.set("mud_forest").unwrap().average, None);
         assert_eq!(
-            list.path("mud_forest", TextureSize::Size512, "orh", TextureCompression::Bc7)
-                .as_deref(),
+            list.path(
+                "mud_forest",
+                TextureSize::Size512,
+                "orh",
+                TextureCompression::Bc7
+            )
+            .as_deref(),
             Some("soil/mud_forest-512-orh-bc7.ktx2")
         );
-        assert_eq!(list.path("absent", TextureSize::Size512, "orh", TextureCompression::Bc7), None);
+        assert_eq!(
+            list.path(
+                "absent",
+                TextureSize::Size512,
+                "orh",
+                TextureCompression::Bc7
+            ),
+            None
+        );
     }
 
     #[test]
@@ -366,7 +383,10 @@ sets:
     #[test]
     fn every_crate_list_in_the_workspace_reads() {
         for name in ["terrain", "stone", "tree", "clump", "deadwood", "mushroom"] {
-            let path = format!("{}/../../../{name}/textures.yml", env!("CARGO_MANIFEST_DIR"));
+            let path = format!(
+                "{}/../../../{name}/textures.yml",
+                env!("CARGO_MANIFEST_DIR")
+            );
             let text = std::fs::read_to_string(&path).unwrap();
             let list = TextureList::from_yaml(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
             assert!(!list.sets().is_empty(), "{name}");

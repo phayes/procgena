@@ -93,7 +93,8 @@ impl GroundMaterial {
 pub fn ground_textures() -> &'static TextureList {
     static LIST: OnceLock<TextureList> = OnceLock::new();
     LIST.get_or_init(|| {
-        TextureList::from_yaml(GROUND_TEXTURES).expect("terrain/textures.yml is a valid texture list")
+        TextureList::from_yaml(GROUND_TEXTURES)
+            .expect("terrain/textures.yml is a valid texture list")
     })
 }
 
@@ -137,11 +138,35 @@ const STANDARD: &[(&str, [f32; 3], f32)] = &[
 /// The built-in materials' textures: key, texture set, tile in metres,
 /// projection and height blend.
 const STANDARD_TEXTURES: &[(&str, &str, f32, Projection, f32)] = &[
-    ("cliff_rock", "rock_face_03", 6.0, Projection::Triplanar, 0.5),
+    (
+        "cliff_rock",
+        "rock_face_03",
+        6.0,
+        Projection::Triplanar,
+        0.5,
+    ),
     ("forest_soil", "mud_forest", 3.0, Projection::Top, 0.3),
-    ("needle_litter", "forrest_ground_03", 2.5, Projection::Top, 0.6),
-    ("leaf_litter", "leaves_forest_ground", 2.5, Projection::Top, 0.6),
-    ("decayed_leaves", "dry_decay_leaves", 2.5, Projection::Top, 0.4),
+    (
+        "needle_litter",
+        "forrest_ground_03",
+        2.5,
+        Projection::Top,
+        0.6,
+    ),
+    (
+        "leaf_litter",
+        "leaves_forest_ground",
+        2.5,
+        Projection::Top,
+        0.6,
+    ),
+    (
+        "decayed_leaves",
+        "dry_decay_leaves",
+        2.5,
+        Projection::Top,
+        0.4,
+    ),
     ("moss", "moss_002", 2.0, Projection::Top, 0.5),
 ];
 
@@ -239,9 +264,10 @@ impl MaterialCatalogue {
         let textures = ground_textures();
         let unit = |v: f32| (0.0..=1.0).contains(&v);
         for (key, material) in &self.materials {
-            let texture_ok = material.texture.as_deref().is_none_or(|id| {
-                textures.set(id).is_some_and(|set| set.average.is_some())
-            });
+            let texture_ok = material
+                .texture
+                .as_deref()
+                .is_none_or(|id| textures.set(id).is_some_and(|set| set.average.is_some()));
             if !(material.colour.iter().all(|&c| unit(c))
                 && unit(material.roughness)
                 && unit(material.blend_height)

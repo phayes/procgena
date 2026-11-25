@@ -1,5 +1,5 @@
-//! An Ecotope document's editor: seed, ground, the ground layers, one row
-//! per Scatter, the selected Scatter's settings, and saving and loading.
+//! An Ecotope document's editor: seed, ground, one row per Scatter, the
+//! selected Scatter's settings, the ground layers, and saving and loading.
 
 mod ground;
 
@@ -326,9 +326,6 @@ pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity, key: &str) 
     );
     commands.entity(view).observe(edit_view);
 
-    // The ground layers.
-    let (ground_list, ground_detail) = ground::spawn_section(commands, editor, &column);
-
     // The Scatters, the Add Scatter controls and the selected Scatter.
     let list = commands.spawn((column.clone(), ChildOf(editor))).id();
     let kinds: Vec<String> = KINDS.iter().map(|kind| (*kind).to_owned()).collect();
@@ -354,7 +351,10 @@ pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity, key: &str) 
             ]
         })
         .insert(ChildOf(editor));
-    let detail = commands.spawn((column, ChildOf(editor))).id();
+    let detail = commands.spawn((column.clone(), ChildOf(editor))).id();
+
+    // The ground layers, below the Scatters.
+    let (ground_list, ground_detail) = ground::spawn_section(commands, editor, &column);
 
     // Saving and loading, below the settings.
     commands

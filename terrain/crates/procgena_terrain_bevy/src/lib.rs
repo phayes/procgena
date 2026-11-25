@@ -156,6 +156,8 @@ impl Plugin for TerrainPlugin {
                 max_reads: self.max_reads,
             })
             .init_resource::<TerrainDebug>()
+            .init_resource::<GroundTextureSettings>()
+            .init_resource::<GroundTextures>()
             .add_systems(
                 Update,
                 (reset_streams, stream_chunks, update_materials).chain(),
@@ -861,6 +863,8 @@ mod tests {
         })
         .init_resource::<LodQuality>()
         .init_resource::<TerrainDebug>()
+        .init_resource::<GroundTextureSettings>()
+        .init_resource::<GroundTextures>()
         .add_systems(
             Update,
             (reset_streams, stream_chunks, update_materials).chain(),

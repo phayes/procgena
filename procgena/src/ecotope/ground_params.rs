@@ -244,10 +244,15 @@ fn height_ramp(l: &GroundLayer) -> Option<Ramp> {
 /// The layer's height band in metres, replacing any height condition of
 /// another form, or added open if it has none.
 fn height_ramp_mut(l: &mut GroundLayer) -> &mut Ramp {
-    let index = match l.when.iter().position(|c| matches!(c, Condition::Height(_))) {
+    let index = match l
+        .when
+        .iter()
+        .position(|c| matches!(c, Condition::Height(_)))
+    {
         Some(index) => index,
         None => {
-            l.when.push(Condition::Height(HeightRule::Absolute(Ramp::default())));
+            l.when
+                .push(Condition::Height(HeightRule::Absolute(Ramp::default())));
             l.when.len() - 1
         }
     };
@@ -270,11 +275,8 @@ fn influence_params() -> Vec<Param<GroundLayer>> {
         Some(Reach::Footprint(k)) => k,
         None => 0.0,
     };
-    let falloff = move |l: &GroundLayer| {
-        first(l)
-            .and_then(|i| i.falloff.fall)
-            .unwrap_or([0.5, 1.0])
-    };
+    let falloff =
+        move |l: &GroundLayer| first(l).and_then(|i| i.falloff.fall).unwrap_or([0.5, 1.0]);
     vec![
         Param::number(
             "under.reach",
@@ -300,7 +302,11 @@ fn influence_params() -> Vec<Param<GroundLayer>> {
                     let v = match influence.reach {
                         Reach::Metres(v) | Reach::Footprint(v) => v,
                     };
-                    influence.reach = if on { Reach::Footprint(v) } else { Reach::Metres(v) };
+                    influence.reach = if on {
+                        Reach::Footprint(v)
+                    } else {
+                        Reach::Metres(v)
+                    };
                 }
             },
         )

@@ -170,7 +170,9 @@ fn main() {
         if flag != "--ground-texture" {
             continue;
         }
-        let swap = args.get(i + 1).expect("--ground-texture needs <material>=<set>");
+        let swap = args
+            .get(i + 1)
+            .expect("--ground-texture needs <material>=<set>");
         let (key, set) = swap
             .split_once('=')
             .expect("--ground-texture needs <material>=<set>");

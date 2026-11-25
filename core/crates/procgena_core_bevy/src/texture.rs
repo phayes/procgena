@@ -10,7 +10,9 @@
 use bevy::asset::{LoadState, RenderAssetUsages};
 use bevy::image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
-use bevy::render::render_resource::{TextureDataOrder, TextureViewDescriptor, TextureViewDimension};
+use bevy::render::render_resource::{
+    TextureDataOrder, TextureViewDescriptor, TextureViewDimension,
+};
 use procgena_core::texture::{TextureCompression, TextureList, TextureSize};
 
 /// Texture sets loaded as arrays: layer `i` of each array is set
@@ -96,12 +98,18 @@ impl TextureArrayLoad {
     /// arrays added to `images`. Call it until it stops giving
     /// [`TextureArrayState::Loading`]; after that, drop the load, which
     /// frees the single files.
-    pub fn poll(&self, asset_server: &AssetServer, images: &mut Assets<Image>) -> TextureArrayState {
+    pub fn poll(
+        &self,
+        asset_server: &AssetServer,
+        images: &mut Assets<Image>,
+    ) -> TextureArrayState {
         // Wait for every file, and stop at the first failure.
         for handle in self.files.iter().flatten() {
             match asset_server.get_load_state(handle) {
                 Some(LoadState::Loaded) => {}
-                Some(LoadState::Failed(error)) => return TextureArrayState::Failed(error.to_string()),
+                Some(LoadState::Failed(error)) => {
+                    return TextureArrayState::Failed(error.to_string());
+                }
                 _ => return TextureArrayState::Loading,
             }
         }
@@ -169,7 +177,10 @@ pub fn stack_layers(layers: &[&Image]) -> Result<Image, String> {
                 descriptor.mip_level_count,
             ));
         }
-        let pixels = layer.data.as_ref().ok_or_else(|| format!("layer {i} has no pixels on the CPU"))?;
+        let pixels = layer
+            .data
+            .as_ref()
+            .ok_or_else(|| format!("layer {i} has no pixels on the CPU"))?;
         data.extend_from_slice(pixels);
     }
 

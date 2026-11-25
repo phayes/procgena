@@ -48,7 +48,11 @@ pub(super) fn layers_top_first(ecotope: &Ecotope) -> Vec<(&ChildKey, &GroundLaye
 /// Spawns the section's heading and Add Layer button as children of
 /// `parent`, then the node for the rows and the node for the selected
 /// layer's settings. Returns those two nodes.
-pub(super) fn spawn_section(commands: &mut Commands, parent: Entity, column: &Node) -> (Entity, Entity) {
+pub(super) fn spawn_section(
+    commands: &mut Commands,
+    parent: Entity,
+    column: &Node,
+) -> (Entity, Entity) {
     commands
         .spawn_scene(bsn! {
             Node {
@@ -81,7 +85,11 @@ pub(super) fn spawn_layers(commands: &mut Commands, editor: &EcotopeEditor, with
         let selected = editor.layer.as_ref() == Some(key);
         spawn_row(commands, editor.ground_list, key, layer, selected);
     }
-    let Some(layer) = editor.layer.as_ref().and_then(|key| editor.ecotope.ground.get(key)) else {
+    let Some(layer) = editor
+        .layer
+        .as_ref()
+        .and_then(|key| editor.ecotope.ground.get(key))
+    else {
         return;
     };
     if !with_detail {
@@ -106,13 +114,22 @@ pub(super) fn spawn_layers(commands: &mut Commands, editor: &EcotopeEditor, with
         .spawn_scene(bsn! { @labelled_row("Follows", picker) })
         .insert(ChildOf(detail));
     let panel = spawn_param_panel(commands, detail, layer.clone(), layer_sections(), &[0]);
-    commands.entity(panel).insert(LayerPanel).observe(store_layer);
+    commands
+        .entity(panel)
+        .insert(LayerPanel)
+        .observe(store_layer);
 }
 
 /// Spawns a row for layer `key` as the last child of `list`: a button
 /// selecting it, its material and order, buttons moving it up and down the
 /// stack, and a button removing it.
-fn spawn_row(commands: &mut Commands, list: Entity, key: &ChildKey, layer: &GroundLayer, selected: bool) {
+fn spawn_row(
+    commands: &mut Commands,
+    list: Entity,
+    key: &ChildKey,
+    layer: &GroundLayer,
+    selected: bool,
+) {
     let name = key.to_string();
     let about = format!("{} · {}", layer.material, layer.order);
     let variant = ButtonVariant::selected(selected);
@@ -229,11 +246,18 @@ fn move_layer(
 /// down it. Returns whether anything moved: not for the top layer going up
 /// or the bottom one going down.
 pub(super) fn swap_with_neighbour(ecotope: &mut Ecotope, key: &ChildKey, up: bool) -> bool {
-    let layers: Vec<ChildKey> = layers_top_first(ecotope).into_iter().map(|(k, _)| k.clone()).collect();
+    let layers: Vec<ChildKey> = layers_top_first(ecotope)
+        .into_iter()
+        .map(|(k, _)| k.clone())
+        .collect();
     let Some(index) = layers.iter().position(|k| k == key) else {
         return false;
     };
-    let neighbour = if up { index.checked_sub(1) } else { Some(index + 1) };
+    let neighbour = if up {
+        index.checked_sub(1)
+    } else {
+        Some(index + 1)
+    };
     let Some(neighbour) = neighbour.and_then(|i| layers.get(i)) else {
         return false;
     };
@@ -245,12 +269,20 @@ pub(super) fn swap_with_neighbour(ecotope: &mut Ecotope, key: &ChildKey, up: boo
         (b, a)
     };
     ecotope.ground.get_mut(key).expect("the layer exists").order = a;
-    ecotope.ground.get_mut(neighbour).expect("the neighbour exists").order = b;
+    ecotope
+        .ground
+        .get_mut(neighbour)
+        .expect("the neighbour exists")
+        .order = b;
     true
 }
 
 /// Adds a moss layer on top of the stack and shows its settings.
-fn add_layer(_: On<Activate>, editor: Single<&mut EcotopeEditor, Without<Dormant>>, mut commands: Commands) {
+fn add_layer(
+    _: On<Activate>,
+    editor: Single<&mut EcotopeEditor, Without<Dormant>>,
+    mut commands: Commands,
+) {
     let mut editor = editor.into_inner();
     let key = add_new_layer(&mut editor.ecotope);
     editor.layer = Some(key);
@@ -264,12 +296,20 @@ pub(super) fn add_new_layer(ecotope: &mut Ecotope) -> ChildKey {
     let top = ecotope.ground.values().map(|l| l.order).max();
     let order = top.map_or(100, |top| (top + 10).min(MAX_ORDER));
     let key = (1..)
-        .map(|n| if n == 1 { "layer".to_owned() } else { format!("layer_{n}") })
+        .map(|n| {
+            if n == 1 {
+                "layer".to_owned()
+            } else {
+                format!("layer_{n}")
+            }
+        })
         .map(|name| ChildKey::new(name).expect("layer keys are well formed"))
         .find(|key| !ecotope.ground.contains_key(key))
         .expect("some key is free");
     let material = ChildKey::new("moss").expect("a well-formed material key");
-    ecotope.ground.insert(key.clone(), GroundLayer::new(material, order));
+    ecotope
+        .ground
+        .insert(key.clone(), GroundLayer::new(material, order));
     key
 }
 
@@ -346,7 +386,10 @@ mod tests {
     fn layers_move_up_and_down_the_stack_by_swapping_orders() {
         let mut ecotope = EcotopePreset::pine_forest_floor().ecotope.clone();
         let names = |e: &Ecotope| -> Vec<String> {
-            layers_top_first(e).iter().map(|(k, _)| k.to_string()).collect()
+            layers_top_first(e)
+                .iter()
+                .map(|(k, _)| k.to_string())
+                .collect()
         };
         assert_eq!(names(&ecotope), ["dirt", "litter", "moss", "soil"]);
         assert!(swap_with_neighbour(&mut ecotope, &key("moss"), true));
@@ -363,6 +406,8 @@ mod tests {
         let second = add_new_layer(&mut ecotope);
         assert_eq!((first.as_str(), second.as_str()), ("layer", "layer_2"));
         assert_eq!(layers_top_first(&ecotope)[0].0, &second);
-        ecotope.validate().expect("added layers keep the stack valid");
+        ecotope
+            .validate()
+            .expect("added layers keep the stack valid");
     }
 }

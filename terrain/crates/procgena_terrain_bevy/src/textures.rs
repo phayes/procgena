@@ -87,7 +87,10 @@ impl GroundTextures {
 /// The layer of each ground texture set: its place in [`ground_textures`],
 /// which is also its layer in the loaded arrays.
 pub(crate) fn texture_layer(list: &TextureList, id: &str) -> Option<u32> {
-    list.sets().iter().position(|set| set.id == id).map(|i| i as u32)
+    list.sets()
+        .iter()
+        .position(|set| set.id == id)
+        .map(|i| i as u32)
 }
 
 /// Starts loading the ground textures when settings with a root appear or
@@ -108,7 +111,14 @@ pub(crate) fn load_ground_textures(
                 let list = ground_textures();
                 let size = list.size_for_level(settings.level);
                 let sets: Vec<String> = list.sets().iter().map(|set| set.id.clone()).collect();
-                match TextureArrayLoad::start(&asset_server, root, list, &sets, size, settings.compression) {
+                match TextureArrayLoad::start(
+                    &asset_server,
+                    root,
+                    list,
+                    &sets,
+                    size,
+                    settings.compression,
+                ) {
                     Ok(load) => State::Loading(load),
                     Err(error) => {
                         warn!("ground textures: {error}");

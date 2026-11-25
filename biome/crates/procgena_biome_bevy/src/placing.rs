@@ -11,8 +11,7 @@ use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
 use procgena_core::{ChildKey, Ground};
 use procgena_terrain::ground::GroundWeights;
 use procgena_terrain_bevy::{
-    GroundTextureSettings, GroundTextures, TerrainExtension, TerrainMaterial,
-    TerrainMaterialPlugin,
+    GroundTextureSettings, GroundTextures, TerrainExtension, TerrainMaterial, TerrainMaterialPlugin,
 };
 
 use crate::ground::{EcotopeGroundPatch, GroundPatch, ground_mesh, patch_weights};
@@ -405,8 +404,11 @@ mod tests {
             MinimalPlugins,
             AssetPlugin::default(),
             bevy::mesh::MeshPlugin,
-            EcotopePlugin,
         ))
+        // The terrain material's shader modules load when the plugin is
+        // added, so shaders must be an asset type by then.
+        .init_asset::<bevy::shader::Shader>()
+        .add_plugins(EcotopePlugin)
         .init_asset::<Image>()
         .init_asset::<StandardMaterial>()
         .init_resource::<Finished>()
