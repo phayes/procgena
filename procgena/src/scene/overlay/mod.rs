@@ -249,7 +249,10 @@ fn areas(
         .filter_map(|entity| {
             if let Ok(chunk) = chunks.get(entity) {
                 let key: ChunkKey = chunk.key;
-                Some((entity, AreaKey::new(key.min_corner(), key.size(), chunk.tier)))
+                Some((
+                    entity,
+                    AreaKey::new(key.min_corner(), key.size(), chunk.tier),
+                ))
             } else {
                 marked
                     .get(entity)
@@ -308,13 +311,15 @@ fn draw_overlay(
 
     // Collect finished samples.
     let mut finished = Vec::new();
-    cache.tasks.retain_mut(|(key, task)| match block_on(poll_once(task)) {
-        Some(values) => {
-            finished.push((*key, values));
-            false
-        }
-        None => true,
-    });
+    cache
+        .tasks
+        .retain_mut(|(key, task)| match block_on(poll_once(task)) {
+            Some(values) => {
+                finished.push((*key, values));
+                false
+            }
+            None => true,
+        });
     for (key, values) in finished {
         let cost = status.cost.entry(key.1).or_default();
         cost.areas += 1;
@@ -478,9 +483,7 @@ fn probe(
         let (root, source) = shown_source(&root, &sources)?;
         let fraction = pointer.0?;
         let size = camera.logical_viewport_size()?;
-        let ray = camera
-            .viewport_to_world(&transform, fraction * size)
-            .ok()?;
+        let ray = camera.viewport_to_world(&transform, fraction * size).ok()?;
         let pieces = areas(root, &children, &chunks, &marked);
         let origin = ray.origin.as_dvec3();
         let direction = ray.direction.as_dvec3();
@@ -619,12 +622,20 @@ mod tests {
 
     /// Chooses `overlay` and runs `app` until every chunk draws it, or none
     /// does for `None`; returns the chunks' images.
-    fn show(app: &mut App, chunks: [Entity; 2], overlay: Option<Overlay>) -> [Option<Handle<Image>>; 2] {
+    fn show(
+        app: &mut App,
+        chunks: [Entity; 2],
+        overlay: Option<Overlay>,
+    ) -> [Option<Handle<Image>>; 2] {
         app.insert_resource(ChosenOverlay(overlay));
         let start = Instant::now();
         loop {
             app.update();
-            let drawn = chunks.map(|c| app.world().get::<TerrainOverlay>(c).map(|o| o.image.clone()));
+            let drawn = chunks.map(|c| {
+                app.world()
+                    .get::<TerrainOverlay>(c)
+                    .map(|o| o.image.clone())
+            });
             let status = app.world().resource::<OverlayStatus>();
             let done = status.drawn == overlay
                 && status.pending == 0
@@ -698,7 +709,11 @@ mod tests {
         let status = app.world().resource::<OverlayStatus>();
         assert_eq!(status.offered, vec![Overlay::Ground]);
         assert_eq!(status.drawn, None);
-        assert!(chunks.iter().all(|&c| app.world().get::<TerrainOverlay>(c).is_none()));
+        assert!(
+            chunks
+                .iter()
+                .all(|&c| app.world().get::<TerrainOverlay>(c).is_none())
+        );
     }
 
     #[test]

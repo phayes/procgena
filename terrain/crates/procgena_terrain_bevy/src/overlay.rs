@@ -24,16 +24,16 @@ pub struct TerrainOverlay {
     pub strength: f32,
 }
 
+/// Entities whose overlay or material changed.
+type OverlayChanged = Or<(
+    Changed<TerrainOverlay>,
+    Changed<MeshMaterial3d<TerrainMaterial>>,
+)>;
+
 /// Copies each entity's [`TerrainOverlay`] into its material, and clears
 /// the overlay from materials whose entity no longer has one.
 pub(crate) fn apply_overlays(
-    changed: Query<
-        (&MeshMaterial3d<TerrainMaterial>, Option<&TerrainOverlay>),
-        Or<(
-            Changed<TerrainOverlay>,
-            Changed<MeshMaterial3d<TerrainMaterial>>,
-        )>,
-    >,
+    changed: Query<(&MeshMaterial3d<TerrainMaterial>, Option<&TerrainOverlay>), OverlayChanged>,
     mut removed: RemovedComponents<TerrainOverlay>,
     bare: Query<&MeshMaterial3d<TerrainMaterial>, Without<TerrainOverlay>>,
     mut materials: ResMut<Assets<TerrainMaterial>>,

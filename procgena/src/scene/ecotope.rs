@@ -175,9 +175,11 @@ fn offer_overlay(
         };
         let ground = Arc::new(PatchGround(params.ground.clone()));
         let painter = Arc::new(PatchPainter(painted.clone()));
-        commands
-            .entity(parent.parent())
-            .insert(OverlaySource::new(ground, painter, &ECOTOPE_OVERLAYS));
+        commands.entity(parent.parent()).insert(OverlaySource::new(
+            ground,
+            painter,
+            &ECOTOPE_OVERLAYS,
+        ));
         commands.entity(patch).insert(OverlayArea {
             min: painted.min,
             side: (painted.max - painted.min).max_element(),

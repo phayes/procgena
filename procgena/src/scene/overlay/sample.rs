@@ -7,7 +7,9 @@
 use std::time::{Duration, Instant};
 
 use bevy::math::DVec2;
-use procgena_terrain::ground::{GroundPainter, GroundSite, GroundSource, MaterialCatalogue, MaterialId};
+use procgena_terrain::ground::{
+    GroundPainter, GroundSite, GroundSource, MaterialCatalogue, MaterialId,
+};
 use procgena_terrain::{
     FeatureTier, MEASURE_REACH, Measures, RegionId, SampleDetail, Terrain, WATER_HEIGHT_REACH,
     WorldTerrain,
@@ -69,19 +71,6 @@ impl Overlay {
         }
     }
 
-    /// A short name for scripts, as in the `overlay-<id>` command.
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::Regions => "regions",
-            Self::Ground => "ground",
-            Self::Slope => "slope",
-            Self::Curvature => "curvature",
-            Self::HeightAboveWater => "height-above-water",
-            Self::WaterDistance => "water-distance",
-            Self::RoadDistance => "road-distance",
-        }
-    }
-
     /// The values this overlay is coloured from.
     pub fn family(self) -> Family {
         match self {
@@ -103,10 +92,7 @@ impl Overlay {
             (_, Value::Ground(None) | Value::Measures(None)) => NONE,
             (_, Value::Measures(Some(m))) => match self {
                 Self::Slope => ramp(&SEQUENTIAL, m.slope),
-                Self::Curvature => ramp(
-                    &DIVERGING,
-                    0.5 + 0.5 * m.curvature / CURVATURE_RANGE,
-                ),
+                Self::Curvature => ramp(&DIVERGING, 0.5 + 0.5 * m.curvature / CURVATURE_RANGE),
                 Self::HeightAboveWater => match m.height_above_water {
                     None => NONE,
                     Some(h) if h < 0.0 => UNDER_WATER,
@@ -153,7 +139,10 @@ impl Overlay {
         let ramp_stops = |stops: &[[u8; 3]]| stops.to_vec();
         match self {
             Self::Regions => Legend::Swatches(vec![
-                (region_colour(RegionId(1)), "each region its own colour".into()),
+                (
+                    region_colour(RegionId(1)),
+                    "each region its own colour".into(),
+                ),
                 (OUTLINE, "region outline".into()),
             ]),
             Self::Ground => Legend::Swatches(
@@ -357,7 +346,11 @@ impl AreaValues {
     ///
     /// If `overlay` is of another family.
     pub fn colours(&self, overlay: Overlay, catalogue: &MaterialCatalogue) -> Vec<[u8; 4]> {
-        assert_eq!(overlay.family(), self.family, "{overlay:?} is of another family");
+        assert_eq!(
+            overlay.family(),
+            self.family,
+            "{overlay:?} is of another family"
+        );
         let n = i64::from(self.size);
         let mut out = Vec::with_capacity((n * n) as usize);
         for j in 0..n {
@@ -395,7 +388,11 @@ pub fn sample_point(
 
 /// The material with the most weight at `p`, ties to the lower id; `None`
 /// where the site has no ground.
-fn dominant(painter: &(impl GroundPainter + ?Sized), p: DVec2, site: &GroundSite) -> Option<MaterialId> {
+fn dominant(
+    painter: &(impl GroundPainter + ?Sized),
+    p: DVec2,
+    site: &GroundSite,
+) -> Option<MaterialId> {
     if !site.height.is_finite() {
         return None;
     }
@@ -480,8 +477,12 @@ fn region_colour(region: RegionId) -> [u8; 3] {
 
 /// The colour of ground material `id`.
 fn material_colour(id: MaterialId, catalogue: &MaterialCatalogue) -> [u8; 3] {
-    debug_assert!(usize::from(id.0) < catalogue.len());
-    categorical(u64::from(id.0))
+    // Hues spaced evenly round the circle by the catalogue's size, every
+    // other one lighter, so neighbours in the catalogue differ twice over.
+    let count = catalogue.len().max(1) as f32;
+    let index = f32::from(id.0);
+    let lightness = if id.0 % 2 == 0 { 0.45 } else { 0.68 };
+    hsl((index / count).fract(), 0.75, lightness)
 }
 
 /// An sRGB colour from hue, saturation and lightness, each 0 to 1.
@@ -528,8 +529,8 @@ mod tests {
     }
 
     #[test]
-    fn every_overlay_is_listed_once_with_its_own_id() {
-        let mut ids: Vec<&str> = Overlay::ALL.iter().map(|o| o.id()).collect();
+    fn every_overlay_is_listed_once_with_its_own_label() {
+        let mut ids: Vec<&str> = Overlay::ALL.iter().map(|o| o.label()).collect();
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), Overlay::ALL.len());
@@ -569,7 +570,10 @@ mod tests {
             .unwrap();
         assert_eq!(value, Value::Measures(Some(measures)));
         let slope = Overlay::Slope.describe(&value, catalogue);
-        assert!(slope.starts_with(&format!("slope {:.2}", measures.slope)), "{slope}");
+        assert!(
+            slope.starts_with(&format!("slope {:.2}", measures.slope)),
+            "{slope}"
+        );
         assert_eq!(
             Overlay::Slope.colour(&value, catalogue)[..3],
             ramp(&SEQUENTIAL, measures.slope)

@@ -4,7 +4,8 @@
 //!
 //! The control is shown only while the shown subject offers overlays (see
 //! [`OverlayStatus`]). Scripts switch overlays with the `overlay-off` and
-//! `overlay-<id>` commands, such as `overlay-slope`.
+//! `overlay-<label>` commands, such as `overlay-slope` or
+//! `overlay-ground-materials`.
 
 use bevy::feathers::controls::{FeathersSelect, OptionIndex, list_rows_from_strings};
 use bevy::feathers::display::{label_dim, label_small};
@@ -69,7 +70,7 @@ impl Plugin for OverlaysPlugin {
     }
 }
 
-/// One `overlay-<id>` command per overlay.
+/// One `overlay-<label>` command per overlay.
 const OVERLAY_COMMANDS: [StudioCommand; Overlay::ALL.len()] = [
     overlay_command::<0>(),
     overlay_command::<1>(),
@@ -89,11 +90,11 @@ const fn overlay_command<const I: usize>() -> StudioCommand {
     }
 }
 
-/// The command names, in [`Overlay::ALL`] order; a test checks they match
-/// [`Overlay::id`].
+/// The command names, in [`Overlay::ALL`] order: `overlay-` and the
+/// overlay's label in lower case, words joined by hyphens.
 const OVERLAY_NAMES: [&str; Overlay::ALL.len()] = [
     "overlay-regions",
-    "overlay-ground",
+    "overlay-ground-materials",
     "overlay-slope",
     "overlay-curvature",
     "overlay-height-above-water",
@@ -268,7 +269,9 @@ fn show_legend(
             for colour in stops {
                 commands.spawn((swatch(colour, 18.0), ChildOf(bar)));
             }
-            commands.spawn_scene(label_small(high)).insert(ChildOf(ramp));
+            commands
+                .spawn_scene(label_small(high))
+                .insert(ChildOf(ramp));
             for (colour, text) in extra {
                 swatch_row(&mut commands, colours, colour, text);
             }
@@ -319,7 +322,10 @@ pub fn info_text(status: &OverlayStatus, overlay: Overlay) -> String {
             cost.areas,
             family.cost(),
         )),
-        _ => lines.push(format!("Cost: {texels}² texels per chunk, {}", family.cost())),
+        _ => lines.push(format!(
+            "Cost: {texels}² texels per chunk, {}",
+            family.cost()
+        )),
     }
     if status.pending > 0 {
         lines.push(format!("Sampling {} chunks…", status.pending));
@@ -343,10 +349,19 @@ mod tests {
     use crate::scene::SceneViewport;
     use crate::studio::status::BuildState;
 
+    /// The command that draws `overlay`: `overlay-` and its label in lower
+    /// case, words joined by hyphens.
+    fn command_for(overlay: Overlay) -> String {
+        format!(
+            "overlay-{}",
+            overlay.label().to_lowercase().replace(' ', "-")
+        )
+    }
+
     #[test]
     fn every_overlay_has_its_own_command() {
         for (overlay, name) in Overlay::ALL.iter().zip(OVERLAY_NAMES) {
-            assert_eq!(name, format!("overlay-{}", overlay.id()));
+            assert_eq!(name, command_for(*overlay));
         }
     }
 
@@ -355,7 +370,10 @@ mod tests {
     fn wait_for(studio: &mut HeadlessStudio, done: impl Fn(&OverlayStatus) -> bool) {
         let start = Instant::now();
         while !done(studio.app_mut().world().resource::<OverlayStatus>()) {
-            assert!(start.elapsed() < Duration::from_secs(120), "the overlay didn't settle");
+            assert!(
+                start.elapsed() < Duration::from_secs(120),
+                "the overlay didn't settle"
+            );
             studio.wait(Duration::from_millis(250));
         }
     }
@@ -363,9 +381,7 @@ mod tests {
     /// Runs `studio` until the terrain is drawn and `overlay` is drawn over
     /// all of it.
     fn draw(studio: &mut HeadlessStudio, overlay: Overlay) {
-        studio
-            .command(&format!("overlay-{}", overlay.id()))
-            .unwrap();
+        studio.command(&command_for(overlay)).unwrap();
         let start = Instant::now();
         loop {
             studio.wait(Duration::from_millis(250));
@@ -378,7 +394,10 @@ mod tests {
             if settled && status.drawn == Some(overlay) && status.pending == 0 {
                 return;
             }
-            assert!(start.elapsed() < Duration::from_secs(600), "the terrain didn't settle");
+            assert!(
+                start.elapsed() < Duration::from_secs(600),
+                "the terrain didn't settle"
+            );
         }
     }
 
@@ -413,7 +432,20 @@ mod tests {
             .clone()
             .unwrap();
         assert!(readout.text.starts_with("slope "), "{}", readout.text);
-        assert!(studio.shows_text_starting("Under the pointer: slope "));
+        let legend_reads = |studio: &mut HeadlessStudio, line: &str| {
+            studio
+                .texts()
+                .iter()
+                .any(|t| t.text.lines().any(|l| l == line))
+        };
+        let line = format!(
+            "Under the pointer: {} at ({:.0}, {:.0})",
+            readout.text, readout.point.x, readout.point.y
+        );
+        assert!(
+            legend_reads(&mut studio, &line),
+            "the legend shows {line:?}"
+        );
 
         // Other overlays read the same point their own way.
         draw(&mut studio, Overlay::Regions);
