@@ -673,6 +673,22 @@ fn sample_mask(words: &[u32], offset: u32, size: UVec2, uv: Vec2) -> Vec2 {
     top.lerp(bottom, t.y)
 }
 
+/// The mask's density at `uv`, 0 to 255, blended from the four nearest
+/// texels in whole steps of 1/256, as placement reads it. The WESL twin is
+/// `mask_density` in `generate.wesl`.
+#[cfg(test)]
+pub(crate) fn mask_density(words: &[u32], offset: u32, size: UVec2, uv: Vec2) -> u32 {
+    let texels = size.as_vec2();
+    let p = (uv * texels - 0.5).clamp(Vec2::ZERO, texels - 1.0);
+    let base = p.floor().as_uvec2();
+    let w = ((p - p.floor()) * 256.0).as_uvec2();
+    let next = (base + 1).min(size - 1);
+    let at = |x: u32, y: u32| u32::from(texel(words, offset + y * size.x + x).0);
+    let top = at(base.x, base.y) * (256 - w.x) + at(next.x, base.y) * w.x;
+    let bottom = at(base.x, next.y) * (256 - w.x) + at(next.x, next.y) * w.x;
+    (top * (256 - w.y) + bottom * w.y + 32768) >> 16
+}
+
 /// Whether the ground of a heightmap has a hole at `uv`: any of the four
 /// texels the bilinear sample reads is one. The hole test of `ground_height`
 /// in `generate.wesl`, its twin.

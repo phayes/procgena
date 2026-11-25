@@ -298,7 +298,8 @@ fn sample_mask(field: Field, uv: vec2<f32>) -> vec2<f32> {
 }
 
 /// The mask's density at `uv`, 0 to 255, blended from the four nearest
-/// texels in integer steps of 1/256: 255 for a field without a mask.
+/// texels in integer steps of 1/256: 255 for a field without a mask. Twin
+/// of `edit::mask_density`.
 fn mask_density(field: Field, uv: vec2<f32>) -> u32 {
     if field.placement.z == NO_MAP {
         return 255u;

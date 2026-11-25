@@ -33,7 +33,7 @@ use super::view::{
 use crate::PlantPlugin;
 use crate::PlantScatterPreset;
 use crate::PlantWind;
-use crate::gpu_layout::{FieldGpu, NO_CLASS};
+use crate::gpu_layout::{FieldGpu, NO_CLASS, NO_MAP};
 use crate::mirror;
 use crate::scatters::{CHUNK_SIZE, FieldTables};
 use crate::shader_model::{self, ChunkLayout, DistanceLod, TILE_POINTS};
@@ -187,6 +187,20 @@ fn quantize(value: f32, max: f32) -> u32 {
 /// CPU prediction for `generate.wesl` on a flat, single-species field without masks or
 /// shadow lights. Expands every surviving plant into its stems. Branched plants retain
 /// density until the final fade and do not receive thinning-related widening.
+/// The density `field`'s mask gives at `local`, 0 to 255, as placement
+/// reads it: 255 without a mask.
+fn mask_level(tables: &FieldTables, field: &FieldGpu, local: Vec2) -> u32 {
+    if field.placement.z == NO_MAP {
+        return 255;
+    }
+    crate::edit::mask_density(
+        &tables.masks,
+        field.placement.z,
+        field.map_sizes.xy(),
+        local / field.extent.xy(),
+    )
+}
+
 fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> {
     let lod_table = distance_lod_of(view);
     let camera = view.camera_position.truncate();
@@ -246,9 +260,11 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
             let root = Vec3::new(at.x, field.min_corner.y, at.y);
             let distance = root.distance(camera);
             let falloff = thin((distance - view.distance_offset).max(0.0)) * thinning;
-            // The scenes have no masks: the mask reads full.
-            if !shader_model::is_placed(candidate.point, fill, 255)
-                || candidate.rank >= mirror::keep_fraction(fill, view.density_scale * falloff)
+            // The scenes keep the mask's height channel full.
+            let mask = mask_level(tables, &field, local);
+            let scale = mask as f32 / 255.0 * view.density_scale * falloff;
+            if !shader_model::is_placed(candidate.point, fill, mask)
+                || candidate.rank >= mirror::keep_fraction(fill, scale)
             {
                 continue;
             }
