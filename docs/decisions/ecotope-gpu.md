@@ -326,6 +326,17 @@ replaces GP or the rest of R3.
      compiles them synchronously.
      - *Payoff:* the long first-view frames: none to tens of seconds
        (provisional). Check it against a windowed run.
+     - *Measured again after R3a (2026-11-24): not worth building now.*
+       Three runs in a row of the same build, with a warm impostor cache:
+       - the whole Ecotope loads in 1.7–4.4 s;
+       - its longest frames are 1.6 s on the first run and 0.3–0.6 s
+         after that.
+
+       So the long stalls were mostly first compiles, which Metal keeps
+       in its own shader cache across runs, made worse by other sessions
+       using the same compiler. A warm-up would move the remaining
+       stalls, not remove them. Revisit if a quiet, windowed run still
+       shows long frames on a warm cache.
   5. **Bake impostors only when needed.** In the studio, bake a
      specimen's impostor once its impostor level could be on screen at
      the current orbit limits (the 40 m patch never reaches the trees'
