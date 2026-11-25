@@ -206,7 +206,7 @@ mod tests {
     fn stone_mesh(mesher: crate::Mesher) -> StoneMesh {
         let mut options = StoneOptions::default();
         options.mesh.mesher = mesher;
-        options.mesh.detail = crate::StoneDetail::single(32, crate::TextureSize::Size512);
+        options.mesh.game_level = crate::StoneDetail::new(32, crate::TextureSize::Size512);
         Stone::new(options).unwrap().mesh().clone()
     }
 

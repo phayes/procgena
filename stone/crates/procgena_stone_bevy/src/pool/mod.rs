@@ -15,14 +15,15 @@ use bevy::pbr::StandardMaterialKey;
 use bevy::prelude::*;
 use bevy::render::combined_bind_group::CombinedBindGroupData;
 use bevy::transform::TransformSystems;
-use procgena_core::{OptionsHash, PoolId, SpecimenId};
+use procgena_core::chain::{DistanceChain, ViewScale};
+use procgena_core::{LevelForm, Lod, LodLevel, OptionsHash, PoolId, SpecimenId};
 use procgena_core_bevy::instanced::{
     ExternalMeshId, InstancedCopy, InstancedMaterialPlugin, InstancedPart, InstancedScatter,
     InstancedSlot, PartMesh, SpecimenCache,
 };
 use procgena_impostor::{ImpostorMaterial, ImpostorPipelineKey};
 use procgena_stone::gpu::MAX_GPU_RESOLUTION;
-use procgena_stone::{OptionsError, STONE_KIND, StoneOptions};
+use procgena_stone::{OptionsError, STONE_KIND, StoneDetail, StoneOptions};
 
 use crate::material::{StoneMaterial, StoneMaterialKey, StoneTextures, stone_material};
 use crate::spawn::SpawnSettings;
@@ -32,8 +33,8 @@ use render::PoolRenderPlugin;
 /// A set of rock shapes generated on the GPU and shared by [`PooledStone`] entities.
 ///
 /// Add a pool to `Assets<StonePool>`, then spawn [`PooledStone`] entities that
-/// name the pool and one of its variants. The plugin generates every variant at
-/// every detail level on the GPU once, and draws all the pool's rocks with a few
+/// name the pool and one of its variants. The plugin generates every variant's
+/// game-level and lower meshes on the GPU once, and draws all the pool's rocks with a few
 /// GPU-driven draw calls per camera and shadow map. The meshes never reach the
 /// CPU, so they cannot be read back for physics. For a collider, build the same
 /// shape on the CPU from [`StonePool::variant_options`].
@@ -42,17 +43,17 @@ use render::PoolRenderPlugin;
 ///
 /// # Memory
 ///
-/// Every variant reserves GPU memory for each detail level. With the default
-/// levels (96, 48 and 24 cells per axis), each variant reserves about 2.6 MB of
-/// vertex and index data, so 64 variants reserve about 170 MB.
+/// Every variant reserves GPU memory for its two meshes, growing with the
+/// square of the game level's resolution: doubling the resolution reserves
+/// about four times as much vertex and index data.
 #[derive(Asset, TypePath, Debug, Clone, PartialEq)]
 pub struct StonePool {
     /// Settings shared by every variant; their own seed is not used. See
     /// [`variant_options`](Self::variant_options) for each variant's.
-    /// [`MeshOptions::detail`](procgena_stone::MeshOptions::detail)
-    /// sets the detail levels, as for a [`StoneParams`](crate::StoneParams); their
-    /// resolutions must not exceed [`MAX_GPU_RESOLUTION`], and every level uses
-    /// the nearest level's texture size. The material's colour, roughness,
+    /// [`MeshOptions::game_level`](procgena_stone::MeshOptions::game_level)
+    /// sets the game level, as for a [`StoneParams`](crate::StoneParams); its
+    /// resolution must not exceed [`MAX_GPU_RESOLUTION`], and both meshes use
+    /// its texture size. The material's colour, roughness,
     /// metalness, texture set and texture repeat size apply to every variant.
     pub options: StoneOptions,
     /// Number of different shapes, at least 1. [`PooledStone::variant`] must be
@@ -88,7 +89,7 @@ impl StonePool {
     /// to select a drawn variant; this method does not check the index.
     ///
     /// Create a [`procgena_stone::Stone`] from the result, optionally with a simpler
-    /// [`MeshOptions::detail`](procgena_stone::MeshOptions::detail), and apply the
+    /// [`MeshOptions::game_level`](procgena_stone::MeshOptions::game_level), and apply the
     /// [`PooledStone`] entity's transform. Each mesh approximates the drawn
     /// rock at the same resolution. The `Stone` also gives the rock's
     /// suggested [`embed_depth`](procgena_stone::Stone::embed_depth). Rarely, a rock
@@ -108,12 +109,19 @@ impl StonePool {
             return Err(StonePoolError::StretchJitter(self.stretch_jitter));
         }
         self.options.validate().map_err(StonePoolError::Options)?;
-        for level in self.options.mesh.detail.levels() {
+        for level in self.mesh_levels() {
             if level.resolution > MAX_GPU_RESOLUTION {
                 return Err(StonePoolError::ResolutionTooHigh(level.resolution));
             }
         }
         Ok(())
+    }
+
+    /// The details of each variant's two meshes: the game level, then the
+    /// lower mesh derived from it.
+    pub(crate) fn mesh_levels(&self) -> [StoneDetail; 2] {
+        let lod = self.options.mesh.game_level.lod();
+        [lod.game, lod.lower]
     }
 }
 
@@ -291,7 +299,7 @@ fn update_definitions(
                             &asset_server,
                             root,
                             &pool.options.material.texture,
-                            pool.options.mesh.detail.levels()[0].texture_size,
+                            pool.options.mesh.game_level.texture_size,
                             settings.texture_compression,
                         )
                     });
@@ -337,6 +345,34 @@ fn pool_material(pool: &StonePool, textures: Option<&StoneTextures>) -> StoneMat
     stone_material(&material, textures)
 }
 
+/// The shared instanced renderer's level table for pooled rocks: the shared
+/// [`DistanceChain`]'s steps as metre distances for a rock 1 m across seen
+/// through a [`ViewScale::DEFAULT`] camera at High quality. With each copy's
+/// [`InstancedCopy::size`] set to its rock's bounding diameter, the renderer's
+/// fade bands are exactly [`DistanceChain::ranges`] at every quality.
+///
+/// The table holds the game-level mesh (level 0), the lower mesh (level 1)
+/// and, with `impostor`, the impostor (level 2, casting no shadows). Without
+/// it, the lower mesh is drawn until the cull.
+///
+/// Temporary: it translates the chain into the renderer's older level table
+/// only until the renderer takes the chain itself. IX Step 4 deletes it.
+pub(crate) fn renderer_lod(impostor: bool) -> Lod {
+    let chain = DistanceChain::DEFAULT;
+    let distance = |threshold: f32| ViewScale::DEFAULT.get() / threshold;
+    let mut levels = vec![
+        LodLevel::new(0.0, chain.hysteresis, ()),
+        LodLevel::new(distance(chain.lower_below), chain.hysteresis, ()),
+    ];
+    if impostor {
+        let level = LodLevel::new(distance(chain.impostor_below), chain.hysteresis, ())
+            .with_form(LevelForm::Impostor)
+            .without_shadows();
+        levels.push(level);
+    }
+    Lod::new(1.0, levels).with_cull(distance(chain.cull_below))
+}
+
 /// One slot per variant of `pool`, defined at `version`, each drawing the
 /// variant's generated meshes with `material`. Caches each variant's parts
 /// by specimen and level.
@@ -347,8 +383,8 @@ fn pool_slots(
     cache: &mut SpecimenCache,
 ) -> Arc<[InstancedSlot]> {
     let options = &pool.options;
-    let lod = options.mesh.detail.lod().map_detail(|_| ());
-    let levels = lod.levels.len() as u32;
+    let lod = renderer_lod(false);
+    let levels = pool.mesh_levels().len() as u32;
     let pool_id = PoolId::new(STONE_KIND, OptionsHash::of(&(options, pool.stretch_jitter)));
     (0..pool.variants)
         .map(|variant| {
@@ -411,11 +447,12 @@ fn collect_instances(
             }
             continue;
         }
-        let scale = definition.pool.options.scale;
+        let options = &definition.pool.options;
+        let scale = options.scale;
         pools.entry(id).or_default().push(InstancedCopy {
             slot: stone.variant,
             transform: transform.affine() * Affine3A::from_scale(Vec3::splat(scale)),
-            size: scale,
+            size: options.bounding_diameter(),
             wind_phase: 0.0,
         });
     }
@@ -484,26 +521,63 @@ mod tests {
             StonePoolError::StretchJitter(1.0),
         );
         check(
-            |p| p.options.mesh.detail = procgena_stone::StoneDetail::new(vec![]),
-            StonePoolError::Options(OptionsError::IntOutOfRange {
-                field: "mesh.detail",
-                value: 0,
-                min: 1,
-                max: procgena_stone::MAX_DETAIL_LEVELS,
+            |p| p.options.scale = 0.0,
+            StonePoolError::Options(OptionsError::FloatOutOfRange {
+                field: "scale",
+                value: 0.0,
+                requirement: "positive",
             }),
         );
         check(
             |p| {
-                p.options.mesh.detail = procgena_stone::StoneDetail::single(
-                    MAX_GPU_RESOLUTION + 1,
-                    procgena_stone::TextureSize::Size512,
-                )
+                p.options.mesh.game_level =
+                    StoneDetail::new(MAX_GPU_RESOLUTION + 1, procgena_stone::TextureSize::Size512)
             },
             StonePoolError::ResolutionTooHigh(MAX_GPU_RESOLUTION + 1),
         );
-        // The most detailed preset still fits on the GPU.
+        // The most detailed named detail still fits on the GPU.
         let mut ultra = valid.clone();
-        ultra.options.mesh.detail = procgena_stone::StoneDetail::ULTRA;
+        ultra.options.mesh.game_level = StoneDetail::ULTRA;
         assert_eq!(ultra.validate(), Ok(()));
+    }
+
+    /// The renderer's table, scaled as the renderer scales it (by a copy's
+    /// size and the quality's distance scale), gives the chain's own fade
+    /// bands at every quality, with and without the impostor.
+    #[test]
+    fn the_renderer_table_draws_the_chain() {
+        let chain = DistanceChain::DEFAULT;
+        let size = StoneOptions::default().bounding_diameter();
+        let factor = DistanceChain::factor(size, ViewScale::DEFAULT);
+        let close = |a: f32, b: f32| (a - b).abs() <= b.abs() * 1e-5 || a == b;
+        let same = |a: &procgena_core::LodRange, b: &procgena_core::LodRange| {
+            close(a.fade_in.start, b.fade_in.start)
+                && close(a.fade_in.end, b.fade_in.end)
+                && close(a.fade_out.start, b.fade_out.start)
+                && close(a.fade_out.end, b.fade_out.end)
+        };
+        for impostor in [false, true] {
+            let lod = renderer_lod(impostor);
+            lod.validate().unwrap();
+            assert_eq!(lod.levels.len(), if impostor { 3 } else { 2 });
+            assert!(lod.levels[..2].iter().all(|level| level.casts_shadows));
+            for quality in procgena_core::Quality::ALL {
+                let table = lod.ranges(size / lod.reference_size * quality.distance_scale());
+                let [game, lower, last] = chain.ranges(factor, quality);
+                let expected = if impostor {
+                    vec![game, lower, last]
+                } else {
+                    let lower = procgena_core::LodRange {
+                        fade_in: lower.fade_in,
+                        fade_out: last.fade_out,
+                    };
+                    vec![game, lower]
+                };
+                for (got, want) in table.iter().zip(&expected) {
+                    assert!(same(got, want), "{quality:?}: {got:?} != {want:?}");
+                }
+            }
+        }
+        assert!(!renderer_lod(true).levels[2].casts_shadows);
     }
 }

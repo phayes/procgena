@@ -39,10 +39,9 @@ impl Default for StoneModelSettings {
     }
 }
 
-/// The texture image size for exports: that of the rock's most detailed level.
-/// Returns `None` for an empty (invalid) detail set.
+/// The texture image size for exports: that of the rock's game level.
 fn texture_size(options: &StoneOptions) -> Option<TextureSize> {
-    options.mesh.detail.first().map(|level| level.texture_size)
+    Some(options.mesh.game_level.texture_size)
 }
 
 /// The reason a rock export could not be created.
@@ -87,15 +86,16 @@ pub fn image_paths(options: &StoneOptions, settings: &StoneModelSettings) -> Vec
         .collect()
 }
 
-/// Builds meshes for the rock's detail levels, most detailed first: all of
-/// them when `detail_levels` is set, otherwise only the first. An empty main
-/// mesh is an error; empty simpler meshes are skipped.
+/// Builds the rock's game-level mesh, then its lower mesh when
+/// `detail_levels` is set. An empty game-level mesh is an error; an empty
+/// lower mesh is skipped.
 fn meshes(options: &StoneOptions, detail_levels: bool) -> Result<Vec<StoneMesh>, StoneExportError> {
     let field = StoneField::new(options).map_err(StoneExportError::Stone)?;
-    let levels = options.mesh.detail.levels();
+    let lod = options.mesh.game_level.lod();
+    let levels = [lod.game, lod.lower];
     let count = if detail_levels { levels.len() } else { 1 };
 
-    // Sample the same rock shape at each resolution, omitting empty lower-detail meshes.
+    // Sample the same rock shape at each resolution, omitting an empty lower mesh.
     let mut meshes = Vec::with_capacity(count);
     for resolution in levels.iter().take(count).map(|level| level.resolution) {
         let mut mesh =
@@ -204,19 +204,15 @@ fn file_name(path: &str) -> &str {
 mod tests {
     use std::cell::RefCell;
 
-    use procgena_stone::{DetailLevel, StoneDetail, StonePreset};
+    use procgena_stone::{StoneDetail, StonePreset};
 
     use super::*;
 
-    /// Uses the selected preset with three small detail levels (32, 16 and 8
-    /// cells) to keep tests quick.
+    /// Uses the selected preset with a small game level (32 cells, so a
+    /// 16-cell lower mesh) to keep tests quick.
     fn quick(preset: &StonePreset) -> StoneOptions {
         let mut options = preset.stone.clone();
-        options.mesh.detail = StoneDetail::new(vec![
-            DetailLevel::new(32, 0.0, TextureSize::Size1k),
-            DetailLevel::new(16, 15.0, TextureSize::Size512),
-            DetailLevel::new(8, 40.0, TextureSize::Size512),
-        ]);
+        options.mesh.game_level = StoneDetail::new(32, TextureSize::Size1k);
         options
     }
 
@@ -258,9 +254,9 @@ mod tests {
     }
 
     #[test]
-    fn images_use_the_most_detailed_levels_texture_size() {
+    fn images_use_the_game_levels_texture_size() {
         let mut options = quick(StonePreset::boulder());
-        options.mesh.detail = StoneDetail::HIGH;
+        options.mesh.game_level = StoneDetail::HIGH;
         let paths = image_paths(&options, &StoneModelSettings::default());
         let expected = image_path(
             &options.material.texture,
@@ -285,10 +281,10 @@ mod tests {
     }
 
     #[test]
-    fn detail_levels_follow_the_rocks_detail_set() {
+    fn detail_levels_are_the_game_level_and_lower_mesh() {
         let options = StonePreset::boulder().stone.clone();
         let levels = meshes(&options, true).unwrap();
-        assert_eq!(levels.len(), options.mesh.detail.levels().len());
+        assert_eq!(levels.len(), 2);
         assert!(
             levels
                 .windows(2)

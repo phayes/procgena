@@ -181,23 +181,23 @@ pub fn sections() -> Vec<Section<StoneOptions>> {
     ]
 }
 
-/// Creates the Detail picker, choosing one of the [`StoneDetail`] presets.
-/// A custom detail set loaded from a file shows as the first preset, and is
-/// kept until another preset is picked.
+/// Creates the Detail picker, choosing the rock's game level from the named
+/// [`StoneDetail`]s. A custom game level loaded from a file shows as the
+/// first name, and is kept until another name is picked.
 fn detail() -> Param<StoneOptions> {
     Param::choice(
-        "mesh.detail",
+        "mesh.game_level",
         "Detail",
         DETAIL_NAMES.as_slice(),
         |o: &StoneOptions| {
             StoneDetail::PRESETS
                 .iter()
-                .position(|(_, preset)| *preset == o.mesh.detail)
+                .position(|(_, preset)| *preset == o.mesh.game_level)
                 .unwrap_or(0)
         },
         |o: &mut StoneOptions, index| {
             if let Some((_, preset)) = StoneDetail::PRESETS.get(index) {
-                o.mesh.detail = preset.clone();
+                o.mesh.game_level = *preset;
             }
         },
     )

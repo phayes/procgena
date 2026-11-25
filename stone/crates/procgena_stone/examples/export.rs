@@ -120,8 +120,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             fs::write(out_dir.join(format!("{stem}.obj")), obj.obj)?;
             fs::write(out_dir.join(&mtl_name), obj.mtl)?;
 
-            // Package the rock's detail levels and readable image files into a GLB.
-            let meshes: Vec<_> = stone.levels().map(|(_, mesh)| mesh.clone()).collect();
+            // Package the rock's game-level and lower meshes and readable image
+            // files into a GLB.
+            let meshes: Vec<_> = stone.levels().map(|(_, _, mesh)| mesh.clone()).to_vec();
             let glb = to_glb(
                 &meshes,
                 stone.options(),

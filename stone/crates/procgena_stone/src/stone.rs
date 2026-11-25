@@ -1,8 +1,9 @@
 //! Creates a rock and provides access to its settings, shape, and triangle meshes.
 
+use procgena_core::chain::{DistanceChain, Lod, Step, ViewScale};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, tags};
 
-use crate::detail::DetailLevel;
+use crate::detail::StoneDetail;
 use crate::field::StoneField;
 use crate::mesh::{StoneMesh, mesh_field};
 use crate::options::{Mesher, OptionsError, StoneOptions};
@@ -21,26 +22,25 @@ use crate::presets::StonePreset;
 /// The field keeps the generated orientation in an unscaled, unit-width cube;
 /// use [`placement`](Self::placement) to convert between the two.
 /// A rock can be empty if carving removes it or the mesh resolution misses it;
-/// simpler levels can be empty even when the most detailed one is not.
+/// the lower mesh can be empty even when the game-level mesh is not.
 /// To change the stored settings or meshes, create another `Stone`.
 #[derive(Debug, Clone)]
 pub struct Stone {
     options: StoneOptions,
     field: StoneField,
     placement: StonePlacement,
-    /// One mesh per level of `options.mesh.detail`, in the same order.
-    meshes: Vec<StoneMesh>,
+    /// The game-level mesh, then the lower mesh.
+    meshes: [StoneMesh; 2],
 }
 
 impl Stone {
     /// Creates a rock using the supplied shape, placement, and mesh settings,
-    /// with one mesh for each level in
-    /// [`MeshOptions::detail`](crate::MeshOptions::detail).
+    /// with its game-level mesh
+    /// ([`MeshOptions::game_level`](crate::MeshOptions::game_level)) and the
+    /// coarser lower mesh derived from it (see [`StoneDetail::lod`]).
     ///
     /// Meshes are placed on the ground and scaled to metres using
     /// [`StoneOptions::scale`]. The suggested embed depth is not applied.
-    /// Every level is built, so use a single-level set such as
-    /// [`StoneDetail::single`](crate::StoneDetail::single) when you need only one mesh.
     ///
     /// # Errors
     ///
@@ -52,19 +52,16 @@ impl Stone {
             options,
             field,
             placement,
-            meshes: Vec::new(),
+            meshes: Default::default(),
         };
 
-        // Mesh the same placed shape once per detail level.
+        // Mesh the same placed shape at the game level and the lower level.
         let mesher = stone.options.mesh.mesher;
-        stone.meshes = stone
-            .options
-            .mesh
-            .detail
-            .levels()
-            .iter()
-            .map(|level| stone.mesh_with(mesher, level.resolution))
-            .collect::<Result<_, _>>()?;
+        let lod = stone.lod();
+        stone.meshes = [
+            stone.mesh_with(mesher, lod.game.resolution)?,
+            stone.mesh_with(mesher, lod.lower.resolution)?,
+        ];
         Ok(stone)
     }
 
@@ -111,41 +108,53 @@ impl Stone {
         self.placement.embed_depth() * self.options.scale
     }
 
-    /// Borrows the most detailed mesh in metres, placed at ground level without burial.
+    /// Borrows the game-level mesh in metres, placed at ground level without
+    /// burial: the rock's real shape.
     pub fn mesh(&self) -> &StoneMesh {
         &self.meshes[0]
     }
 
-    /// Iterates over every detail level with its mesh, most detailed first.
-    ///
-    /// Meshes are in metres and use the same placement as [`mesh`](Self::mesh).
-    /// A simpler level's mesh can be empty if its resolution misses the rock.
-    pub fn levels(&self) -> impl ExactSizeIterator<Item = (&DetailLevel, &StoneMesh)> {
-        self.options.mesh.detail.levels().iter().zip(&self.meshes)
+    /// Borrows the lower mesh in metres, with the same placement as
+    /// [`mesh`](Self::mesh). It can be empty if its resolution misses the
+    /// rock.
+    pub fn lower_mesh(&self) -> &StoneMesh {
+        &self.meshes[1]
+    }
+
+    /// The rock's game-level detail and the lower detail derived from it.
+    pub fn lod(&self) -> Lod<StoneDetail> {
+        self.options.mesh.game_level.lod()
+    }
+
+    /// The game level and the lower mesh, each with its step and detail,
+    /// game level first.
+    pub fn levels(&self) -> [(Step, StoneDetail, &StoneMesh); 2] {
+        let lod = self.lod();
+        [
+            (Step::Game, lod.game, &self.meshes[0]),
+            (Step::Lower, lod.lower, &self.meshes[1]),
+        ]
     }
 
     /// Returns the rock as a tagged [`Specimen`], for generators that grow on
     /// it, such as procgena_clump.
     ///
-    /// There is one specimen level per detail level, most detailed first. Each
-    /// level holds a single part tagged [`tags::ROCK`], or no parts if that
-    /// level's mesh is empty. Level start distances are in metres, scaled to
-    /// this rock's size the same way the Bevy plugin scales them. A part is
-    /// marked closed only if its mesh is watertight; its shells are left
-    /// unknown.
+    /// The specimen has two levels: the game-level mesh, then the lower
+    /// mesh. Each holds a single part tagged [`tags::ROCK`], or no parts if
+    /// that mesh is empty. The lower level starts where the default
+    /// [`DistanceChain`] switches to it for this rock, seen through a
+    /// [`ViewScale::DEFAULT`] camera at High quality. A part is marked closed
+    /// only if its mesh is watertight; its shells are left unknown.
     pub fn specimen(&self) -> Specimen {
-        let size_factor = self.options.scale / StoneOptions::default().scale;
+        let factor = DistanceChain::factor(self.options.bounding_diameter(), ViewScale::DEFAULT);
+        let lower_start = factor / DistanceChain::DEFAULT.lower_below;
         let levels = self
-            .levels()
-            .enumerate()
-            .map(|(i, (detail, mesh))| {
-                let start = if i == 0 {
-                    0.0
-                } else {
-                    detail.distance * size_factor
-                };
-                let parts = self.rock_part(mesh).into_iter().collect();
-                Level { start, parts }
+            .meshes
+            .iter()
+            .zip([0.0, lower_start])
+            .map(|(mesh, start)| Level {
+                start,
+                parts: self.rock_part(mesh).into_iter().collect(),
             })
             .collect();
         Specimen { levels }
@@ -183,10 +192,10 @@ impl Stone {
     }
 
     /// Consumes the rock, returning its settings, original unscaled field,
-    /// placement, and grounded meshes in metres, in that order. There is
-    /// one mesh per detail level, most detailed first. The meshes already
-    /// include placement; do not apply it again.
-    pub fn into_parts(self) -> (StoneOptions, StoneField, StonePlacement, Vec<StoneMesh>) {
+    /// placement, and grounded meshes in metres (the game-level mesh, then
+    /// the lower mesh), in that order. The meshes already include placement;
+    /// do not apply it again.
+    pub fn into_parts(self) -> (StoneOptions, StoneField, StonePlacement, [StoneMesh; 2]) {
         (self.options, self.field, self.placement, self.meshes)
     }
 }
@@ -194,14 +203,14 @@ impl Stone {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DetailLevel, StoneDetail, TextureSize};
+    use crate::TextureSize;
 
-    /// A rock from default settings changed by `edit`, with a single mesh at
-    /// `resolution` cells per axis.
+    /// A rock from default settings changed by `edit`, with its game level
+    /// at `resolution` cells per axis.
     fn small(edit: impl FnOnce(&mut StoneOptions), resolution: u32) -> Stone {
         let mut options = StoneOptions::default();
         edit(&mut options);
-        options.mesh.detail = StoneDetail::single(resolution, TextureSize::Size512);
+        options.mesh.game_level = StoneDetail::new(resolution, TextureSize::Size512);
         Stone::new(options).unwrap()
     }
 
@@ -235,20 +244,20 @@ mod tests {
     }
 
     #[test]
-    fn levels_follow_the_detail_set() {
-        let mut options = StoneOptions::default();
-        options.mesh.detail = StoneDetail::new(vec![
-            DetailLevel::new(32, 0.0, TextureSize::Size1k),
-            DetailLevel::new(16, 10.0, TextureSize::Size512),
-        ]);
-        let stone = Stone::new(options).unwrap();
-        let levels: Vec<_> = stone.levels().collect();
-        assert_eq!(levels.len(), 2);
-        assert_eq!(levels[1].0.resolution, 16);
-        assert!(levels[0].1.triangle_count() > levels[1].1.triangle_count());
-        assert_eq!(levels[0].1, stone.mesh());
+    fn the_lower_mesh_is_built_from_the_game_level() {
+        let stone = small(|_| {}, 32);
+        let [
+            (game, game_detail, game_mesh),
+            (lower, lower_detail, lower_mesh),
+        ] = stone.levels();
+        assert_eq!((game, lower), (Step::Game, Step::Lower));
+        assert_eq!(game_detail.resolution, 32);
+        assert_eq!(lower_detail.resolution, 16);
+        assert!(game_mesh.triangle_count() > lower_mesh.triangle_count());
+        assert_eq!(game_mesh, stone.mesh());
+        assert_eq!(lower_mesh, stone.lower_mesh());
         assert_eq!(
-            levels[1].1,
+            lower_mesh,
             &stone.mesh_with(Mesher::MarchingCubes, 16).unwrap()
         );
     }
@@ -259,21 +268,22 @@ mod tests {
             scale: 5.0,
             ..StoneOptions::default()
         };
-        options.mesh.detail = StoneDetail::new(vec![
-            DetailLevel::new(32, 0.0, TextureSize::Size1k),
-            DetailLevel::new(16, 10.0, TextureSize::Size512),
-        ]);
+        options.mesh.game_level = StoneDetail::new(32, TextureSize::Size1k);
         let stone = Stone::new(options).unwrap();
         let specimen = stone.specimen();
         specimen.validate().unwrap();
         assert_eq!(specimen.levels.len(), 2);
 
-        // Level starts are scaled to the rock's size: 5 m is twice the default.
+        // The lower level starts where the default chain switches to it.
+        let factor = DistanceChain::factor(stone.options().bounding_diameter(), ViewScale::DEFAULT);
         assert_eq!(specimen.levels[0].start, 0.0);
-        assert_eq!(specimen.levels[1].start, 20.0);
+        assert_eq!(
+            specimen.levels[1].start,
+            factor / DistanceChain::DEFAULT.lower_below
+        );
 
         // Each level is the matching mesh, as one watertight rock part.
-        for (level, (_, mesh)) in specimen.levels.iter().zip(stone.levels()) {
+        for (level, (_, _, mesh)) in specimen.levels.iter().zip(stone.levels()) {
             let [part] = &level.parts[..] else {
                 panic!("expected one part, got {}", level.parts.len());
             };
@@ -285,15 +295,37 @@ mod tests {
         }
     }
 
+    /// Every preset's mesh fits inside its bounding diameter: no two of its
+    /// vertices are further apart. Prints how much larger the bound is than
+    /// the mesh's widest span.
+    #[test]
+    fn the_bounding_diameter_encloses_every_preset() {
+        for preset in crate::StonePreset::all() {
+            let mut options = preset.stone.clone();
+            options.mesh.game_level = StoneDetail::new(32, TextureSize::Size512);
+            let stone = Stone::new(options).unwrap();
+            let positions = &stone.mesh().positions;
+            let mut span = 0.0f32;
+            for (i, a) in positions.iter().enumerate() {
+                for b in &positions[i + 1..] {
+                    span = span.max(glam::Vec3::from(*a).distance(glam::Vec3::from(*b)));
+                }
+            }
+            let bound = stone.options().bounding_diameter();
+            assert!(span <= bound, "{}: span {span} > bound {bound}", preset.key);
+            eprintln!("{}: bound / widest span = {:.2}", preset.key, bound / span);
+        }
+    }
+
     #[test]
     fn errors_name_the_problem() {
         let mut options = StoneOptions::default();
-        options.mesh.detail = StoneDetail::single(4, TextureSize::Size1k);
+        options.mesh.game_level = StoneDetail::new(4, TextureSize::Size1k);
         let err = Stone::new(options).unwrap_err();
         assert!(matches!(
             err,
             OptionsError::IntOutOfRange {
-                field: "mesh.detail.resolution",
+                field: "mesh.game_level.resolution",
                 ..
             }
         ));

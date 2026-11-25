@@ -1,8 +1,8 @@
 //! Stable hashes of rock settings and the ids built from them.
 
 use procgena_stone::{
-    DetailLevel, Mesher, OptionsHash, PoolId, STONE_KIND, SpecimenId, StoneDetail, StoneOptions,
-    StonePreset, TextureSize, content_hash,
+    Mesher, OptionsHash, PoolId, STONE_KIND, SpecimenId, StoneDetail, StoneOptions, StonePreset,
+    TextureSize, content_hash,
 };
 
 /// Pinned hashes. A failure means every rock's pool id, and so every pooled
@@ -19,7 +19,7 @@ fn hashes_match_pinned_values() {
         StonePreset::boulder().stone.pool_id().options,
         OptionsHash(0x3dfb_05a8_763c_5bec)
     );
-    assert_eq!(content_hash(&StoneDetail::MEDIUM), 0xb1ab_a7f9_e6e0_ab85);
+    assert_eq!(content_hash(&StoneDetail::MEDIUM), 0x120f_6b32_3e4f_5043);
     assert_eq!(
         StoneOptions::default().variant(42, 3, 0.3).default_seed,
         0xd56f_fa82
@@ -27,11 +27,11 @@ fn hashes_match_pinned_values() {
 }
 
 #[test]
-fn the_seed_and_detail_levels_are_not_part_of_the_pool() {
+fn the_seed_and_game_level_are_not_part_of_the_pool() {
     let base = StoneOptions::default();
     let mut other = base.clone();
     other.default_seed += 1;
-    other.mesh.detail = StoneDetail::HIGH;
+    other.mesh.game_level = StoneDetail::HIGH;
     assert_eq!(base.pool_id(), other.pool_id());
     assert_eq!(base.pool_id().kind, STONE_KIND);
 }
@@ -85,31 +85,17 @@ fn every_shape_and_look_setting_changes_the_pool() {
 
 #[test]
 fn every_detail_setting_changes_the_detail_hash() {
-    let base = StoneDetail::new(vec![
-        DetailLevel::new(64, 0.0, TextureSize::Size1k),
-        DetailLevel::new(32, 20.0, TextureSize::Size512),
-    ]);
+    let base = StoneDetail::new(64, TextureSize::Size1k);
     let hash = content_hash(&base);
-    let level = |l: DetailLevel| StoneDetail::new(vec![l, base.levels()[1]]);
-    let first = base.levels()[0];
     for changed in [
-        level(DetailLevel {
+        StoneDetail {
             resolution: 65,
-            ..first
-        }),
-        level(DetailLevel {
-            distance: 1.0,
-            ..first
-        }),
-        level(DetailLevel {
-            hysteresis: 0.1,
-            ..first
-        }),
-        level(DetailLevel {
+            ..base
+        },
+        StoneDetail {
             texture_size: TextureSize::Size2k,
-            ..first
-        }),
-        StoneDetail::new(vec![first]),
+            ..base
+        },
     ] {
         assert_ne!(content_hash(&changed), hash, "{changed:?}");
     }

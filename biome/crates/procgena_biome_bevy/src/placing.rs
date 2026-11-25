@@ -14,7 +14,9 @@ use procgena_terrain_bevy::{
     GroundTextureSettings, GroundTextures, TerrainExtension, TerrainMaterial, TerrainMaterialPlugin,
 };
 
-use crate::ground::{EcotopeGroundPatch, GroundPatch, ground_mesh, patch_weights};
+use crate::ground::{
+    EcotopeGroundPatch, EcotopeGroundWeights, GroundPatch, ground_mesh, patch_weights,
+};
 use crate::spawn_layer;
 
 /// Places and draws [`EcotopeParams`] entities. Add it once, with the tree,
@@ -344,6 +346,12 @@ fn finish_placing(
                 commands.entity(target).insert((
                     Mesh3d(meshes.add(mesh)),
                     MeshMaterial3d(materials.add(material)),
+                    EcotopeGroundWeights {
+                        weights: Arc::new(weights),
+                        min,
+                        max,
+                        catalogue: settings.base.catalogue().clone(),
+                    },
                 ));
             }
             (Some(_), Some((Err(error), _))) => {

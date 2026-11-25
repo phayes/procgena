@@ -1,121 +1,60 @@
-//! Mesh detail levels for a rock: how finely each level is meshed, when a
-//! renderer should switch to it, and which texture size suits it.
+//! How finely a rock is built: its game-level mesh detail, and the coarser
+//! mesh a renderer draws when the rock is small on screen.
 
-use std::borrow::Cow;
-
-use procgena_core::{Lod, LodLevel};
+use procgena_core::chain::{Lod, LowerDetail};
 use serde::{Deserialize, Serialize};
 
 use crate::material::TextureSize;
+use crate::options::MIN_RESOLUTION;
 
-/// One level of detail: a mesh resolution, the camera distance where it starts,
-/// and the texture size to draw it with.
+/// How finely one rock mesh is built, and the texture size to draw it with.
 ///
-/// Level of detail (LOD) lets an application draw simpler meshes for distant
-/// rocks. This crate builds the meshes; the renderer decides when to switch.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// A preset's [`MeshOptions::game_level`](crate::MeshOptions::game_level) is
+/// one of these: the rock's real shape, which the game uses for collisions,
+/// picking and its impostor. Renderers also draw a coarser mesh when the
+/// rock is small on screen; [`lod`](Self::lod) gives both.
+///
+/// Pick one of the named details ([`ULTRA_LOW`](Self::ULTRA_LOW) through
+/// [`ULTRA`](Self::ULTRA)) or set your own. The default is
+/// [`MEDIUM_LOW`](Self::MEDIUM_LOW).
+///
+/// ```
+/// use procgena_core::chain::Step;
+/// use procgena_stone::{StoneDetail, TextureSize};
+///
+/// let lod = StoneDetail::MEDIUM.lod();
+/// assert_eq!(lod.game, StoneDetail::MEDIUM);
+/// // The coarser mesh has half the cells and a smaller texture.
+/// assert_eq!(lod.detail(Step::Lower), Some(&StoneDetail::new(48, TextureSize::Size512)));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DetailLevel {
+pub struct StoneDetail {
     /// Number of sampling cells along each axis, from [`crate::MIN_RESOLUTION`]
     /// through [`crate::MAX_RESOLUTION`]. Doubling it needs about eight times
     /// the work and typically gives about four times as many triangles.
     pub resolution: u32,
-    /// Camera distance in metres where this level starts to be shown.
-    /// Must be finite and zero or more, and greater than the previous level's.
-    /// Distances suit a rock with the default
-    /// [`StoneOptions::scale`](crate::StoneOptions::scale) of 2.5 m; renderers
-    /// may scale them in proportion to each rock's size.
-    pub distance: f32,
-    /// Width of the switching band as a fraction of `distance`, on each side
-    /// of it, from 0 up to but not including 1. For example, 0.05 lets a
-    /// renderer fade between `distance × 0.95` and `distance × 1.05`.
-    pub hysteresis: f32,
-    /// Texture image size suited to this level. Exporters use the first level's size.
+    /// Texture image size to draw the mesh with.
     pub texture_size: TextureSize,
 }
 
-impl DetailLevel {
-    /// Creates a level with a hysteresis of 0.05.
-    pub const fn new(resolution: u32, distance: f32, texture_size: TextureSize) -> Self {
-        Self {
-            resolution,
-            distance,
-            hysteresis: 0.05,
-            texture_size,
-        }
-    }
-}
-
-/// The detail levels to build for a rock, most detailed (nearest) first.
-///
-/// Use one of the presets ([`ULTRA_LOW`](Self::ULTRA_LOW), [`LOW`](Self::LOW),
-/// [`MEDIUM_LOW`](Self::MEDIUM_LOW), [`MEDIUM`](Self::MEDIUM),
-/// [`HIGH`](Self::HIGH), [`ULTRA`](Self::ULTRA)) or define your own levels
-/// with [`new`](Self::new). The default is [`MEDIUM`](Self::MEDIUM).
-///
-/// A set needs 1 through [`crate::MAX_DETAIL_LEVELS`] levels with increasing
-/// distances; [`StoneOptions::validate`](crate::StoneOptions::validate) checks
-/// this. A single level means no distance switching. In JSON, a detail set is
-/// an array of levels.
-///
-/// ```
-/// use procgena_stone::{DetailLevel, StoneDetail, TextureSize};
-///
-/// // A close-up mesh and one simpler mesh from 20 metres away.
-/// let detail = StoneDetail::new(vec![
-///     DetailLevel::new(128, 0.0, TextureSize::Size2k),
-///     DetailLevel::new(32, 20.0, TextureSize::Size512),
-/// ]);
-/// assert_eq!(detail.levels().len(), 2);
-/// ```
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct StoneDetail(Cow<'static, [DetailLevel]>);
-
 impl StoneDetail {
-    /// Fastest to build, for rocks seen only from afar: 16, 12 and 8 cells,
-    /// all with 512 textures. Close up, rocks look visibly faceted.
-    pub const ULTRA_LOW: Self = Self::preset(&[
-        DetailLevel::new(16, 0.0, TextureSize::Size512),
-        DetailLevel::new(12, 15.0, TextureSize::Size512),
-        DetailLevel::new(8, 40.0, TextureSize::Size512),
-    ]);
-    /// 32, 16 and 8 cells, all with 512 textures.
-    pub const LOW: Self = Self::preset(&[
-        DetailLevel::new(32, 0.0, TextureSize::Size512),
-        DetailLevel::new(16, 15.0, TextureSize::Size512),
-        DetailLevel::new(8, 40.0, TextureSize::Size512),
-    ]);
-    /// 48, 24 and 12 cells, all with 512 textures.
-    pub const MEDIUM_LOW: Self = Self::preset(&[
-        DetailLevel::new(48, 0.0, TextureSize::Size512),
-        DetailLevel::new(24, 15.0, TextureSize::Size512),
-        DetailLevel::new(12, 40.0, TextureSize::Size512),
-    ]);
+    /// Fastest to build, for rocks seen only from afar: 16 cells, 512
+    /// textures. Close up, rocks look visibly faceted.
+    pub const ULTRA_LOW: Self = Self::new(16, TextureSize::Size512);
+    /// 32 cells, 512 textures.
+    pub const LOW: Self = Self::new(32, TextureSize::Size512);
+    /// 48 cells, 512 textures. The default.
+    pub const MEDIUM_LOW: Self = Self::new(48, TextureSize::Size512);
+    /// 96 cells, 1k textures.
+    pub const MEDIUM: Self = Self::new(96, TextureSize::Size1k);
+    /// For close-up views: 192 cells, 2k textures.
+    pub const HIGH: Self = Self::new(192, TextureSize::Size2k);
+    /// Most detailed: 240 cells, 2k textures. Still within the GPU
+    /// generator's resolution limit.
+    pub const ULTRA: Self = Self::new(240, TextureSize::Size2k);
 
-    /// Balanced default: 96, 48 and 24 cells, with 1k, 512 and 512 textures.
-    pub const MEDIUM: Self = Self::preset(&[
-        DetailLevel::new(96, 0.0, TextureSize::Size1k),
-        DetailLevel::new(48, 15.0, TextureSize::Size512),
-        DetailLevel::new(24, 40.0, TextureSize::Size512),
-    ]);
-
-    /// For close-up views: 192, 96 and 48 cells, with 2k, 1k and 512 textures.
-    pub const HIGH: Self = Self::preset(&[
-        DetailLevel::new(192, 0.0, TextureSize::Size2k),
-        DetailLevel::new(96, 15.0, TextureSize::Size1k),
-        DetailLevel::new(48, 40.0, TextureSize::Size512),
-    ]);
-
-    /// Most detailed: 240, 120 and 60 cells, with 2k, 2k and 1k textures.
-    /// Still within the GPU generator's resolution limit.
-    pub const ULTRA: Self = Self::preset(&[
-        DetailLevel::new(240, 0.0, TextureSize::Size2k),
-        DetailLevel::new(120, 15.0, TextureSize::Size2k),
-        DetailLevel::new(60, 40.0, TextureSize::Size1k),
-    ]);
-
-    /// Every preset with a display name, least detailed first.
+    /// Every named detail with its display name, least detailed first.
     pub const PRESETS: [(&'static str, Self); 6] = [
         ("Ultra Low", Self::ULTRA_LOW),
         ("Low", Self::LOW),
@@ -125,38 +64,17 @@ impl StoneDetail {
         ("Ultra", Self::ULTRA),
     ];
 
-    /// Creates a detail set from your own levels, most detailed (nearest) first.
-    /// The levels are checked when the options are validated.
-    pub fn new(levels: Vec<DetailLevel>) -> Self {
-        Self(Cow::Owned(levels))
-    }
-
-    /// Creates a set with one level, for a single mesh without distance switching.
-    pub fn single(resolution: u32, texture_size: TextureSize) -> Self {
-        Self::new(vec![DetailLevel {
+    /// A detail of `resolution` cells per axis, drawn with `texture_size`
+    /// textures. The resolution is checked when the options are validated.
+    pub const fn new(resolution: u32, texture_size: TextureSize) -> Self {
+        Self {
             resolution,
-            distance: 0.0,
-            hysteresis: 0.0,
             texture_size,
-        }])
+        }
     }
 
-    /// Wraps a fixed list of levels without copying it.
-    const fn preset(levels: &'static [DetailLevel]) -> Self {
-        Self(Cow::Borrowed(levels))
-    }
-
-    /// The levels, most detailed (nearest) first.
-    pub fn levels(&self) -> &[DetailLevel] {
-        &self.0
-    }
-
-    /// The most detailed level, or `None` for an empty (invalid) set.
-    pub fn first(&self) -> Option<&DetailLevel> {
-        self.0.first()
-    }
-
-    /// The display name of the preset equal to this set, or `None` for a custom set.
+    /// The display name of the named detail equal to this one, or `None` for
+    /// a custom detail.
     pub fn preset_name(&self) -> Option<&'static str> {
         Self::PRESETS
             .iter()
@@ -164,46 +82,28 @@ impl StoneDetail {
             .map(|(name, _)| *name)
     }
 
-    /// The levels as the shared level-of-detail type every procgena asset
-    /// uses: distances for a rock [`LOD_REFERENCE_SIZE`] metres across, no
-    /// cull distance, and every level a shadow-casting mesh.
-    ///
-    /// Use [`Lod::factor`] with a rock's [`scale`](crate::StoneOptions::scale)
-    /// times its own size to scale the distances, and [`Lod::ranges`] for
-    /// each level's fade bands.
-    pub fn lod(&self) -> Lod<StoneLevel> {
-        let levels = self
-            .levels()
-            .iter()
-            .map(|level| {
-                let detail = StoneLevel {
-                    resolution: level.resolution,
-                    texture_size: level.texture_size,
-                };
-                LodLevel::new(level.distance, level.hysteresis, detail)
-            })
-            .collect();
-        Lod::new(LOD_REFERENCE_SIZE, levels)
+    /// This detail as the game level, and the coarser mesh after it (see
+    /// [`LowerDetail`]).
+    pub fn lod(&self) -> Lod<Self> {
+        Lod::from_game(*self)
     }
 }
 
-/// The size in metres of the rock [`DetailLevel::distance`] is written for:
-/// the default [`StoneOptions::scale`](crate::StoneOptions::scale).
-pub const LOD_REFERENCE_SIZE: f32 = 2.5;
-
-/// What one level of a rock's [`StoneDetail::lod`] builds: its mesh
-/// resolution and texture size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StoneLevel {
-    /// Number of sampling cells along each axis.
-    pub resolution: u32,
-    /// Texture image size suited to this level.
-    pub texture_size: TextureSize,
+/// Half the cells (at least [`MIN_RESOLUTION`]) and the next smaller texture
+/// size (at least 512).
+impl LowerDetail for StoneDetail {
+    fn lower(&self) -> Self {
+        let texture_size = match self.texture_size {
+            TextureSize::Size2k => TextureSize::Size1k,
+            TextureSize::Size1k | TextureSize::Size512 => TextureSize::Size512,
+        };
+        Self::new((self.resolution / 2).max(MIN_RESOLUTION), texture_size)
+    }
 }
 
 impl Default for StoneDetail {
     fn default() -> Self {
-        Self::MEDIUM
+        Self::MEDIUM_LOW
     }
 }
 
@@ -212,19 +112,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn presets_are_named_and_custom_sets_are_not() {
+    fn presets_are_named_and_custom_details_are_not() {
         assert_eq!(StoneDetail::HIGH.preset_name(), Some("High"));
-        let copy = StoneDetail::new(StoneDetail::LOW.levels().to_vec());
+        let copy = StoneDetail::new(32, TextureSize::Size512);
         assert_eq!(copy.preset_name(), Some("Low"));
-        let custom = StoneDetail::new(vec![DetailLevel::new(32, 0.0, TextureSize::Size512)]);
+        let custom = StoneDetail::new(33, TextureSize::Size512);
         assert_eq!(custom.preset_name(), None);
     }
 
     #[test]
-    fn json_is_an_array_of_levels() {
+    fn the_lower_mesh_halves_the_cells_and_shrinks_the_texture() {
+        let lower = |detail: StoneDetail| detail.lod().lower;
+        assert_eq!(
+            lower(StoneDetail::ULTRA),
+            StoneDetail::new(120, TextureSize::Size1k)
+        );
+        assert_eq!(
+            lower(StoneDetail::LOW),
+            StoneDetail::new(16, TextureSize::Size512)
+        );
+        let smallest = StoneDetail::new(MIN_RESOLUTION, TextureSize::Size512);
+        assert_eq!(lower(smallest), smallest);
+    }
+
+    #[test]
+    fn json_is_a_resolution_and_a_texture_size() {
         let json = serde_json::to_string(&StoneDetail::LOW).unwrap();
-        assert!(json.starts_with('['), "{json}");
-        assert!(json.contains(r#""texture_size":"512""#), "{json}");
+        assert_eq!(json, r#"{"resolution":32,"texture_size":"512"}"#);
         let back: StoneDetail = serde_json::from_str(&json).unwrap();
         assert_eq!(back, StoneDetail::LOW);
     }

@@ -1122,6 +1122,50 @@ go to the few copies near the camera.
   built behind settings and measured on the agreed scenes and machines,
   and the results and the user's decision on defaults are recorded in
   the plan.
+- **Build status (2026-11-25, paused for credits; plan and API in
+  [docs/decisions/IX-plan.md](docs/decisions/IX-plan.md)):**
+  - **Step 0 (plan) and Step 1 (core) done:** `procgena_core::chain`
+    (`Step`, `Lod<D>`, `LowerDetail`, `DistanceChain`, `ViewScale`,
+    `ChainError`) beside the old metre `Lod`, and
+    `procgena_impostor::frame_size_for`.
+  - **Step 2 (stone) built** on branch `claude/ix-build-89cd26`:
+    `MeshOptions::game_level` (default Medium Low), two meshes per rock,
+    single rocks and GPU pools drawn game level → lower mesh → impostor by
+    size on screen, impostors baked from the game level, 256-pixel frames,
+    no impostor shadows; the pool through the private `renderer_lod`
+    bridge. See Step 2's "As built" in the plan. Left of Step 2: a
+    headless screenshot check of a rock across the chain, the Codex
+    comment rewrite of Steps 1 and 2 (Codex was out of credits), and the
+    real-bounds follow-up below.
+  - **Step 3, next:** dead wood (coordinate with the ED worker first: it
+    is making dead wood build once per copy), mushroom, tree (presets
+    default to level 0 as `game_level`; gains a `game_level` on
+    `TreeOptions`, which touches ST2's presets), fruit; each drops its
+    ribbon far forms. The last kind deletes the old `Lod`, `LodLevel`,
+    `LevelForm`, the ribbon `FarForm` variants and
+    `procgena_specimen::Level::start`, and terrain's chunk table moves
+    into `procgena_terrain` (coordinated with its owner).
+  - **Step 4:** the instanced renderer takes the chain with per-view
+    bands (deleting the stone bridge); the disk cache keyed by the bake
+    key; the studio's low-priority background pre-bake; ST7b's chain
+    preview; and the ED worker's gate that bakes only impostors that can
+    be on screen (a farthest-view-distance resource beside `LodQuality`,
+    compared with `impostor_below` at the current quality; designed in the
+    plan's Step 4, including how it sits with the pre-bake).
+  - **Step 5:** the experiment, including the memory cost of Low-sized
+    impostor frames against High-sized ones.
+  - **Other TODOs:** the Codex comment rewrite for Steps 1–2; IX2 (the
+    quality-independent impostor switch, later).
+- **Follow-up (from IX Step 2, 2026-11-25): real bounds for stones.** A
+  rock's size on screen is measured by `StoneOptions::bounding_diameter`,
+  the stretched containing box's diagonal, because neither the CPU nor the
+  GPU mesher reports a real bound (the GPU status's `bounding_radius` is
+  the same box bound, and the pool culls with a fixed radius). On the
+  presets it is 1.5–1.9 times the mesh's widest span (4.5 times for
+  `ore`), so stones keep their game-level mesh up to about twice as far as
+  they should. Replace it with each specimen's real bounding sphere, the
+  same on the CPU and GPU paths, before the stone measurements of the
+  experiment are taken as final.
 
 #### IX2: Impostors that ignore the quality level (later)
 
@@ -2140,6 +2184,21 @@ Done (2026-11-24): items 10, 15 and 16 above.
   `ObjectTags` to `SpecimenTags` in clump_bevy; a shared candidate-loop
   helper for Scatters (C2).
 - `tree/tests/export_images.rs` needs `required-features`.
+- Segmentation overlay (ST7a; see `procgena/studio_plan.md`):
+  - move the chunk Levels and Borders toggles from the terrain
+    Inspector onto the view frame's overlays;
+  - add a `TerrainStream::world_shared` that takes an `Arc<WorldTerrain>`,
+    so the studio no longer repeats `TerrainStream::world`'s setup to
+    share the world with the overlay;
+  - sample the Ecotope overlay at its patch weights' own size (0.5 m)
+    instead of 33² texels;
+  - draw region ids (and later Biome types) in the view, not only in the
+    hover readout;
+  - check by eye that the overlay lines up with drawn roads on terrain
+    chunks (the start camera has none in reach, and fog hides far views);
+  - take a Landform shot and record its cost per chunk;
+  - the Codex comment pass (Codex was out of credits; the item list is
+    in the overlay worker's report, `seg-overlay-report.md`).
 - Long term: keep comments and layout when the studio updates a preset
   file. Decided by the user on 2026-11-24: for now, writing a preset is
   lossy for comments (a full rewrite through serde). The ST2 spike

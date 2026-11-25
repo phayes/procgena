@@ -55,6 +55,13 @@ pub struct TerrainExtension {
     /// The ground textures' packed occlusion, roughness and height array.
     #[texture(108, dimension = "2d_array")]
     pub orh: Option<Handle<Image>>,
+    /// An image mixed over the ground by
+    /// [`TerrainSurface::overlay`], stretched across the mesh's UVs as the
+    /// weights are. Set from [`TerrainOverlay`](crate::TerrainOverlay);
+    /// the default image while there is none.
+    #[texture(109)]
+    #[sampler(110)]
+    pub overlay: Handle<Image>,
 }
 
 impl TerrainExtension {
@@ -77,6 +84,7 @@ impl TerrainExtension {
             colour: None,
             normal: None,
             orh: None,
+            overlay: Handle::default(),
         };
         if let Some((textures, settings)) = textures {
             extension.set_textures(textures.arrays(), settings, true);
@@ -151,6 +159,10 @@ pub struct TerrainSurface {
     /// borders; 0 for none. Set by [`TerrainDebug`](crate::TerrainDebug)
     /// on terrain chunks.
     pub border: f32,
+    /// How strongly the overlay image covers the ground's colour, from 0
+    /// (not at all) to 1, times the image's alpha. Set from
+    /// [`TerrainOverlay`](crate::TerrainOverlay).
+    pub overlay: f32,
 }
 
 impl Default for TerrainSurface {
@@ -167,6 +179,7 @@ impl Default for TerrainSurface {
             fade: Vec4::new(0.0, 0.0, f32::INFINITY, f32::INFINITY),
             tint: Vec4::ZERO,
             border: 0.0,
+            overlay: 0.0,
         }
     }
 }

@@ -26,7 +26,7 @@ use bevy::time::TimeUpdateStrategy;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_core_bevy::instanced::{ExternalMeshes, InstancedScatter};
-use procgena_stone::{DetailLevel, StoneDetail, StoneOptions, TextureSize};
+use procgena_stone::{StoneDetail, StoneOptions, TextureSize};
 
 use super::pools::RenderPools;
 use crate::pool::external_mesh_id;
@@ -67,19 +67,10 @@ fn read_words(device: &RenderDevice, queue: &RenderQueue, source: &Buffer) -> Ve
     words
 }
 
-/// Two detail levels for a rock of the default size: 24 cells per axis up to
-/// 20 units from the camera, 12 cells beyond.
+/// A small game level, so generation in tests is quick: 24 cells per axis,
+/// with a 12-cell lower mesh.
 fn two_levels() -> StoneDetail {
-    StoneDetail::new(
-        [(0.0, 24), (20.0, 12)]
-            .map(|(distance, resolution)| DetailLevel {
-                resolution,
-                distance,
-                hysteresis: 0.1,
-                texture_size: TextureSize::Size512,
-            })
-            .to_vec(),
-    )
+    StoneDetail::new(24, TextureSize::Size512)
 }
 
 /// A headless app rendering to an image, with a camera looking down the
@@ -114,7 +105,7 @@ fn headless_app(positions: &[Vec3]) -> App {
             None,
         ));
     let mut options = StoneOptions::default();
-    options.mesh.detail = two_levels();
+    options.mesh.game_level = two_levels();
     let pool = StonePool::new(options, positions.len() as u32);
     let pool = world.resource_mut::<Assets<StonePool>>().add(pool);
     world.spawn((

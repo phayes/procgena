@@ -1,4 +1,5 @@
-//! Settings for a rock's shape, roughness, world size, and mesh detail.
+//! Settings for a rock's shape, roughness, world size, and game-level mesh
+//! detail.
 //!
 //! Start with [`StoneOptions::default()`], a [`crate::StonePreset`], or a
 //! `.stone.yml` file read with [`crate::StonePreset::from_yaml`]. Creating a
@@ -7,19 +8,18 @@
 
 use std::fmt;
 
+use glam::Vec3;
 use procgena_core::scatter::{Placement, Rest};
-use procgena_core::{LodError, OptionsHash, PoolId, SpecimenId};
+use procgena_core::{OptionsHash, PoolId, SpecimenId};
 use serde::{Deserialize, Serialize};
 
 use crate::content::STONE_KIND;
-use crate::detail::{DetailLevel, StoneDetail};
+use crate::detail::StoneDetail;
 
-/// Minimum allowed number of grid cells per axis in [`DetailLevel::resolution`].
+/// Minimum allowed number of grid cells per axis in [`StoneDetail::resolution`].
 pub const MIN_RESOLUTION: u32 = 8;
-/// Maximum allowed number of grid cells per axis in [`DetailLevel::resolution`].
+/// Maximum allowed number of grid cells per axis in [`StoneDetail::resolution`].
 pub const MAX_RESOLUTION: u32 = 512;
-/// Maximum number of levels in [`MeshOptions::detail`].
-pub const MAX_DETAIL_LEVELS: u32 = 8;
 /// Maximum allowed number of cuts in [`CarveOptions::steps`].
 pub const MAX_CARVE_STEPS: u32 = 72;
 /// Maximum allowed number of noise layers in [`SurfaceOptions::octaves`].
@@ -58,7 +58,7 @@ pub struct StoneOptions {
     pub carve: CarveOptions,
     /// Surface roughness applied to the carved shape.
     pub surface: SurfaceOptions,
-    /// Meshing method and detail level used when creating a [`crate::Stone`].
+    /// Meshing method and game-level detail used when creating a [`crate::Stone`].
     pub mesh: MeshOptions,
     /// Surface appearance for renderers and exporters. It does not affect the shape.
     pub material: MaterialOptions,
@@ -148,10 +148,12 @@ pub struct SurfaceOptions {
 pub struct MeshOptions {
     /// Surface-to-triangle conversion method; see [`Mesher`] for the tradeoffs.
     pub mesher: Mesher,
-    /// Mesh levels to build, most detailed first: a preset such as
-    /// [`StoneDetail::MEDIUM`] (the default) or your own levels. In a file,
-    /// a list of levels that replaces the whole list.
-    pub detail: StoneDetail,
+    /// The rock's game level: how finely its real shape is built, which
+    /// collisions, picking and its impostor use. Renderers also build a
+    /// coarser mesh from it for when the rock is small on screen (see
+    /// [`StoneDetail::lod`]). Defaults to [`StoneDetail::MEDIUM_LOW`].
+    #[serde(default)]
+    pub game_level: StoneDetail,
 }
 
 /// Surface appearance: a texture set and adjustments to it.
@@ -350,7 +352,10 @@ impl StoneOptions {
             });
         }
 
-        check_detail(&self.mesh.detail)?;
+        check_resolution(
+            "mesh.game_level.resolution",
+            self.mesh.game_level.resolution,
+        )?;
 
         let material = &self.material;
         non_negative("material.color[0]", material.color[0])?;
@@ -368,52 +373,6 @@ impl StoneOptions {
 /// setting name in the error.
 pub(crate) fn check_resolution(field: &'static str, resolution: u32) -> Result<(), OptionsError> {
     int_range(field, resolution, MIN_RESOLUTION, MAX_RESOLUTION)
-}
-
-/// Checks the level count, each level's resolution, distance and hysteresis,
-/// and that distances strictly increase.
-fn check_detail(detail: &StoneDetail) -> Result<(), OptionsError> {
-    let levels = detail.levels();
-    let count = u32::try_from(levels.len()).unwrap_or(u32::MAX);
-    int_range("mesh.detail", count, 1, MAX_DETAIL_LEVELS)?;
-
-    let mut previous: Option<&DetailLevel> = None;
-    for level in levels {
-        check_resolution("mesh.detail.resolution", level.resolution)?;
-        non_negative("mesh.detail.distance", level.distance)?;
-        if previous.is_some_and(|p| level.distance <= p.distance) {
-            return Err(OptionsError::FloatOutOfRange {
-                field: "mesh.detail.distance",
-                value: level.distance,
-                requirement: "greater than the previous level's distance",
-            });
-        }
-        if !(0.0..1.0).contains(&level.hysteresis) {
-            return Err(OptionsError::FloatOutOfRange {
-                field: "mesh.detail.hysteresis",
-                value: level.hysteresis,
-                requirement: "from 0 up to but not including 1",
-            });
-        }
-        previous = Some(level);
-    }
-
-    // The shared level-of-detail rules also need the first level at 0 and
-    // fade bands that don't overlap.
-    match detail.lod().validate() {
-        Ok(()) => Ok(()),
-        Err(LodError::FirstDistance(distance)) => Err(OptionsError::FloatOutOfRange {
-            field: "mesh.detail.distance",
-            value: distance,
-            requirement: "0 for the first level",
-        }),
-        Err(LodError::BandsOverlap { level }) => Err(OptionsError::FloatOutOfRange {
-            field: "mesh.detail.hysteresis",
-            value: levels[level].hysteresis,
-            requirement: "narrow enough that the level's fade band doesn't overlap the previous level's",
-        }),
-        Err(other) => unreachable!("checked above: {other}"),
-    }
 }
 
 fn int_range(field: &'static str, value: u32, min: u32, max: u32) -> Result<(), OptionsError> {
@@ -484,6 +443,19 @@ impl StoneOptions {
             embed: 0.0,
             max_bend: Some(0.1),
         }
+    }
+
+    /// The diameter, in metres, of a sphere around any rock built from these
+    /// settings, at any detail and seed: the diagonal of its stretched
+    /// containing box. Renderers measure a rock's size on screen with it,
+    /// to choose which mesh or impostor to draw.
+    ///
+    /// It is a bound, so it is larger than most rocks: about 1.7 times the
+    /// width of an unstretched rock.
+    pub fn bounding_diameter(&self) -> f32 {
+        let largest = self.stretch.iter().copied().fold(0.0, f32::max);
+        let box_size = Vec3::from(self.stretch) / largest;
+        self.scale * box_size.length()
     }
 
     /// Returns the settings of shape `slot` in a set of related rocks built
@@ -557,28 +529,26 @@ mod tests {
     }
 
     #[test]
-    fn a_file_detail_replaces_the_whole_list() {
-        let options = read(
-            "stone:\n  mesh:\n    detail:\n      - { resolution: 64, distance: 0.0, \
-             hysteresis: 0.1, texture_size: 2k }\n",
-        )
-        .unwrap();
-        let expected = StoneDetail::new(vec![DetailLevel {
-            resolution: 64,
-            distance: 0.0,
-            hysteresis: 0.1,
-            texture_size: TextureSize::Size2k,
-        }]);
-        assert_eq!(options.mesh.detail, expected);
+    fn a_file_sets_the_game_level() {
+        let options =
+            read("stone:\n  mesh:\n    game_level: { resolution: 64, texture_size: 2k }\n")
+                .unwrap();
+        let expected = StoneDetail::new(64, TextureSize::Size2k);
+        assert_eq!(options.mesh.game_level, expected);
+    }
+
+    #[test]
+    fn the_game_level_defaults_to_medium_low() {
+        assert_eq!(MeshOptions::default().game_level, StoneDetail::MEDIUM_LOW);
     }
 
     #[test]
     fn presets_are_valid() {
-        for (name, detail) in StoneDetail::PRESETS {
+        for (name, game_level) in StoneDetail::PRESETS {
             let options = StoneOptions {
                 mesh: MeshOptions {
                     mesher: Mesher::default(),
-                    detail,
+                    game_level,
                 },
                 ..StoneOptions::default()
             };
@@ -656,50 +626,13 @@ mod tests {
             "surface.displacement_scale",
         );
         check(|o| o.surface.octaves = 0, "surface.octaves");
-        check(|o| o.mesh.detail = StoneDetail::new(vec![]), "mesh.detail");
         check(
-            |o| o.mesh.detail = StoneDetail::new(vec![level(32, 0.0); 9]),
-            "mesh.detail",
+            |o| o.mesh.game_level = detail(MIN_RESOLUTION - 1),
+            "mesh.game_level.resolution",
         );
         check(
-            |o| o.mesh.detail = StoneDetail::new(vec![level(MIN_RESOLUTION - 1, 0.0)]),
-            "mesh.detail.resolution",
-        );
-        check(
-            |o| o.mesh.detail = StoneDetail::new(vec![level(MAX_RESOLUTION + 1, 0.0)]),
-            "mesh.detail.resolution",
-        );
-        check(
-            |o| o.mesh.detail = StoneDetail::new(vec![level(32, -1.0)]),
-            "mesh.detail.distance",
-        );
-        check(
-            |o| o.mesh.detail = StoneDetail::new(vec![level(32, 10.0), level(16, 10.0)]),
-            "mesh.detail.distance",
-        );
-        check(
-            |o| {
-                let mut bad = level(32, 0.0);
-                bad.hysteresis = 1.0;
-                o.mesh.detail = StoneDetail::new(vec![bad]);
-            },
-            "mesh.detail.hysteresis",
-        );
-        // The first level is the one drawn up close, so it starts at 0.
-        check(
-            |o| o.mesh.detail = StoneDetail::new(vec![level(32, 5.0), level(16, 10.0)]),
-            "mesh.detail.distance",
-        );
-        // Fade bands 9..11 and 10.5..11.5 overlap.
-        check(
-            |o| {
-                let mut wide = level(16, 10.0);
-                wide.hysteresis = 0.1;
-                let mut next = level(8, 11.0);
-                next.hysteresis = 0.045;
-                o.mesh.detail = StoneDetail::new(vec![level(32, 0.0), wide, next]);
-            },
-            "mesh.detail.hysteresis",
+            |o| o.mesh.game_level = detail(MAX_RESOLUTION + 1),
+            "mesh.game_level.resolution",
         );
         check(|o| o.material.color[1] = -0.5, "material.color[1]");
         check(|o| o.material.roughness = 1.5, "material.roughness");
@@ -717,21 +650,17 @@ mod tests {
         options.carve.blockiness = 1.0;
         options.surface.displacement_scale = 0.0;
         options.surface.octaves = MAX_OCTAVES;
-        options.mesh.detail = StoneDetail::new(
-            (0..MAX_DETAIL_LEVELS)
-                .map(|i| level(MAX_RESOLUTION, i as f32))
-                .collect(),
-        );
+        options.mesh.game_level = detail(MAX_RESOLUTION);
         options.material.color = [0.0; 3];
         options.material.roughness = 0.0;
         options.material.metallic = 1.0;
         assert_eq!(options.validate(), Ok(()));
-        options.mesh.detail = StoneDetail::new(vec![level(MIN_RESOLUTION, 0.0)]);
+        options.mesh.game_level = detail(MIN_RESOLUTION);
         assert_eq!(options.validate(), Ok(()));
     }
 
-    /// A level at `resolution` starting at `distance`, with 512 textures.
-    fn level(resolution: u32, distance: f32) -> DetailLevel {
-        DetailLevel::new(resolution, distance, TextureSize::Size512)
+    /// A game level of `resolution` cells with 512 textures.
+    fn detail(resolution: u32) -> StoneDetail {
+        StoneDetail::new(resolution, TextureSize::Size512)
     }
 }
