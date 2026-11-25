@@ -1035,6 +1035,38 @@ go to the few copies near the camera.
     patch of stones, a ring of mushrooms, a stand of grass as one
     impostor). Follow-up: give more objects clusters of their own (trees,
     stones and others), so cluster impostors have more to work on.
+  - **The rest of the planning talk, settled 2026-11-25 (the user):**
+    - **Unit:** size on screen is a copy's height as a fraction of the
+      screen's height, so the chain is the same at any resolution. Each
+      impostor's frame size follows from where it takes over, so an
+      impostor is never shown larger than its frame. Good enough to
+      build on; follow-up: revisit the unit after the experiment.
+    - **The conversion is one churn window**, after the current wave
+      lands, with no compatibility layer: the three-step `Lod` and a
+      default chain in the engine-free core first, then stone, then
+      dead wood, mushroom, tree and fruit, then the renderers and the
+      studio. The impostor experiment runs on the new model. Stone
+      cluster specimens are a separate follow-up after it.
+    - **Physics is deferred.** Colliders reading `game_level` are not
+      built now.
+    - **The studio** shows `game_level` by default. ST7b's viewing
+      distance becomes previewing the chain: pretend a distance, force
+      the lower mesh or the impostor, and read back which is drawn and
+      why.
+    - **Impostors bake while loading**, cached on disk by the preset's
+      content hash plus the impostor settings. The studio runs a
+      low-priority background task that pre-bakes the impostors of every
+      preset. Shipping pre-baked impostors with a game is a later option.
+    - **Grass is deferred**: it keeps its own thinning and far ground
+      colour for now.
+    - **Machine:** this Mac only, since there is no low-end machine.
+      Follow-up: a performance pass on other machines later.
+    - **Impostors cast no shadows and carry normals**, so their lighting
+      matches the mesh. Shadows and tree sway are later variants. The
+      experiment goes stones first, then dead wood and mushrooms, trees
+      last, judged by a blind side-by-side on the oak and maple forest,
+      the pine floor and one walk through a Valheim-scale World, with a
+      bar of no visible difference and at least 20% less frame time.
 - **Needs:** I1 and fruit's impostors (I1b's fruit steps D1, D2) for the
   build; the planning step can start any time.
 - **Done when:** the plan is agreed with the user, the variants are
