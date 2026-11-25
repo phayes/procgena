@@ -39,7 +39,7 @@ worker or coordinator, waiting for a yes) or an **open question**.
     keep working in metres, unchanged.
   - `Quality::distance_scale` divides every threshold, so higher quality
     means smaller thresholds and detail kept further away.
-  - Impostor frame size (`procgena_impostor::frame_size_for`) is sized for
+  - Impostor frame size (`procgena_impostor::frame_size_for(chain.largest_impostor_size())`) is sized for
     the largest on-screen size any quality shows (`Quality::Low`), at a
     reference screen height, rounded up to a power of two, clamped to
     32–512, mipmapped, and part of the bake key. No rebake on a quality
@@ -165,24 +165,29 @@ pub struct DistanceChain {
 
 impl DistanceChain {
     pub const DEFAULT: Self; // 0.10, 0.04, 0.002, 0.1
-    pub fn validate(&self) -> Result<(), ChainError>;
-    /// size × view scale × quality.distance_scale(): multiply by it to turn
-    /// the chain's reference distances into metres for one copy.
-    pub fn factor(size: f32, view: ViewScale, quality: Quality) -> f32;
+    pub fn validate(&self) -> Result<(), ChainError>; // at every quality
+    /// size × view scale: the share of the screen a copy covers 1 m away.
+    pub fn factor(size: f32, view: ViewScale) -> f32;
+    /// The three thresholds at `quality`, each scaled on its own (so IX2
+    /// can leave `impostor_below` out of the scaling).
+    pub fn thresholds(&self, quality: Quality) -> [f32; 3];
     /// The fade bands of each step, in metres from the camera, for a copy
-    /// with `factor`. Index with `Step::index`.
-    pub fn ranges(&self, factor: f32) -> [LodRange; 3];
+    /// with `factor` at `quality`. Index with `Step::index`.
+    pub fn ranges(&self, factor: f32, quality: Quality) -> [LodRange; 3];
     /// Like ranges, but ending where a host's impostor begins (fruit).
-    pub fn ranges_ending_at(&self, factor: f32, end: Range<f32>) -> Vec<LodRange>;
+    pub fn ranges_ending_at(&self, factor: f32, quality: Quality, end: Range<f32>)
+        -> Vec<LodRange>;
     /// The single step to draw `distance` metres away, or None past the
-    /// cull; for shadow maps, picking and the studio's read-back.
-    pub fn step_at(&self, distance: f32, factor: f32) -> Option<Step>;
+    /// cull; for picking and the studio's read-back.
+    pub fn step_at(&self, distance: f32, factor: f32, quality: Quality) -> Option<Step>;
     /// The steps copies within `distances` and `factors` can be drawn at.
-    pub fn steps_touched(&self, distances: RangeInclusive<f32>, factors: RangeInclusive<f32>)
-        -> Option<RangeInclusive<Step>>;
+    pub fn steps_touched(&self, distances: RangeInclusive<f32>,
+        factors: RangeInclusive<f32>, quality: Quality) -> Option<RangeInclusive<Step>>;
     /// The largest share of the screen's height an impostor is ever drawn
     /// at, at `quality`, fade band included.
     pub fn impostor_max_size(&self, quality: Quality) -> f32;
+    /// The largest of those over every quality: what one bake is sized for.
+    pub fn largest_impostor_size(&self) -> f32;
 }
 
 /// How big something looks on screen: a copy `s` metres across, `d` metres
@@ -233,13 +238,18 @@ copy's size, so:
 
 ```rust
 // procgena_impostor
-/// Pixels along each side of one impostor view for impostors drawn by
-/// `chain`: enough for the largest size on screen any quality shows, on a
-/// screen REFERENCE_SCREEN_HEIGHT pixels tall, rounded up to a power of
-/// two, from 32 to 512.
-pub fn frame_size_for(chain: &DistanceChain) -> u32;
+/// Pixels along each side of one impostor view for an impostor drawn at
+/// most `max_size` of the screen's height, on a screen
+/// REFERENCE_SCREEN_HEIGHT pixels tall, rounded up to a power of two, from
+/// 32 to 512. Pass `chain.largest_impostor_size()`.
+pub fn frame_size_for(max_size: f32) -> u32;
 pub const REFERENCE_SCREEN_HEIGHT: u32 = 1440;
 ```
+
+It takes a size on screen rather than a chain or a quality, so IX2 (a
+later milestone: the impostor switch fixed for every quality, Quality
+moving only `lower_below` and `cull_below`) changes only
+`DistanceChain::thresholds` and what callers pass here.
 
 **Decided (the user, 2026-11-25): one bake per preset**, sized for the
 largest on-screen size any quality can show (`Quality::Low`, where the

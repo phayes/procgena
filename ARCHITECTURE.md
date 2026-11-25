@@ -1378,15 +1378,34 @@ Each rule says what every asset does, and which crates have to change.
    - Change: tree, deadwood and mushroom gain a GPU path; plant gains a
      production CPU path; clump's Bevy crate uses its existing GPU path.
      This is the largest item in this document.
-2. **One LOD model.**
-   - One shared type: detail levels by distance in metres, with hysteresis
-     and a cull distance, written for a reference size and scaled by each
-     copy's world size (mushroom does this today).
+2. **One LOD model** (reworked by IX, decided by the user 2026-11-25; see
+   [docs/decisions/IX-plan.md](docs/decisions/IX-plan.md)).
+   - **A preset is content; drawing is presentation.** A preset carries
+     its `game_level`: the one detail that is the object's real geometry,
+     which colliders, picking, CPU queries and impostor bakes read. Its
+     default is per kind (level 0 for trees, level 1 for the rest), and a
+     game cannot override it.
+   - **One chain for every kind** (`procgena_core::chain`): the
+     `game_level` mesh, one lower mesh derived from it by the kind's
+     default rule (`LowerDetail`), then an impostor baked from
+     `game_level`, until the copy is culled. Both meshes cast shadows;
+     impostors do not.
+   - **Steps switch by size on screen**: a copy's bounding-sphere
+     diameter as a share of the screen's height, with one
+     `DistanceChain` of thresholds for every kind, not on the preset (one
+     project default for now; Bevy hooks to change it come later). The
+     chain resolves to metre fade bands per view (`ViewScale`) and copy.
    - One transition: dither, the same in every render pass, from one shared
      shader module.
-   - Every asset names its far form (strips, billboard leaves, a card, a
-     flat cap plus ribbon, or a far ground material: `FarForm`), and
-     its last level drops shadows where it should.
+   - Ribbon far forms (strips, billboard leaves, cards, flat cap plus
+     ribbon) are dropped in favour of impostors; grass keeps its far
+     ground material (`FarForm::GroundMaterial`) for now.
+   - Status: the chain types are in `procgena_core::chain` (IX Step 1).
+     Assets still use the older metre table (`Lod`, `LodLevel`,
+     `LevelForm`, `FarForm`) until each moves across, stone first; the old
+     types are deleted when the last asset moves. The bullets below
+     describe the older model where they talk of levels, far forms and
+     metre distances.
    - **Attached assets own their levels.** Fruit and flowers are their own
      asset (decided by the user, superseding the cluster-card plan of
      2026-11-23): each cluster specimen has its own mesh levels, sized by
@@ -1408,9 +1427,12 @@ Each rule says what every asset does, and which crates have to change.
      full sphere) by default. Trees declare −45°, so they look right from
      below on a mountain slope.
    - One quality setting (`LOW`..`ULTRA`) that scales every asset's
-     distances together.
-   - Change: everyone. Tree gains size scaling; clump follows its host's
-     levels.
+     distances together: it divides the chain's size-on-screen thresholds,
+     and never changes a copy's `game_level`. Impostor views are sized for
+     the largest size on screen any quality shows, so one mipmapped bake
+     serves every quality.
+   - Change: everyone. Every kind moves to the chain (IX Steps 2–4);
+     clump follows its host's levels.
 3. **One content hash.** Every options type gets a stable content hash
    (tree's `tree_id` is the model: floats hashed by their bits, the same
    across runs and machines). Two hashes come from it, as "Specimen
