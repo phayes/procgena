@@ -9,6 +9,7 @@
 use procgena_core::{ContentHash, ContentHasher, GeneratorKind, OptionsHash, PoolId};
 
 use crate::cluster::{ClusterLayout, ClusterOptions, FairyRingOptions};
+use crate::detail::{BodyShape, MushroomDetail};
 use crate::options::{
     AnnulusOptions, BulbOptions, CapOptions, MaterialOptions, MushroomOptions, Pattern,
     StemOptions, UndersideOptions, WartOptions,
@@ -24,7 +25,7 @@ pub const GENERATOR_KIND: GeneratorKind = GeneratorKind::from_key(GENERATOR_KIND
 impl MushroomOptions {
     /// Returns the pool these options grow specimens in: mushrooms whose
     /// options differ only in [`default_seed`](Self::default_seed) or
-    /// [`detail`](Self::detail) share a pool.
+    /// [`game_level`](Self::game_level) share a pool.
     pub fn pool(&self) -> PoolId {
         PoolId::new(GENERATOR_KIND, OptionsHash::of(self))
     }
@@ -37,7 +38,7 @@ impl MushroomOptions {
 // numbers chosen here, which must never change.
 
 impl ContentHash for MushroomOptions {
-    /// Leaves out `default_seed` and `detail`.
+    /// Leaves out `default_seed` and `game_level`.
     fn content_hash(&self, h: &mut ContentHasher) {
         let Self {
             default_seed: _,
@@ -50,7 +51,7 @@ impl ContentHash for MushroomOptions {
             warts,
             material,
             cluster,
-            detail: _,
+            game_level: _,
         } = self;
         h.write(size);
         h.write(cap);
@@ -286,5 +287,37 @@ impl ContentHash for FairyRingOptions {
         h.write(radius);
         h.write(width);
         h.write(arc);
+    }
+}
+
+/// Not part of the options hash, but renderers key meshes and impostors by
+/// it.
+impl ContentHash for MushroomDetail {
+    fn content_hash(&self, h: &mut ContentHasher) {
+        let Self {
+            shape,
+            cap_sides,
+            cap_segments,
+            stem_sides,
+            stem_segments,
+            annulus,
+            paint_warts,
+        } = self;
+        h.write(shape);
+        h.write(cap_sides);
+        h.write(cap_segments);
+        h.write(stem_sides);
+        h.write(stem_segments);
+        h.write(annulus);
+        h.write(paint_warts);
+    }
+}
+
+impl ContentHash for BodyShape {
+    fn content_hash(&self, h: &mut ContentHasher) {
+        h.write_u32(match self {
+            BodyShape::Solid => 0,
+            BodyShape::Shell => 1,
+        });
     }
 }

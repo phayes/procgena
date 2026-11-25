@@ -1,9 +1,10 @@
 //! Options validation and `.mushroom.yml` preset files.
 
-use procgena_core::{FarForm, LevelForm, LodRange, Quality};
+use procgena_core::Quality;
+use procgena_core::chain::{DistanceChain, ViewScale};
 use procgena_mushroom::{
-    CapFamily, DEFAULT_LOD_SIZE, Mushroom, MushroomDetail, MushroomOptions, MushroomPreset,
-    OptionsError, PresetFileError, ScatterOptions, default_lod, validate_lod,
+    CapFamily, Mushroom, MushroomDetail, MushroomOptions, MushroomPreset, OptionsError,
+    PresetFileError, ScatterOptions,
 };
 
 /// Reads the options of a `.mushroom.yml` file.
@@ -17,7 +18,6 @@ fn defaults_and_presets_validate() {
     for preset in MushroomPreset::all() {
         preset.mushroom.validate().unwrap();
     }
-    validate_lod(&default_lod()).unwrap();
 }
 
 #[test]
@@ -186,39 +186,67 @@ fn bad_values_are_rejected() {
 }
 
 #[test]
-fn lod_scales_with_size() {
-    let lod = default_lod();
-    let small = lod.ranges(lod.factor(0.04, Quality::High));
-    let big = lod.ranges(lod.factor(0.16, Quality::High));
-    let cull = |ranges: &[LodRange]| ranges.last().unwrap().fade_out.end;
-    assert!((cull(&big) - cull(&small) * 4.0).abs() < 1e-3);
-    assert_eq!(small[0].fade_in, 0.0..0.0);
-
-    let mut bad = default_lod().with_cull(1.0);
-    assert!(matches!(validate_lod(&bad), Err(OptionsError::Lod(_))));
-    bad = default_lod();
-    bad.levels.swap(1, 2);
-    assert!(matches!(validate_lod(&bad), Err(OptionsError::Lod(_))));
-    bad = default_lod();
-    bad.levels[0].detail.cap_sides = 2;
+fn the_game_level_is_checked_with_the_options() {
+    let mut o = MushroomOptions::default();
+    o.game_level.cap_sides = 2;
     assert!(matches!(
-        validate_lod(&bad),
-        Err(OptionsError::IntOutOfRange { .. })
+        o.validate(),
+        Err(OptionsError::IntOutOfRange {
+            field: "game_level.cap_sides",
+            ..
+        })
+    ));
+    o.game_level = MushroomDetail::FULL;
+    o.game_level.stem_segments = 0;
+    assert!(matches!(
+        o.validate(),
+        Err(OptionsError::IntOutOfRange {
+            field: "game_level.stem_segments",
+            ..
+        })
     ));
 }
 
 #[test]
-fn the_farthest_default_level_is_a_card_without_shadows() {
-    let lod = default_lod();
-    let last = lod.levels.last().unwrap();
-    assert_eq!(last.detail, MushroomDetail::BILLBOARD);
-    assert_eq!(last.form, LevelForm::Far(FarForm::Card));
-    assert!(!last.casts_shadows);
-    assert!(
-        lod.levels[..lod.levels.len() - 1]
-            .iter()
-            .all(|l| { l.form == LevelForm::Mesh && l.casts_shadows })
-    );
-    assert_eq!(lod.cull_distance, Some(40.0));
-    assert_eq!(lod.reference_size, DEFAULT_LOD_SIZE);
+fn the_game_level_defaults_to_high_and_can_be_set_in_a_file() {
+    assert_eq!(MushroomOptions::default().game_level, MushroomDetail::HIGH);
+    assert_eq!(read("base: porcini\n").unwrap().game_level, MushroomDetail::HIGH);
+    let full = read(
+        "base: porcini\n\
+         mushroom:\n  \
+           game_level:\n    \
+             shape: solid\n    \
+             cap_sides: 48\n    \
+             cap_segments: 16\n    \
+             stem_sides: 24\n    \
+             stem_segments: 12\n    \
+             annulus: true\n    \
+             paint_warts: true\n",
+    )
+    .unwrap();
+    assert_eq!(full.game_level, MushroomDetail::FULL);
+}
+
+#[test]
+fn bigger_mushrooms_switch_further_away() {
+    let mushroom = |size: f32| {
+        let options = MushroomOptions {
+            size,
+            ..MushroomOptions::default()
+        };
+        Mushroom::new(options).unwrap()
+    };
+    let (small, big) = (mushroom(0.04), mushroom(0.16));
+    let ratio = big.bounding_diameter() / small.bounding_diameter();
+    assert!((ratio - 4.0).abs() < 1e-3, "{ratio}");
+
+    // The lower level of a mushroom's specimen starts where the default
+    // chain switches to it.
+    let factor = DistanceChain::factor(big.bounding_diameter(), ViewScale::DEFAULT);
+    let [_, lower, _] = DistanceChain::DEFAULT.ranges(factor, Quality::High);
+    let specimen = big.specimen();
+    assert_eq!(specimen.levels.len(), 2);
+    assert_eq!(specimen.levels[0].start, 0.0);
+    let middle = (lower.fade_in.start + lower.fade_in.end) / 2.0;
+    assert!((specimen.levels[1].start - middle).abs() < 1e-4);
 }

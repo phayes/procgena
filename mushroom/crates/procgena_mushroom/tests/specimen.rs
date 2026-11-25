@@ -2,29 +2,36 @@
 
 use glam::Vec3;
 use procgena_core::Quality;
+use procgena_core::chain::{DistanceChain, ViewScale};
 use procgena_core::scatter::Placement;
 use procgena_mushroom::{
     ClusterLayout, ClusterOptions, Mushroom, MushroomInstance, MushroomOptions, MushroomPreset,
-    MushroomScatter, ScatterError, ScatterOptions, default_lod,
+    MushroomScatter, ScatterError, ScatterOptions,
 };
 use procgena_specimen::{Part, Specimen, SurfaceMesh, TagFilter, tags};
 
 #[test]
-fn specimen_has_one_level_per_lod_level_with_tags() {
+fn specimen_has_the_game_level_and_the_lower_mesh_with_tags() {
     let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
-    let lod = default_lod();
-    let factor = lod.factor(mushroom.options().size, Quality::High);
-    let specimen = mushroom.specimen(&lod).unwrap();
+    let specimen = mushroom.specimen();
     specimen.validate().unwrap();
-    assert_eq!(specimen.levels.len(), lod.levels.len());
-    for (level, lod_level) in specimen.levels.iter().zip(&lod.levels) {
-        assert_eq!(level.start, lod_level.distance * factor);
+    assert_eq!(specimen.levels.len(), 2);
+    let factor = DistanceChain::factor(mushroom.bounding_diameter(), ViewScale::DEFAULT);
+    let [lower_start, _, _] = DistanceChain::DEFAULT
+        .thresholds(Quality::High)
+        .map(|threshold| factor / threshold);
+    assert_eq!(specimen.levels[0].start, 0.0);
+    assert_eq!(specimen.levels[1].start, lower_start);
+    for level in &specimen.levels {
         for part in &level.parts {
             assert!(part.tags.contains(&tags::MUSHROOM));
         }
     }
+    // The lower mesh leaves out the annulus.
+    let lower = &specimen.levels[1];
+    assert!(!lower.parts.iter().any(|p| p.tags.contains(&tags::ANNULUS)));
 
-    // The full level has every kind; caps can be picked by tag.
+    // The game level has every kind; caps can be picked by tag.
     let full = &specimen.levels[0];
     for tag in [tags::CAP, tags::STEM, tags::ANNULUS] {
         assert!(full.parts.iter().any(|p| p.tags.contains(&tag)), "{tag}");
@@ -75,7 +82,7 @@ fn one_stem_is_exactly_the_mushroom_its_options_describe() {
     assert_eq!(
         mushroom.mesh(),
         mushroom.bodies()[0]
-            .mesh_with_detail(&options.detail)
+            .mesh_with_detail(&options.game_level)
             .unwrap()
     );
 }
@@ -98,14 +105,14 @@ fn clusters_spread_their_members() {
         assert!(min_base_gap(members) > 0.0, "{layout:?}");
 
         // The combined specimen keeps one closed cap piece per member.
-        let specimen = mushroom.specimen(&default_lod()).unwrap();
+        let specimen = mushroom.specimen();
         specimen.validate().unwrap();
         let caps = specimen.merged(0, &TagFilter::any_of([tags::CAP])).unwrap();
         assert!(caps.closed);
         assert_eq!(caps.shells.len(), members.len());
 
         // The combined mesh holds every member's cap.
-        let one = mushroom.bodies()[0].mesh_with_detail(&MushroomOptions::default().detail);
+        let one = mushroom.bodies()[0].mesh_with_detail(&MushroomOptions::default().game_level);
         let single_caps = one
             .unwrap()
             .part(procgena_mushroom::PartKind::Cap)
@@ -253,8 +260,9 @@ fn scatter_places_mushrooms_on_the_ground() {
         );
         assert!((m.rotation * Vec3::Y).y > 0.5);
     }
-    let specimen = scatter.specimen(&default_lod()).unwrap();
+    let specimen = scatter.specimen();
     specimen.validate().unwrap();
+    assert_eq!(specimen.levels.len(), 2);
 }
 
 #[test]

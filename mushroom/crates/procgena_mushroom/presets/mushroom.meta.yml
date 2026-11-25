@@ -413,7 +413,7 @@ settings:
     description: "How much of the circle carries mushrooms, from a short arc to the whole ring."
     range: [0.05, 1]
     step: 0.01
-  detail:
+  game_level:
     label: Detail
-    description: "The mesh detail used when the mushroom is built on its own."
+    description: "How finely the mushroom is built: its real shape, used up close and for its far-away picture."
     hidden: true

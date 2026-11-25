@@ -1,5 +1,5 @@
-//! Renders mushrooms at every detail level on a real GPU and checks that every
-//! shader pipeline compiles.
+//! Renders mushrooms at every step of the drawing chain on a real GPU, bakes
+//! their impostors, and checks that every shader pipeline compiles.
 //!
 //! Needs a GPU, so it is ignored by default. Run it with:
 //!
@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use bevy::math::DVec2;
 use procgena_core::FlatGround;
+use procgena_core::chain::Step;
 use procgena_core::scatter::ScatterArea;
 use procgena_core_bevy::instanced::InstancedScatter;
 use procgena_mushroom::{MushroomOptions, MushroomPreset, ScatterOptions};
@@ -62,8 +63,9 @@ fn headless_app() -> App {
 }
 
 /// Spawns a camera drawing into an image, a shadow-casting light, and
-/// mushrooms near enough and far enough for every default detail level.
-fn spawn_scene(app: &mut App) {
+/// mushrooms near enough and far enough for every step of the drawing chain.
+/// Returns how many single mushrooms it spawned.
+fn spawn_scene(app: &mut App) -> usize {
     let image = Image::new_target_texture(320, 240, TextureFormat::Rgba8UnormSrgb, None);
     let image = app.world_mut().resource_mut::<Assets<Image>>().add(image);
     app.world_mut().spawn((
@@ -79,20 +81,22 @@ fn spawn_scene(app: &mut App) {
         Transform::from_xyz(1.0, 3.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    // An 8 cm mushroom switches at 1.5 m, 4 m, 10 m and 18 m: one per
-    // level. The fly agaric adds an annulus and warts; the porcini a cap
-    // pattern and no gills.
+    // 8 cm mushrooms from near to far, so every step is on screen. The fly
+    // agaric adds an annulus and warts; the porcini a cap pattern and no
+    // gills.
     let near = |preset: &MushroomPreset| MushroomOptions {
         size: 0.08,
         ..preset.mushroom.clone()
     };
-    for (z, options) in [
+    let singles = [
         (0.0, near(MushroomPreset::fly_agaric())),
         (-2.5, near(MushroomPreset::porcini())),
         (-6.0, near(MushroomPreset::fly_agaric())),
         (-15.0, near(MushroomPreset::porcini())),
         (-25.0, near(MushroomPreset::fly_agaric())),
-    ] {
+    ];
+    let count = singles.len();
+    for (z, options) in singles {
         app.world_mut().spawn((
             procgena_mushroom_bevy::MushroomParams::new(options.clone()),
             Transform::from_xyz(0.0, 0.0, z),
@@ -114,11 +118,13 @@ fn spawn_scene(app: &mut App) {
             Transform::from_xyz(0.4, 0.0, z),
         ));
     }
+    count
 }
 
-/// Runs frames until every mushroom is built and no pipeline has compiled for
-/// a while.
-fn run_until_settled(app: &mut App) {
+/// Runs frames until every mushroom is built, the `singles` single
+/// mushrooms and every scattered body draw their impostors, and no pipeline
+/// has compiled for a while.
+fn run_until_settled(app: &mut App, singles: usize) {
     let deadline = Instant::now() + LIMIT;
     let mut settled = 0;
     while settled < SETTLED_FRAMES {
@@ -133,10 +139,20 @@ fn run_until_settled(app: &mut App) {
             .iter(world)
             .next()
             .is_some();
-        let parts = world.query::<&MushroomPart>().iter(world).count();
+        let impostors = world
+            .query::<&MushroomPart>()
+            .iter(world)
+            .filter(|part| part.step == Step::Impostor)
+            .count();
+        let baking = impostors < singles
+            || world
+                .query::<&InstancedScatter>()
+                .iter(world)
+                .flat_map(|scatter| scatter.slots.iter())
+                .any(|slot| slot.lod.levels.len() < Step::ALL.len());
         let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
         let compiling = cache.waiting_pipelines().next().is_some();
-        settled = if building || parts == 0 || compiling {
+        settled = if building || baking || compiling {
             0
         } else {
             settled + 1
@@ -146,26 +162,21 @@ fn run_until_settled(app: &mut App) {
 
 #[test]
 #[ignore = "needs a GPU"]
-fn every_detail_level_compiles_its_shaders() {
+fn every_step_compiles_its_shaders_and_bakes() {
     let mut app = headless_app();
-    spawn_scene(&mut app);
-    run_until_settled(&mut app);
+    let singles = spawn_scene(&mut app);
+    run_until_settled(&mut app, singles);
 
-    // Every level, including the camera-facing shapes, was spawned.
+    // Every step was spawned for every single mushroom.
     let world = app.world_mut();
     let parts: Vec<MushroomPart> = world
         .query::<&MushroomPart>()
         .iter(world)
         .copied()
         .collect();
-    for lod in 0..5 {
-        assert!(parts.iter().any(|p| p.lod == lod), "no part at level {lod}");
-    }
-    for lod in [3, 4] {
-        assert!(
-            parts.iter().any(|p| p.billboard && p.lod == lod),
-            "no camera-facing shapes at level {lod}"
-        );
+    for step in Step::ALL {
+        let count = parts.iter().filter(|p| p.step == step).count();
+        assert_eq!(count, singles, "parts at {step:?}");
     }
 
     // Every scatter draws through the shared instanced renderer.

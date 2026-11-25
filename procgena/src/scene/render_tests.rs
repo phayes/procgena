@@ -599,15 +599,16 @@ fn missing_textures_are_downloaded_and_drawn() {
     assert!(saved > 0, "no rock textures were saved to the cache");
 }
 
-/// Checks that `scene`, started showing the fly agaric, builds every detail
-/// level and draws its cap texture, then shows it without the texture.
+/// Checks that `scene`, started showing the fly agaric, builds its
+/// game-level and lower meshes and draws its cap texture, then shows it
+/// without the texture.
 fn assert_fly_agaric_is_textured(scene: &mut HeadlessScene) {
-    use procgena_mushroom::{MushroomPreset, default_lod};
+    use procgena_mushroom::MushroomPreset;
 
     let ViewerEvent::MushroomBuilt(Ok(stats)) = mushroom_event(scene) else {
         panic!("the fly agaric was rejected");
     };
-    assert_eq!(stats.levels.len(), default_lod().levels.len());
+    assert_eq!(stats.levels.len(), 2, "the game-level and lower meshes");
     assert!(
         stats.levels.iter().all(|level| level.triangles > 0),
         "{stats:?}"
@@ -661,8 +662,9 @@ fn mushroom_levels_shown(scene: &mut HeadlessScene) -> Vec<Option<usize>> {
         .collect()
 }
 
-/// Checks that each chosen mushroom detail level is drawn and reported,
-/// and that the flat level looks different from full detail.
+/// Checks that each chosen step of the mushroom's drawing chain is drawn
+/// and reported, and that the impostor looks different from the game-level
+/// mesh.
 #[test]
 #[ignore = "needs a GPU"]
 fn every_chosen_mushroom_level_is_drawn_and_reported() {
@@ -673,7 +675,7 @@ fn every_chosen_mushroom_level_is_drawn_and_reported() {
     ));
     let full = scene.settled_frame();
 
-    let levels = procgena_mushroom::default_lod().levels.len();
+    let levels = procgena_core::chain::Step::ALL.len();
     let mut frames = Vec::new();
     for lod in 0..levels {
         scene.send(ViewerCommand::SetDetail(Detail::Level(lod)));
@@ -688,11 +690,11 @@ fn every_chosen_mushroom_level_is_drawn_and_reported() {
         assert_eq!(shown.last(), Some(&Some(lod)), "{shown:?}");
         frames.push(frame);
     }
-    let flat = changed_share(&full, &frames[levels - 1]);
+    let impostor = changed_share(&full, &frames[levels - 1]);
     assert!(
-        flat > 0.002,
-        "the flat level changed only {:.2}% of the view",
-        flat * 100.0
+        impostor > 0.002,
+        "the impostor changed only {:.2}% of the view",
+        impostor * 100.0
     );
 
     // Switching by distance again shows full detail, as the starting view
