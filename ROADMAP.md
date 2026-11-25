@@ -987,8 +987,9 @@ go to the few copies near the camera.
     preset says which built level it draws nearest the camera (level 1
     by default; level 0 opt-in). The distance chain, from the near level
     out to the impostor, is a separate setting that the quality level
-    scales. Whether a game can override a preset's near level is still
-    open.
+    scales. A game cannot override a preset's near level (the user,
+    2026-11-25); a game that wants a different look uses different
+    presets.
   - **Levels switch by size on screen, not by metres.** Thresholds are
     in on-screen size, so copy size, field of view and resolution are
     handled together; the quality level moves the thresholds. This
