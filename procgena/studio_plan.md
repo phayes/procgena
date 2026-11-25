@@ -1016,6 +1016,43 @@ own folders.
   written as `base` plus differences, undoes and redoes, and reopens
   the project to the same result.
 
+#### ST2 as built (2026-11-25)
+
+- **Core:** `procgena_core::preset::Registry` (project layer, user bases,
+  namespaced keys, `References` for the tree Scatter and Ecotope,
+  `used_by`, `file_text`, `builtin_root`, `base_for`). No change to
+  `Preset`, `read` or `catalogue!`'s `&'static` presets.
+- **Project** (`studio/project/`): `procgena.yml` (format, `id` as the
+  namespace, name, and the bundle manifest's optional fields), the
+  default project in Documents, save new, update, free keys, reload on
+  outside edits. `Presets` is the registry resource the studio reads.
+- **Documents** (`studio/documents/`): the document holds its settings
+  (`DocumentSettings`) with undo and redo as steps of `meta::Edit`, a
+  drag being one step; unsaved state in the Inspector title; Cmd+Q asks
+  while anything is unsaved. Each kind gives `Kind::settings` (read and
+  load the editor's settings, and resolve a preset to them); kinds with
+  a `Settings` panel use one generic hook. Plant and plant Scatter have
+  none yet: their presets aren't in the registry.
+- **Saving:** Save (project presets), Save as new (key dialog proposing a
+  free key), Reset to base, from commands, Inspector header buttons and
+  Cmd+S, Cmd+Shift+S, Cmd+Z, Cmd+Shift+Z. Files are written whole as
+  `base` plus differences. Parts of the settings unchanged since opening
+  or the last save keep their file text, references included (list items
+  matched by `key`); nothing is matched against presets.
+- **Pickers:** the Library, the Ecotope's stone, dead wood and mushroom
+  pickers and tree Scatter species pickers (on their own and inside an
+  Ecotope) list project presets, marked, before the built-in ones.
+  Picking one records its reference (`PresetPicked`), written on save
+  while the setting keeps that preset's settings.
+- **Headless:** saving a built-in tree as new, updating and reopening it;
+  every plain kind saving an unedited built-in as its base alone; a
+  saved stone and a saved tree picked in the oak and maple forest,
+  saved and still resolved after reopening; project Scatters and
+  Ecotopes keeping their references when edited and saved.
+- **Not done:** the per-setting "differs from base" mark and reset in the
+  Inspector, the rename dialog for an existing preset, autosave,
+  reloading open documents after outside edits, and the Problems panel.
+
 ### ST3: Library, Outline and selection
 
 - **Covers:** the Library (grid and list, search, filters, recent and
