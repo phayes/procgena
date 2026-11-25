@@ -8,7 +8,7 @@
 
 use std::fmt::Write;
 
-use super::{level_name, static_buffers};
+use super::level_name;
 use crate::colour::linear_from_hex;
 use crate::mesh::MushroomMesh;
 use crate::options::MushroomOptions;
@@ -41,7 +41,7 @@ pub fn to_obj(
     // OBJ numbers vertices from 1, counting across all objects in the file.
     let mut base = 1u32;
     for (lod, mesh) in meshes.iter().enumerate() {
-        let b = static_buffers(mesh);
+        let b = &mesh.surfaces;
         let _ = writeln!(obj, "o {}", level_name(lod, meshes.len()));
         for (p, c) in b.positions.iter().zip(&b.colors) {
             let _ = writeln!(
@@ -56,7 +56,7 @@ pub fn to_obj(
         for n in &b.normals {
             let _ = writeln!(obj, "vn {} {} {}", n[0], n[1], n[2]);
         }
-        let material = if mesh.double_sided || mesh.billboard.is_some() {
+        let material = if mesh.double_sided {
             "mushroom_open"
         } else {
             "mushroom"

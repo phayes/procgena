@@ -406,6 +406,26 @@ reported to the coordinator ready to merge.
    ribbon far forms and moving to the chain. The last one deletes the old
    core types and the ribbon `FarForm` variants (`GroundMaterial` stays,
    possibly moving to plant).
+   - **As built (mushroom):** `MushroomOptions::game_level`
+     (`MushroomDetail`, default `HIGH`, hidden in the editor) replaces
+     `detail`; `BodyShape` keeps `Solid` and `Shell`, and `FLAT`,
+     `BILLBOARD`, `MushroomLod`, `default_lod`, the billboard mesh and its
+     shader are gone. `MushroomDetail::lod` derives the lower mesh as
+     planned. Size on screen is `Mushroom::bounding_diameter` (and
+     `MushroomBody::bounding_diameter` per scattered body), the diagonal
+     of the core crate's bounds, as stone measures. A single mushroom or
+     cluster is one specimen: it switches as a whole and gets one
+     impostor, baked from every member's game-level mesh (one bake part
+     per body, members placed as in the cluster). A scatter bakes one
+     impostor per body and draws through the shared renderer with
+     `procgena_core_bevy::instanced::chain_lod` (shared with dead wood),
+     each copy's `size` its body's bounding diameter times its scale.
+     `MushroomPlugin::impostor` (default `default_mushroom_impostor()`,
+     the same 8 × 8, 256-pixel bake as stone) turns impostors off with
+     `None`, drawing the lower mesh to the cull. A ground scatter's draw
+     range is its largest body's cull distance at High. Clusters inside a
+     scatter still bake per body: cluster specimens in scatters wait for
+     the "cluster impostors" variant of the experiment.
 
    **As built (Step 3, dead wood):**
    - `DeadwoodOptions::game_level: DeadwoodDetail` replaces `detail`

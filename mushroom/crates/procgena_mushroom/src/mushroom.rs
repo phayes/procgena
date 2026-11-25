@@ -3,10 +3,11 @@
 
 use glam::{Affine3A, Vec3};
 use procgena_core::PoolId;
+use procgena_core::chain::{Lod, Step};
 
 use crate::cluster::{ClusterOptions, MushroomInstance, arrange, make_bodies};
 use crate::colour::Palette;
-use crate::detail::{MushroomDetail, MushroomLod, MushroomLodLevel, validate_lod};
+use crate::detail::MushroomDetail;
 use crate::mesh::{MushroomMesh, build, combine};
 use crate::options::{MushroomOptions, OptionsError};
 use crate::presets::MushroomPreset;
@@ -35,7 +36,7 @@ use crate::shape::Shape;
 ///
 /// let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
 /// let close = mushroom.mesh();
-/// let far = mushroom.mesh_with_detail(&MushroomDetail::FLAT).unwrap();
+/// let far = mushroom.mesh_with_detail(&MushroomDetail::LOW).unwrap();
 /// assert!(far.triangle_count() < close.triangle_count());
 /// ```
 #[derive(Debug, Clone)]
@@ -139,14 +140,14 @@ impl Mushroom {
         &self.members
     }
 
-    /// Builds the mesh of every member at the detail in the options
-    /// ([`MushroomOptions::detail`]).
+    /// Builds the mesh of every member at the game level
+    /// ([`MushroomOptions::game_level`]): the mushroom's real shape.
     pub fn mesh(&self) -> MushroomMesh {
-        self.combined(&self.options.detail)
+        self.combined(&self.options.game_level)
     }
 
     /// Builds the mesh of every member at `detail`, such as
-    /// [`MushroomDetail::FLAT`] for a cheaper version.
+    /// [`MushroomDetail::LOW`] for a cheaper version.
     ///
     /// # Errors
     ///
@@ -156,26 +157,26 @@ impl Mushroom {
         Ok(self.combined(detail))
     }
 
-    /// Builds one mesh of every member for each level of `lod`, nearest
-    /// level first, paired with the level it belongs to.
-    ///
-    /// The levels are returned as written in `lod`, for its reference size;
-    /// use [`Lod::factor`](procgena_core::Lod::factor) with this mushroom's
-    /// size to scale their distances.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `lod` is invalid; see [`validate_lod`].
-    pub fn lod_meshes(
-        &self,
-        lod: &MushroomLod,
-    ) -> Result<Vec<(MushroomLodLevel, MushroomMesh)>, OptionsError> {
-        validate_lod(lod)?;
-        Ok(lod
-            .levels
-            .iter()
-            .map(|level| (*level, self.combined(&level.detail)))
-            .collect())
+    /// The game-level detail and the lower detail derived from it.
+    pub fn lod(&self) -> Lod<MushroomDetail> {
+        self.options.game_level.lod()
+    }
+
+    /// Builds the mesh of every member at the game level and at the lower
+    /// detail, game level first, each with the step that draws it.
+    pub fn lod_meshes(&self) -> [(Step, MushroomMesh); 2] {
+        self.lod()
+            .meshes()
+            .map(|(step, detail)| (step, self.combined(detail)))
+    }
+
+    /// The diameter in metres of a sphere around every member: the
+    /// diagonal of [`bounds`](Self::bounds). Renderers measure the
+    /// mushroom's size on screen with it, to choose which mesh or impostor
+    /// to draw.
+    pub fn bounding_diameter(&self) -> f32 {
+        let (min, max) = self.bounds();
+        min.distance(max)
     }
 
     /// Returns the smallest and largest corners of a box that roughly holds
@@ -255,7 +256,7 @@ impl MushroomBody {
         &self.options
     }
 
-    /// Builds the mesh at `detail`, such as [`MushroomDetail::FLAT`].
+    /// Builds the mesh at `detail`, such as [`MushroomDetail::LOW`].
     ///
     /// # Errors
     ///
@@ -265,22 +266,33 @@ impl MushroomBody {
         Ok(self.build(detail))
     }
 
-    /// Builds one mesh for each level of `lod`, nearest level first, paired
-    /// with the level it belongs to, as written in `lod`.
+    /// Builds the mesh at each of `lod`'s two details, game level first,
+    /// each with the step that draws it. Pass the body's own
+    /// [`lod`](MushroomDetail::lod), or one with changes of your own, such
+    /// as [`paint_warts`](MushroomDetail::paint_warts) turned off.
     ///
     /// # Errors
     ///
-    /// Returns an error if `lod` is invalid; see [`validate_lod`].
+    /// Returns an error if a count in either detail is out of range.
     pub fn lod_meshes(
         &self,
-        lod: &MushroomLod,
-    ) -> Result<Vec<(MushroomLodLevel, MushroomMesh)>, OptionsError> {
-        validate_lod(lod)?;
-        Ok(lod
-            .levels
-            .iter()
-            .map(|level| (*level, self.build(&level.detail)))
-            .collect())
+        lod: &Lod<MushroomDetail>,
+    ) -> Result<[(Step, MushroomMesh); 2], OptionsError> {
+        lod.game.validate()?;
+        lod.lower.validate()?;
+        Ok(lod.meshes().map(|(step, detail)| (step, self.build(detail))))
+    }
+
+    /// The diameter in metres of a sphere around the body: the diagonal of
+    /// a box from the bottom of its stem to the top of its cap, widened by
+    /// its cap radius, as for [`Mushroom::bounds`]. Renderers measure a
+    /// copy's size on screen with it, times the copy's scale.
+    pub fn bounding_diameter(&self) -> f32 {
+        let reach = Vec3::splat(self.cap_radius());
+        let points = [self.bottom(), self.cap_centre(), self.apex()];
+        let min = points.iter().fold(Vec3::MAX, |m, p| m.min(*p)) - reach;
+        let max = points.iter().fold(Vec3::MIN, |m, p| m.max(*p)) + reach;
+        min.distance(max)
     }
 
     /// Returns the cap radius in metres.
@@ -319,7 +331,7 @@ impl MushroomBody {
     }
 
     /// Builds the mesh at `detail`, which must already be validated.
-    fn build(&self, detail: &MushroomDetail) -> MushroomMesh {
+    pub(crate) fn build(&self, detail: &MushroomDetail) -> MushroomMesh {
         build(&self.shape, detail, &Palette::new(&self.options.material))
     }
 }

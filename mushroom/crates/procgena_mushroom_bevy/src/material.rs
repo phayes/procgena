@@ -1,6 +1,6 @@
 //! The mushroom material: Bevy's standard lighting plus vertex colours,
-//! gill lines, warts, cap patterns, and flat shapes that turn toward the
-//! camera.
+//! gill lines, warts and cap patterns, and the bake copies impostors are
+//! baked with.
 
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::MeshVertexBufferLayoutRef;
@@ -15,12 +15,11 @@ use bevy::render::render_resource::{
 };
 use bevy::shader::ShaderRef;
 use procgena_core_bevy::instanced::instanced_vertex;
+use procgena_impostor::BakeOutput;
 use procgena_mushroom::{
     MushroomOptions, Pattern, TextureCompression, TextureMap, TexturePart, TextureSize,
     linear_from_hex, stem_texture_average, texture_path,
 };
-
-use crate::mesh::{ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_PIVOT};
 
 /// Vertex shader for the main (visible) pass.
 pub(crate) const VERTEX_SHADER: &str =
@@ -32,21 +31,12 @@ pub(crate) const PREPASS_SHADER: &str =
 pub(crate) const FRAGMENT_SHADER: &str =
     "embedded://procgena_mushroom_bevy/shaders/mushroom_fragment.wesl";
 
-/// Shader input slot for [`ATTRIBUTE_BILLBOARD_PIVOT`], after the slots
-/// Bevy uses for its own vertex attributes.
-const BILLBOARD_PIVOT_LOCATION: u32 = 9;
-/// Shader input slot for [`ATTRIBUTE_BILLBOARD_AXIS`].
-const BILLBOARD_AXIS_LOCATION: u32 = 10;
-
 /// Bevy's [`StandardMaterial`] with mushroom surface details added.
 ///
-/// Use it with meshes from [`mushroom_mesh`](crate::mushroom_mesh) or
-/// [`billboard_mesh`](crate::billboard_mesh). Vertex colours multiply the
-/// base colour, gill lines darken the underside, and warts and a pattern
-/// are drawn on the cap. Meshes with both billboard attributes are turned
-/// toward whatever is looking at them: the camera, or a light when its
-/// shadows are drawn. Create one with [`mushroom_material`] or
-/// [`billboard_material`].
+/// Use it with meshes from [`mushroom_mesh`](crate::mushroom_mesh). Vertex
+/// colours multiply the base colour, gill lines darken the underside, and
+/// warts and a pattern are drawn on the cap. Create one with
+/// [`mushroom_material`].
 pub type MushroomMaterial = ExtendedMaterial<StandardMaterial, MushroomExtension>;
 
 /// The part of a [`MushroomMaterial`] that adds mushroom details to the
@@ -88,6 +78,20 @@ pub struct MushroomExtension {
     /// as linear data.
     #[texture(110)]
     pub stem_orh: Option<Handle<Image>>,
+    /// What a bake copy of the material draws instead of lit colour; see
+    /// [`bake_copy`]. Ordinary materials draw lit colour.
+    #[reflect(ignore)]
+    pub(crate) bake: BakeOutput,
+}
+
+/// A copy of `material` for an impostor bake, drawing `output` (the
+/// finished base colour, or the surface direction, with every texture,
+/// pattern, gill line and wart) instead of lit colour. See
+/// [`procgena_impostor`] for how bakes use it.
+pub fn bake_copy(material: &MushroomMaterial, output: BakeOutput) -> MushroomMaterial {
+    let mut copy = material.clone();
+    copy.extension.bake = output;
+    copy
 }
 
 /// Pattern, gill and wart settings, laid out as the shaders expect.
@@ -123,10 +127,6 @@ pub struct MushroomSurface {
     /// Length of stem covered by one repeat of the stem images, in mesh
     /// units. Must be positive when `stem_textured` is 1.
     pub stem_texture_size: f32,
-    /// Typical width of a flat stem, in mesh units, so the stem images keep
-    /// roughly their proportions across it. Must be positive when
-    /// `stem_textured` is 1.
-    pub stem_ribbon_width: f32,
     /// Wart colour in linear RGB, with 1 in alpha to draw warts on the
     /// cap's top, or 0 for none.
     pub wart_colour: Vec4,
@@ -157,13 +157,18 @@ pub struct MushroomKey {
     /// Whether the pipeline draws scattered mushrooms through the shared
     /// instanced renderer.
     pub(crate) instanced: bool,
+    /// What a bake copy draws instead of lit colour.
+    pub(crate) bake: BakeOutput,
 }
 
 impl From<&MushroomExtension> for MushroomKey {
-    fn from(_: &MushroomExtension) -> Self {
+    fn from(extension: &MushroomExtension) -> Self {
         // Materials are drawn as single mushrooms; the instanced renderer
         // asks for its pipelines with `instanced` set.
-        Self { instanced: false }
+        Self {
+            instanced: false,
+            bake: extension.bake,
+        }
     }
 }
 
@@ -194,28 +199,27 @@ impl MaterialExtension for MushroomExtension {
     fn specialize(
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
-        layout: &MeshVertexBufferLayoutRef,
+        _layout: &MeshVertexBufferLayoutRef,
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         if key.bind_group_data.instanced {
             instanced_vertex(descriptor);
         }
 
-        // For meshes with billboard data, pass it to the shaders and turn on
-        // the code that turns them toward the viewer.
-        let layout = &layout.0;
-        if layout.contains(ATTRIBUTE_BILLBOARD_PIVOT) && layout.contains(ATTRIBUTE_BILLBOARD_AXIS) {
-            let billboard = layout.get_layout(&[
-                ATTRIBUTE_BILLBOARD_PIVOT.at_shader_location(BILLBOARD_PIVOT_LOCATION),
-                ATTRIBUTE_BILLBOARD_AXIS.at_shader_location(BILLBOARD_AXIS_LOCATION),
-            ])?;
-            descriptor.vertex.buffers[0]
-                .attributes
-                .extend(billboard.attributes);
-            descriptor.vertex.shader_defs.push("BILLBOARD".into());
-            if let Some(fragment) = descriptor.fragment.as_mut() {
-                fragment.shader_defs.push("BILLBOARD".into());
-            }
+        // Bake copies keep every surface detail, and write the finished base
+        // colour or surface direction in the forward pass instead of lit
+        // colour.
+        let prepass = descriptor
+            .vertex
+            .shader_defs
+            .contains(&"PREPASS_PIPELINE".into());
+        let define = match key.bind_group_data.bake {
+            BakeOutput::None => None,
+            BakeOutput::Albedo => Some("BAKE_ALBEDO"),
+            BakeOutput::Normal => Some("BAKE_NORMAL"),
+        };
+        if let (Some(define), false, Some(fragment)) = (define, prepass, &mut descriptor.fragment) {
+            fragment.shader_defs.push(define.into());
         }
         Ok(())
     }
@@ -276,14 +280,11 @@ impl TextureSet {
 /// Creates a material for the meshes of a mushroom made from `options`.
 ///
 /// Set `double_sided` to draw both sides of every triangle. Use it for
-/// levels with open surfaces (see
-/// [`MushroomMesh::double_sided`](procgena_mushroom::MushroomMesh::double_sided))
-/// and for flat stems.
+/// meshes with open surfaces (see
+/// [`MushroomMesh::double_sided`](procgena_mushroom::MushroomMesh::double_sided)).
 ///
 /// The material draws the mushroom's warts, gill lines and pattern, so mesh
-/// it with [`MushroomDetail::paint_warts`] off, or the warts show twice. For
-/// the two-triangle [`BodyShape::Billboard`] level, use
-/// [`billboard_material`] instead.
+/// it with [`MushroomDetail::paint_warts`] off, or the warts show twice.
 ///
 /// `cap` paints the top of the cap with a texture set, usually the one
 /// named by [`MaterialOptions::cap_texture`]; its colours replace the cap's
@@ -299,7 +300,6 @@ impl TextureSet {
 /// set's average colour.
 ///
 /// [`MushroomDetail::paint_warts`]: procgena_mushroom::MushroomDetail::paint_warts
-/// [`BodyShape::Billboard`]: procgena_mushroom::BodyShape::Billboard
 /// [`MaterialOptions::cap_texture`]: procgena_mushroom::MaterialOptions::cap_texture
 /// [`MaterialOptions::cap_texture_size`]: procgena_mushroom::MaterialOptions::cap_texture_size
 /// [`MaterialOptions::stem_texture`]: procgena_mushroom::MaterialOptions::stem_texture
@@ -356,8 +356,6 @@ pub fn mushroom_material(
             stem_texture_average: Vec3::from(stem_average.unwrap_or([1.0; 3])),
             stem_textured: u32::from(stem.is_some()),
             stem_texture_size: m.stem_texture_size,
-            // Mean of the top and base diameters, in metres.
-            stem_ribbon_width: options.stem.radius * options.size * (1.0 + options.stem.base),
             wart_colour: Vec4::new(wr, wg, wb, if w.count > 0 { 1.0 } else { 0.0 }),
             wart_spacing,
             wart_radius,
@@ -372,27 +370,7 @@ pub fn mushroom_material(
         stem_color: stem.map(|s| s.color.clone()),
         stem_normal: stem.map(|s| s.normal.clone()),
         stem_orh: stem.map(|s| s.orh.clone()),
+        bake: BakeOutput::None,
     };
     MushroomMaterial { base, extension }
-}
-
-/// Creates a two-sided material that draws a mushroom made from `options`
-/// with its vertex colours only: no textures, pattern, gill lines or warts.
-///
-/// Use it for the [`BodyShape::Billboard`] level, the cheapest of all.
-///
-/// [`BodyShape::Billboard`]: procgena_mushroom::BodyShape::Billboard
-pub fn billboard_material(options: &MushroomOptions) -> MushroomMaterial {
-    MushroomMaterial {
-        base: StandardMaterial {
-            base_color: Color::WHITE,
-            perceptual_roughness: options.material.roughness,
-            metallic: 0.0,
-            reflectance: 0.35,
-            double_sided: true,
-            cull_mode: None,
-            ..default()
-        },
-        extension: MushroomExtension::default(),
-    }
 }

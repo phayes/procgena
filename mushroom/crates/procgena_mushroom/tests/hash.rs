@@ -54,11 +54,11 @@ fn every_preset_has_its_own_pool() {
 }
 
 #[test]
-fn seed_and_detail_are_left_out() {
+fn seed_and_game_level_are_left_out() {
     let base = MushroomOptions::default();
     let mut other = base.clone();
     other.default_seed = 99;
-    other.detail = MushroomDetail::FLAT;
+    other.game_level = MushroomDetail::LOW;
     assert_eq!(base.pool(), other.pool());
 }
 

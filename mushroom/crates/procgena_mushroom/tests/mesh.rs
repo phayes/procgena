@@ -1,12 +1,12 @@
 //! Mesh checks across presets and detail levels.
 
 use glam::Vec3;
+use procgena_core::chain::Step;
 use procgena_mushroom::{
-    BillboardMesh, BodyShape, MeshBuffers, Mushroom, MushroomDetail, MushroomOptions,
-    MushroomPreset, PartKind, Zone, default_lod,
+    MeshBuffers, Mushroom, MushroomDetail, MushroomOptions, MushroomPreset, PartKind,
 };
 
-/// Every named detail level.
+/// Every named detail.
 fn details() -> impl Iterator<Item = MushroomDetail> {
     MushroomDetail::PRESETS.into_iter().map(|(_, d)| d)
 }
@@ -42,20 +42,6 @@ fn check_buffers(b: &MeshBuffers, name: &str) {
     }
 }
 
-/// Returns `billboard`'s resting shapes turned as a renderer would for a
-/// viewer in direction `view`.
-fn turned(billboard: &BillboardMesh, view: Vec3) -> Vec<Vec3> {
-    billboard
-        .billboards
-        .iter()
-        .map(|b| {
-            let axis = Vec3::from(b.axis);
-            let right = axis.cross(view).normalize();
-            Vec3::from(b.pivot) + right * b.offset[0] + axis * b.offset[1]
-        })
-        .collect()
-}
-
 #[test]
 fn every_preset_meshes_cleanly_at_every_detail() {
     for preset in MushroomPreset::all() {
@@ -65,10 +51,6 @@ fn every_preset_meshes_cleanly_at_every_detail() {
             let name = format!("{} {:?}", preset.name, detail.shape);
             assert!(mesh.triangle_count() > 0, "{name}");
             check_buffers(&mesh.surfaces, &name);
-            if let Some(billboard) = &mesh.billboard {
-                check_buffers(&billboard.facing, &name);
-                check_buffers(&billboard.crossed, &name);
-            }
         }
     }
 }
@@ -118,13 +100,9 @@ fn solid_parts_are_closed_and_face_outward() {
 }
 
 #[test]
-fn shell_and_flat_levels_are_open_and_double_sided() {
+fn shell_details_are_open_and_double_sided() {
     let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
-    for detail in [
-        MushroomDetail::MEDIUM,
-        MushroomDetail::LOW,
-        MushroomDetail::FLAT,
-    ] {
+    for detail in [MushroomDetail::MEDIUM, MushroomDetail::LOW] {
         let mesh = mushroom.mesh_with_detail(&detail).unwrap();
         assert!(mesh.double_sided);
         for part in mesh.specimen_parts() {
@@ -135,111 +113,35 @@ fn shell_and_flat_levels_are_open_and_double_sided() {
 }
 
 #[test]
-fn flat_and_billboard_levels_turn_toward_the_camera() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::porcini()).unwrap();
-    for detail in details() {
-        let mesh = mushroom.mesh_with_detail(&detail).unwrap();
-        let turns = matches!(detail.shape, BodyShape::Flat | BodyShape::Billboard);
-        assert_eq!(mesh.billboard.is_some(), turns);
-        assert_eq!(mesh.part(PartKind::Stem).is_none(), turns);
-        if let Some(billboard) = &mesh.billboard {
-            assert_eq!(billboard.billboards.len(), billboard.facing.vertex_count());
-            assert_eq!(
-                billboard.facing.vertex_count(),
-                billboard.crossed.vertex_count()
-            );
-            assert_eq!(billboard.facing.indices, billboard.crossed.indices);
-            for b in &billboard.billboards {
-                assert!((Vec3::from(b.axis).length() - 1.0).abs() < 1e-4);
-            }
-        }
-    }
-}
-
-#[test]
-fn the_billboard_level_is_one_triangle_each_for_stem_and_cap() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
-    let mesh = mushroom
-        .mesh_with_detail(&MushroomDetail::BILLBOARD)
-        .unwrap();
-    assert_eq!(mesh.surfaces.triangle_count(), 0);
-    assert!(mesh.parts.is_empty());
-    assert_eq!(mesh.triangle_count(), 2);
-    let billboard = mesh.billboard.unwrap();
-    assert_eq!(billboard.facing.triangle_count(), 2);
-    let zones: Vec<Zone> = billboard.facing.zones.clone();
-    assert!(zones.contains(&Zone::Stem) && zones.contains(&Zone::CapTop));
-
-    // The cap triangle reaches the top of the cap, and the stem triangle
-    // reaches down to the closed bottom.
-    let body = &mushroom.bodies()[0];
-    let top = billboard
-        .facing
-        .positions
-        .iter()
-        .map(|p| p[1])
-        .fold(f32::MIN, f32::max);
-    let bottom = billboard
-        .facing
-        .positions
-        .iter()
-        .map(|p| p[1])
-        .fold(f32::MAX, f32::min);
-    // A leaning stem tilts the triangle's base, so its corners sit a little
-    // above and below the bottom point.
-    assert!(
-        (top - body.apex().y).abs() < body.cap_radius() * 0.2,
-        "{top}"
-    );
-    assert!(
-        (bottom - body.bottom().y).abs() < body.base_radius() * 0.2,
-        "{bottom}"
-    );
-}
-
-#[test]
-fn turned_shapes_face_the_viewer() {
-    let mushroom = Mushroom::from_preset(MushroomPreset::liberty_cap()).unwrap();
-    for detail in [MushroomDetail::FLAT, MushroomDetail::BILLBOARD] {
-        let mesh = mushroom.mesh_with_detail(&detail).unwrap();
-        let billboard = mesh.billboard.unwrap();
-        for view in [Vec3::X, Vec3::NEG_Z, Vec3::new(0.6, 0.2, 0.8).normalize()] {
-            let turned = turned(&billboard, view);
-            for t in billboard.facing.indices.chunks(3) {
-                let [a, b, c] = [t[0], t[1], t[2]].map(|i| turned[i as usize]);
-                let facing = (b - a).cross(c - a).dot(view);
-                assert!(
-                    facing > 0.0,
-                    "{:?}: a turned triangle faces away from {view}",
-                    detail.shape
-                );
-            }
-        }
-    }
-}
-
-#[test]
-fn triangle_counts_fall_along_the_default_ladder() {
+fn triangle_counts_fall_along_the_named_details() {
     for preset in MushroomPreset::all() {
         let mushroom = Mushroom::from_preset(preset).unwrap();
-        let lod = default_lod();
-        let counts: Vec<usize> = mushroom
-            .lod_meshes(&lod)
-            .unwrap()
-            .iter()
-            .map(|(_, m)| m.triangle_count())
+        let counts: Vec<usize> = details()
+            .map(|d| mushroom.mesh_with_detail(&d).unwrap().triangle_count())
             .collect();
         assert!(
             counts.windows(2).all(|w| w[1] < w[0]),
             "{}: {counts:?}",
             preset.name
         );
-        // The last level is two triangles per member.
-        assert_eq!(
-            *counts.last().unwrap(),
-            2 * mushroom.members().len(),
-            "{}: {counts:?}",
-            preset.name
+    }
+}
+
+#[test]
+fn the_lower_mesh_is_open_and_cheaper_than_the_game_level() {
+    for preset in MushroomPreset::all() {
+        let mushroom = Mushroom::from_preset(preset).unwrap();
+        let [(game_step, game), (lower_step, lower)] = mushroom.lod_meshes();
+        assert_eq!((game_step, lower_step), (Step::Game, Step::Lower));
+        assert_eq!(game, mushroom.mesh(), "{}", preset.name);
+        assert!(lower.double_sided, "{}", preset.name);
+        assert!(lower.part(PartKind::Annulus).is_none(), "{}", preset.name);
+        assert!(
+            lower.triangle_count() * 3 < game.triangle_count(),
+            "{}: {} against {}",
+            preset.name,
+            lower.triangle_count(),
+            game.triangle_count()
         );
     }
 }
@@ -261,25 +163,21 @@ fn meshing_is_repeatable_and_depends_on_the_seed() {
 }
 
 #[test]
-fn detail_levels_share_the_silhouette() {
-    // Every level's bounding box stays close to the full mesh's, so the
-    // overall shape doesn't jump when levels switch. The billboard level
-    // is flat until it is turned, so its resting box can't be compared;
-    // the silhouette tests check it from the side instead.
+fn details_share_the_silhouette() {
+    // Every detail's bounding box stays close to the full mesh's, so the
+    // overall shape doesn't jump when a renderer switches meshes.
     let mushroom = Mushroom::from_preset(MushroomPreset::parasol()).unwrap();
     let bounds = |detail: &MushroomDetail| {
         let mesh = mushroom.mesh_with_detail(detail).unwrap();
-        let mut points: Vec<Vec3> = mesh.surfaces.positions.iter().map(|&p| p.into()).collect();
-        if let Some(b) = &mesh.billboard {
-            points.extend(b.facing.positions.iter().map(|&p| Vec3::from(p)));
-        }
+        let points: Vec<Vec3> = mesh.surfaces.positions.iter().map(|&p| p.into()).collect();
         let min = points.iter().copied().fold(Vec3::MAX, Vec3::min);
         let max = points.iter().copied().fold(Vec3::MIN, Vec3::max);
         (min, max)
     };
     let (full_min, full_max) = bounds(&MushroomDetail::FULL);
     let size = mushroom.options().size;
-    for detail in details().filter(|d| d.shape != BodyShape::Billboard) {
+    let lower = MushroomDetail::FULL.lod().lower;
+    for detail in details().chain([lower]) {
         let (min, max) = bounds(&detail);
         assert!(min.distance(full_min) < size * 0.25, "{:?}", detail.shape);
         assert!(max.distance(full_max) < size * 0.25, "{:?}", detail.shape);
