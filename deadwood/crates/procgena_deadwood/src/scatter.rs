@@ -458,6 +458,11 @@ impl StickScatter {
         })
     }
 
+    /// The settings this Scatter was built from.
+    pub fn options(&self) -> &ScatterOptions {
+        &self.options
+    }
+
     /// The distinct sticks. Each rests on flat ground at `y = 0`; mesh
     /// it with [`Piece::mesh`] or [`Piece::lod_meshes`] and place copies
     /// with each [`Instance::transform`].
