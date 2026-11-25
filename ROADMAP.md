@@ -149,6 +149,16 @@ flowchart TD
     GM4["GM4 Biome base ground and borders"]
     GM5["GM5 Far grass and forest tints"]
 
+    TE1["TE1 Stop wasted terrain work"]
+    TE2["TE2 Terrain preview first"]
+    TE3["TE3 Content-keyed stage cache"]
+    TE3b["TE3b Chunk reuse by footprint"]
+    TE4a["TE4a Relief bands"]
+    TE4b["TE4b Per-tier border negotiation"]
+    TE5["TE5 Faster road search"]
+    GPU1["GPU1 Relief preview on the GPU"]
+    GPU2["GPU2 Ground weights on the GPU"]
+
     D5{{"D5 World and Biome scale"}}
     G7["G7 Scale-aware terrain lengths"]
     IX["IX Impostor-heavy experiment"]
@@ -247,6 +257,18 @@ flowchart TD
     GM1 --> GM5
     R3 --> GM5
     S1 --> GM5
+
+    G6 --> TE1
+    TE1 --> TE2
+    TE2 --> TE3
+    F2 --> TE3
+    TE3 --> TE3b
+    TE3 --> TE4a
+    TE4a --> TE4b
+    G6 --> TE5
+    TE2 --> GPU1
+    GM1 --> GPU2
+    G4 --> GPU2
 
     D5 --> G7
     D5 --> W0
@@ -1067,7 +1089,198 @@ label-chosen material.
   and the last impostor, with no seam.
 
 A GPU port of the rules (GM6) is built only if GM1's measurements call
-for it.
+for it. The terrain editing plan measured ground weights at about 14× a
+chunk's height read on one thread, and the user decided (2026-11-24) to
+build that port early: it is GPU2 below.
+
+### Terrain editing track
+
+Planned with the user 2026-11-24 in
+[terrain/edit_cache_plan.md](terrain/edit_cache_plan.md) (all nine
+recommendations accepted).
+
+- **The problem:** today an edit in the studio's Terrain view rebuilds
+  the whole world. A cold build of the opening view is about 33 s of CPU
+  in release: 23 region plans, 9 region builds, roads in 2 regions and
+  86 chunks.
+- **The order:** stop wasted work first, then show a provisional
+  preview, then a content-keyed stage cache. Then border negotiation per
+  tier (TE4a and TE4b, decided 2026-11-24) and a faster road search
+  (TE5).
+- **The GPU:** it takes the per-point drawing work (ground weights and
+  the preview), never the plans.
+- **Names:** TE (terrain edits), to keep clear of S1 (Streaming).
+
+#### TE1: Stop wasted work
+
+- **Covers:**
+  - `WorldTerrain` takes a cancellation flag, checked between region
+    stages and chunk rows. A cancelled build is never cached. This meets
+    ARCHITECTURE's story 5.
+  - The stream sets the flag on reset.
+  - The studio sends ground-colour and debug changes to weights and
+    materials without making a new world.
+- **Needs:** G6 (merged). Best after GM1 merges, since both edit
+  `procgena_terrain_bevy` and the studio's terrain scene.
+- **Done when:**
+  - after an edit, no thread works on the old world beyond one chunk row;
+  - a cancelled world caches nothing and rebuilds bit-identically;
+  - a ground-only edit starts no region build.
+
+#### TE2: First picture fast
+
+- **Covers:**
+  - A provisional relief-only preview tier (each region's own relief plus
+    E, no borders or features), drawn right after an edit and never
+    queried.
+  - Nearest regions first.
+  - While editing, the centre region at full quality and the rest at the
+    preview tier.
+  - Studio only; the game never shows provisional land near the player.
+- **Needs:** TE1.
+- **Done when:**
+  - a `base.*` edit shows new land in under 1 s in release on an idle
+    machine;
+  - the centre region reaches full quality waiting on about 7 plans, not
+    23.
+
+#### TE3: Content-keyed stage cache
+
+- **Covers:**
+  - `ContentHash` for `TerrainOptions`, `ElevationOptions`,
+    `RegionGraphOptions` and `Convergence`. The world seed goes into the
+    key explicitly, since F2 leaves seeds out.
+  - Every `WorldTerrain` cache keyed by what its stage reads, and
+    `WorldTerrain::with_source` so the studio keeps the caches across
+    edits.
+  - Chunk keys in the stream.
+  - Only the last one or two versions kept per stage.
+- **Needs:** TE2, F2 (done).
+- **Done when:**
+  - undo and drag-back rebuild nothing, and a ground edit rebuilds
+    nothing;
+  - a per-field change test shows each stage's key changes whenever its
+    output does;
+  - cached and cold results are bit-identical;
+  - memory per cached entry is measured.
+
+#### TE3b: Chunk reuse by feature footprint
+
+- **Covers:** a chunk key from the relief and agreements it reads plus a
+  hash of the features within reach, so only chunks whose ground moved
+  are read again.
+- **Needs:** TE3.
+- **Done when:**
+  - a river-width edit re-reads only the chunks along the rivers;
+  - for every setting in the plan's probe, the kept chunks are
+    bit-identical to fresh reads.
+- **Note:** GPU3 (full heights on the GPU, later) would make this
+  unnecessary for drawing.
+
+#### TE4a: Relief bands
+
+Border negotiation per tier was decided by the user on 2026-11-24 (see
+ARCHITECTURE.md, "Border negotiation per tier", and the plan's section of
+that name). TE4 is built as two steps; this is the first.
+
+- **Covers:**
+  - Each relief layer in the presets gets a band cut: low-band octaves,
+    then detail octaves. The cut is a landscape length, so it scales
+    with D5.
+  - Low-band and detail evaluation paths.
+  - A test that detail octaves never change the low band. `fbm`'s
+    erosion and `ridged`'s weights already flow only from low octaves to
+    high.
+  - The rough tier draws the low band.
+  - Presets retuned where their look moves.
+- **Needs:** TE3.
+- **Done when:**
+  - on hills and mountains, rough-tier heights equal the fine relief's
+    low-band octaves bit for bit;
+  - far chunks read the low band only;
+  - the change in each preset's look is reported.
+
+#### TE4b: Per-tier border negotiation
+
+- **Covers:**
+  - Rough offers for every planned region: low band and E, plus the river
+    and road crossings, which are fixed at rough.
+  - Detail offers and agreements for the near regions and their ring
+    only. They are negotiated linearly on detail-band samples and pinned
+    to zero at corners.
+  - The Fine tier takes its own road settings, not those inside the
+    Rough terrain it clones.
+  - Mixed-tier borders get a skirt or a detail fade.
+  - River routes stay rough and graph-wide; only carving moves to mid and
+    fine.
+  - The rough, detail and port parts of the plan are cached on their own
+    (TE3's keys), with the Rough tier keyed on the rough agreement.
+  - This changes the seam protocol, as the user agreed.
+- **Needs:**
+  - TE4a;
+  - the user's answer to question 10 of the plan (exact low-pass for the
+    relief, bounded for carving).
+
+  TE5 should land first, since both edit the road planning. That is a
+  file-sharing order, with no arrow in the graph.
+- **Done when:**
+  - a region drawn fine beside a rough neighbour, then beside a fine
+    one, gives bit-identical heights (load independence);
+  - upgrading a region never moves its rough-tier heights;
+  - far regions build no detail offers;
+  - a `roads.width` edit keeps every rough plan, and a `rivers.width`
+    edit keeps the convergence;
+  - the seam, crack and feature suites hold at both tiers.
+
+#### TE5: Faster road search
+
+- **Covers:**
+  - Profile and speed up road routing, about 5 s per near region against
+    ARCHITECTURE's "up to about a second" plan budget.
+  - If still over: a fixed search budget per region with a deterministic
+    fallback.
+  - Macro cells are decided with D4, not here.
+  - The per-point border cost: the convergence fade and the border pulls
+    are 78–86% of every height read (measured 2026-11-24). Ways to cut
+    it:
+    - fewer border pieces;
+    - cheaper far-piece integrals;
+    - neighbours' relief evaluated only where its blend share is
+      non-zero.
+- **Needs:** G6 (merged). It runs beside TE1–TE3 if it keeps to the road
+  files, and should land before TE4b, which also edits the road planning.
+  That is a file-sharing order, not a dependency, so it has no arrow in
+  the graph.
+- **Done when:** a near region's roads fit the plan budget in release,
+  with roads bit-identical, or their change reported and accepted.
+
+#### GPU1: Relief preview on the GPU
+
+- **Covers:**
+  - TE2's preview tier as a compute shader: relief noise, the integer
+    hash and E.
+  - TE2's CPU path is its twin.
+  - Parity: heights within a few millimetres, discrete decisions
+    quantised, seams exact within one path, skirts between paths.
+- **Needs:** TE2.
+- **Done when:**
+  - CPU/GPU parity tests pass;
+  - a `base.*` edit previews the whole view in milliseconds (measured).
+
+#### GPU2: Ground weights on the GPU
+
+- **Covers:**
+  - GM0/GM1's layer stack and G4a's measures evaluated per texel on the
+    GPU from each chunk's heights, with the feature index as a buffer.
+  - The CPU painter stays the twin.
+  - Same parity rules as GPU1, with every layer choice quantised. The
+    CPU samples weights only for queries.
+- **Needs:** GM1, G4a. Built first of the two GPU steps if GM1 puts
+  weights on every drawn chunk.
+- **Done when:**
+  - parity tests pass;
+  - a ground-only edit redraws in one frame's work (measured);
+  - weights cost no CPU for drawing.
 
 ### Studio track
 
@@ -1140,6 +1353,7 @@ a cell run in order within the wave.
 | 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2; GM0 → GM1; ST0 (alone in `procgena/src/`, after the Fruit and Flower tabs merge); IX planning | G4 (wave 5, not built yet) runs as G4a, then G4b. GM0 writes a new `ground` module in `procgena_terrain` and the Ecotope's ground in `procgena_biome`; it runs beside B1 only if they don't share files in `procgena_biome`. ST0 is a churn window for the studio only: no other lane edits `procgena/src/` while it runs. IX's planning step needs no code and can run any time. |
 | 8 | W1; S1 (single Biome); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8 | After ST0 each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers (fruit AC1 in `tree/`, plant alignment, GM0 and B1 in `procgena_biome`). ST4 touches `procgena_impostor` and agrees it with fruit D2 and IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. |
 | 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's per-view distance override); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
+| TE (from wave 8) | TE1 → TE2 → TE3 → TE3b and TE4a → TE4b; TE5 beside them, landing before TE4b; GPU2 (after GM1 and G4a); GPU1 (after TE2) | The terrain editing track, decided 2026-11-24, with border negotiation per tier (TE4a, TE4b). TE4a also edits the presets and `noise.rs`/`relief.rs`. TE1–TE4b all edit `world.rs`, `procgena_terrain_bevy`'s stream and the studio's terrain scene, so they run one at a time. TE1 waits for GM1 to merge, since both touch the Bevy crate and the scene. TE5 keeps to the road files and lands before TE4. GPU2 works in new shader and Bevy files beside the CPU painter, so it can run beside TE2 or TE3. |
 
 Workers follow the scoped-check rules in [CLAUDE.md](CLAUDE.md); the
 coordinator runs the full suite once per wave.

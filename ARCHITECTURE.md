@@ -397,7 +397,8 @@ turns two offers into an agreement, and each side conforms to the agreement
 within its own margin. A Biome border is negotiated in two steps:
 
 1. **Terrain**: WorldTerrain runs the terrain seam protocol between the two
-   Terrains.
+   Terrains, once per tier: rough always, finer only near the camera
+   (see "Border negotiation per tier" under 4.2).
 2. **Ecotopes**: the Ecotopes on either side agree how they blend across
    the border: how wide the blend is, and how each side's coverage fades
    into the other's, shaped by noise so the line doesn't show.
@@ -472,6 +473,45 @@ with volume only where a feature needs it (caves, overhangs), and rock
 outcrops are meshes the terrain builds and lays into the ground (review,
 "Decisions").
 
+**Border negotiation per tier** (decided 2026-11-24, user; design in
+[terrain/edit_cache_plan.md](terrain/edit_cache_plan.md), "Border
+negotiation per tier"). Borders are negotiated tier by tier, at the
+feature tiers' granularities, and far regions never settle their fine
+borders.
+
+- **Rough tier.**
+  - Neighbours agree only on the low-frequency shape (E and the relief's
+    low band) and on where rivers and roads cross the border.
+  - Crossings are fixed here and never move at finer tiers.
+  - River routes are decided here, graph-wide.
+  - The rough tier covers the whole view.
+- **Mid and fine tiers.**
+  - The relief's detail band, the carving, and the roads and rivers
+    themselves are negotiated only for regions near the camera and their
+    immediate ring.
+  - The detail agreement is negotiated on detail-band samples alone,
+    linearly, and pinned to zero at corners. A fine agreement is the
+    rough one plus the detail one.
+- **No popping.**
+  - A finer tier only adds band-limited detail.
+  - The relief's coarse form is exactly the low-pass of its fine form:
+    the low band is the first octaves of each relief layer, and no detail
+    octave may change it. So upgrading a region never moves what a
+    coarser tier decided.
+  - Carving, which is not band-limited, keeps the feature-tier rule
+    instead: a declared largest coarse-to-fine difference, covered by
+    skirts. That refinement is pending the user's confirmation, as
+    question 10 in the plan.
+- **Load-independent.**
+  - A region's fine border never depends on which neighbours are drawn
+    fine.
+  - Fine negotiation reads the neighbour's fine offers whenever it needs
+    them, so fine offers are built one ring wider than the regions drawn
+    fine.
+- **Mixed-tier borders.** Where a region drawn at one tier meets one drawn
+  at another, the seam gets a transition: a skirt, or the detail band
+  fading to zero, as chunks of different tiers do.
+
 **What it gets from above.**
 
 - From its Biome: its options.
@@ -545,8 +585,11 @@ W1.
 It reaches into each Biome for that Biome's one Terrain, and this is step 1
 of every Biome border.
 It runs the terrain seam protocol across the region graph: offers, then
-agreements, then each Terrain conforms to its agreements. Rivers and roads
-cross borders through the ports those agreements set. Any other terrain
+agreements, then each Terrain conforms to its agreements. Since
+2026-11-24 the protocol runs once per tier: rough for every planned
+region, finer only near the camera (see "Border negotiation per tier"
+under 4.2). Rivers and roads cross borders through the ports those
+agreements set. Any other terrain
 feature either stays inside its region's border margin, crosses through
 an agreed port, or comes from a field both sides share. None needs its
 neighbour's full plan.
@@ -878,7 +921,8 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   planned in a ring one region wider than the view distance, and plans are
   cached on disk. Terrain seam offers depend only on their own region, so a
   far region's terrain needs only its neighbours' offers, never their
-  plans. Ecotope border offers must keep the same rule: built from their
+  plans. A far region needs only their **rough** offers; detail offers
+  are built only near the camera (decided 2026-11-24). Ecotope border offers must keep the same rule: built from their
   own Biome alone, never from labels that depend on a neighbour's plan.
 - **A Terrain's plan comes in stages**, each cached on its own: relief and
   seam offers, then its features in **tiers** from rough to fine. Each
@@ -892,6 +936,14 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   (`FeatureTier`, `WorldTerrain::terrain_tier`), with near chunks refined
   in the background and skirts sized by how far each tier moves the
   ground.
+- **Borders follow the tiers** (decided 2026-11-24): a far region
+  negotiates only its rough border (low-band relief and crossings), and
+  only regions near the camera and their ring negotiate detail. See
+  "Border negotiation per tier" under 4.2.
+- **Measured against the budget** (2026-11-24, release, studio view on
+  rolling hills): a region plan takes about 0.6–0.9 s, inside the "up to
+  about a second" above, but one near region's roads take about 5 s. The
+  plan (terrain/edit_cache_plan.md, TE5) speeds the road search first.
 - **Place.** Placement is decided per Scatter and per chunk. It needs the
   plan, the Ground and the masks from above, and never the drawn meshes.
 - **Draw.** Drawing picks a detail level per copy, as rule 2 says. An
