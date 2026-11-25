@@ -18,8 +18,8 @@ use crate::scatters::level_entries;
 use crate::shader_model::{
     CHILD_ROWS, CLUMP_PER_METRE, CLUMP_SIDE, ChunkLayout, DistanceLod, GRANDCHILD_ROWS, GUST_SIZE,
     PLANT_ROWS, TILE_POINTS, TUFT_ENTRIES_PER_TUFT, TUFT_SIDE, bare_noise, bare_threshold,
-    best_candidate_tile, blue_noise_tile, clump_table, gust_noise, hash, hash2, lod_indices,
-    quantised_tile, tile_position, toroidal_distance_squared, tuft_table, unit,
+    FILL_PARTS, best_candidate_tile, blue_noise_tile, clump_table, gust_noise, hash, hash2,
+    lod_indices, quantised_tile, tile_position, toroidal_distance_squared, tuft_table, unit,
 };
 
 /// Vertical range an instance's root height can encode, in metres either side
@@ -58,6 +58,8 @@ pub(crate) struct Candidate {
     pub rank: f32,
     /// Per-blade random seed.
     pub seed: u32,
+    /// The candidate's point in its tile, which orders it for placement.
+    pub point: u32,
 }
 
 impl ChunkLayout {
@@ -116,6 +118,7 @@ pub(crate) fn candidate(
         ),
         rank: (point as f32 + 0.5) / TILE_POINTS as f32,
         seed: hash2(cell_hash, point),
+        point,
     }
 }
 
@@ -126,11 +129,11 @@ pub(crate) fn world_tile(chunk: i32, tiles: u32, cell: u32) -> u32 {
     chunk.wrapping_mul(tiles as i32).wrapping_add(cell as i32) as u32
 }
 
-/// The share of candidates to keep where the requested density is
-/// `density × scale` blades per square metre (`scale` folds in the mask,
-/// the distance falloff and the quality tier).
-pub(crate) fn keep_fraction(density: f32, scale: f32, layout: &ChunkLayout) -> f32 {
-    (density * scale / layout.candidate_density).clamp(0.0, 1.0)
+/// The share of candidates a view draws in a field with `fill`
+/// (`shader_model::placement_fill`), where `scale` folds in the mask, the
+/// distance falloff and the quality tier.
+pub(crate) fn keep_fraction(fill: u32, scale: f32) -> f32 {
+    (fill as f32 / FILL_PARTS as f32 * scale).clamp(0.0, 1.0)
 }
 
 impl DistanceLod {

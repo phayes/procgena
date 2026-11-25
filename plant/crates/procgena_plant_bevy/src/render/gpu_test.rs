@@ -225,11 +225,8 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
             tile_size: field.extent.w,
             candidate_density: TILE_POINTS as f32 / (field.extent.w * field.extent.w),
         };
-        let chunk_keep = mirror::keep_fraction(
-            field.shape.w,
-            view.density_scale * thin(nearest) * thinning,
-            &layout,
-        );
+        let fill = field.axis.z as u32;
+        let chunk_keep = mirror::keep_fraction(fill, view.density_scale * thin(nearest) * thinning);
         for index in 0..layout.candidates_needed(chunk_keep) {
             let candidate = mirror::candidate(
                 [chunk.ids.y as i32, chunk.ids.z as i32],
@@ -249,8 +246,9 @@ fn cpu_instances(tables: &FieldTables, view: &ViewUniformData) -> Vec<[u32; 3]> 
             let root = Vec3::new(at.x, field.min_corner.y, at.y);
             let distance = root.distance(camera);
             let falloff = thin((distance - view.distance_offset).max(0.0)) * thinning;
-            if candidate.rank
-                >= mirror::keep_fraction(field.shape.w, view.density_scale * falloff, &layout)
+            // The scenes have no masks: the mask reads full.
+            if !shader_model::is_placed(candidate.point, fill, 255)
+                || candidate.rank >= mirror::keep_fraction(fill, view.density_scale * falloff)
             {
                 continue;
             }

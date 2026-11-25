@@ -102,7 +102,8 @@ pub(crate) struct FieldGpu {
     pub access: UVec4,
     /// x, y: the field's own X axis in world XZ, which turns with the field
     /// about Y; its Z axis is the perpendicular (`Vec2::perp`). Positions in
-    /// the field are along these axes from `min_corner`.
+    /// the field are along these axes from `min_corner`. z: the field's fill
+    /// (`shader_model::placement_fill`), a whole number.
     pub axis: Vec4,
     /// x: accent share (0 disables it); y: offset from this entry to its
     /// accent entry. A relative offset stays valid when the field moves

@@ -48,6 +48,29 @@ pub(crate) fn blue_noise_tile() -> &'static [Vec2] {
     TILE.get_or_init(|| best_candidate_tile(TILE_POINTS as usize, 12, 0x6b8a_3a00))
 }
 
+/// The parts a field's fill is counted in: the share of its candidates it
+/// places where its mask is full is `fill / FILL_PARTS`. As many as fit:
+/// `FILL_PARTS × 255` must stay below 2³² for [`is_placed`], and a fill must
+/// be a whole number an `f32` holds exactly. The WESL twin is `FILL_PARTS`.
+pub(crate) const FILL_PARTS: u32 = 1 << 24;
+
+/// A field's fill: the share of its candidates it places where its mask is
+/// full, in 1/[`FILL_PARTS`], for `density` blades per square metre over
+/// `layout`. At most all of them.
+pub(crate) fn placement_fill(density: f32, layout: &ChunkLayout) -> u32 {
+    let share = f64::from(density.max(0.0)) / f64::from(layout.candidate_density);
+    ((share * f64::from(FILL_PARTS)).round() as u32).min(FILL_PARTS)
+}
+
+/// Whether candidate `point` of its tile is placed, in a field with `fill`
+/// where its mask reads `mask` (0 to 255). Integer maths, so the CPU and the
+/// GPU agree exactly: `point / TILE_POINTS < fill / FILL_PARTS × mask / 255`.
+/// The WESL twin is `is_placed`; on the CPU only the mirror uses it.
+#[cfg(test)]
+pub(crate) fn is_placed(point: u32, fill: u32, mask: u32) -> bool {
+    point * (FILL_PARTS / TILE_POINTS * 255) < fill * mask
+}
+
 /// The blue-noise tile in fixed point, as the GPU reads it: each point's X
 /// in the low 16 bits and Z in the high 16, in 1/65536ths of the tile,
 /// wrapping. The WESL twin is the `tile` buffer.

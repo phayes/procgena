@@ -2,6 +2,7 @@ use proptest::prelude::*;
 
 use super::*;
 use crate::gpu_layout::MAX_BRANCHED_CLASSES;
+use crate::shader_model::placement_fill;
 
 const CHUNK: f32 = 16.0;
 
@@ -103,7 +104,7 @@ fn the_needed_prefix_holds_every_kept_blade() {
 fn lowering_density_only_removes_blades_in_rank_order() {
     let layout = ChunkLayout::for_density(CHUNK, 80.0);
     let kept = |density: f32| -> Vec<u32> {
-        let keep = keep_fraction(density, 1.0, &layout);
+        let keep = keep_fraction(placement_fill(density, &layout), 1.0);
         (0..layout.cells() * TILE_POINTS)
             .filter(|&i| candidate([0, 0], 1, &layout, i).rank < keep)
             .collect()
@@ -129,7 +130,7 @@ fn every_style_density_is_reached() {
             layout.candidate_density >= density * (1.0 - 1e-5),
             "{density}: {layout:?}"
         );
-        let drawn = keep_fraction(density, 1.0, &layout) * layout.candidate_density;
+        let drawn = keep_fraction(placement_fill(density, &layout), 1.0) * layout.candidate_density;
         assert!(
             (drawn - density).abs() < 1e-3 * density,
             "{density}: draws {drawn}"
@@ -817,7 +818,7 @@ proptest! {
         layout_density in 0.0f32..=1000.0,
     ) {
         let layout = ChunkLayout::for_density(chunk_size, layout_density);
-        let keep = keep_fraction(density, scale, &layout);
+        let keep = keep_fraction(placement_fill(density, &layout), scale);
         prop_assert!((0.0..=1.0).contains(&keep));
     }
 }

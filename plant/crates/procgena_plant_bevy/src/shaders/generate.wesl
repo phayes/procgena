@@ -12,7 +12,8 @@
 //! the result at each blade's root.
 
 import package::shaders::common::{
-    Frame, View, Field, Chunk, ShapeTable, BladeData, TILE_POINTS, NO_MAP, NO_CLASS, WIDTH_RANGE, TAU,
+    Frame, View, Field, Chunk, ShapeTable, BladeData, TILE_POINTS, FILL_PARTS, NO_MAP, NO_CLASS, WIDTH_RANGE, TAU,
+    is_placed,
     MAX_BUCKETS, DRAW_ARGS_COUNT, class_stride, hash, hash2, unit, density_falloff, fade_falloff, height_thinning, select_lod,
     coverage_width, reach_factor, stem_facing, pack, trample_unpack, trample_slot, in_trample_window,
 };
@@ -183,9 +184,9 @@ fn cull(@builtin(global_invocation_id) id: vec3<u32>) {
         let thinning = select(density_falloff(view, d), fade_falloff(view, d), field.access.z != 0u);
         falloff = thinning * height_thinning(view);
     }
-    let tile_size = field.extent.w;
-    let candidate_density = f32(TILE_POINTS) / (tile_size * tile_size);
-    let keep = clamp(field.shape.w * view.density_scale * falloff / candidate_density, 0.0, 1.0);
+    // The most a chunk of the field can draw: its fill where its mask is
+    // full, thinned for this view.
+    let keep = clamp(field.axis.z / f32(FILL_PARTS) * view.density_scale * falloff, 0.0, 1.0);
     let cells = field.placement.y * field.placement.y;
     // Twin of `ChunkLayout::candidates_needed`.
     let needed = u32(ceil(keep * f32(TILE_POINTS))) * cells;
@@ -294,6 +295,32 @@ fn sample_mask(field: Field, uv: vec2<f32>) -> vec2<f32> {
     let c = mask_texel(field, base.x, next.y);
     let d = mask_texel(field, next.x, next.y);
     return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
+}
+
+/// The mask's density at `uv`, 0 to 255, blended from the four nearest
+/// texels in integer steps of 1/256: 255 for a field without a mask.
+fn mask_density(field: Field, uv: vec2<f32>) -> u32 {
+    if field.placement.z == NO_MAP {
+        return 255u;
+    }
+    let size = field.map_sizes.xy;
+    let p = clamp(uv * vec2<f32>(size) - 0.5, vec2<f32>(0.0), vec2<f32>(size) - 1.0);
+    let base = vec2<u32>(floor(p));
+    let w = vec2<u32>(fract(p) * 256.0);
+    let next = min(base + 1u, size - 1u);
+    let a = mask_byte(field, base.x, base.y);
+    let b = mask_byte(field, next.x, base.y);
+    let c = mask_byte(field, base.x, next.y);
+    let d = mask_byte(field, next.x, next.y);
+    let top = a * (256u - w.x) + b * w.x;
+    let bottom = c * (256u - w.x) + d * w.x;
+    return (top * (256u - w.y) + bottom * w.y + 32768u) >> 16u;
+}
+
+/// The density byte of mask texel (`x`, `y`).
+fn mask_byte(field: Field, x: u32, y: u32) -> u32 {
+    let texel = field.placement.z + y * field.map_sizes.x + x;
+    return (scene[texel / 2u] >> ((texel % 2u) * 16u)) & 0xffu;
 }
 
 fn mask_texel(field: Field, x: u32, y: u32) -> vec2<f32> {
@@ -472,9 +499,16 @@ fn evaluate(chunk: Chunk, field: Field, index: u32) -> Generated {
         let threshold = field.tufts.z;
         bare = smoothstep(threshold - 0.05, threshold + 0.05, bare_noise(root.xz, field.tufts.w));
     }
-    let tile_size = field.extent.w;
-    let candidate_density = f32(TILE_POINTS) / (tile_size * tile_size);
-    let keep = clamp(field.shape.w * mask.x * bare * view.density_scale * falloff / candidate_density, 0.0, 1.0);
+    // Placement, in integers: whether the field grows this candidate at
+    // all. Then drawing: whether this view draws it, thinned by distance,
+    // quality and bare patches, in the same rank order.
+    let fill = u32(field.axis.z);
+    let mask_level = mask_density(field, local / field.extent.xy);
+    if !is_placed(point, fill, mask_level) {
+        return out;
+    }
+    let placed = f32(fill * mask_level) / f32(FILL_PARTS * 255u);
+    let keep = clamp(placed * bare * view.density_scale * falloff, 0.0, 1.0);
     if rank >= keep {
         return out;
     }

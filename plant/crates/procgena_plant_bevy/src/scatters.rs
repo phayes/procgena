@@ -1314,7 +1314,9 @@ fn field_entries(plan: &Plan) -> Vec<FieldGpu> {
             variation.bare_patch_size.max(0.01),
         ),
         access: UVec4::new(access, 0, 0, 0),
-        axis: axis.extend(0.0).extend(0.0),
+        axis: axis
+            .extend(shader_model::placement_fill(field.options.density(), &layout) as f32)
+            .extend(0.0),
         ..FieldGpu::default()
     };
     let mut entries = plant_entries(&field_entry, field, plan.plants);
