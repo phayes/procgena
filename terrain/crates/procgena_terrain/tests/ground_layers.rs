@@ -409,3 +409,29 @@ fn a_grid_over_a_chunk_paints_the_chunks_weights() {
     let grass = bare.catalogue().id("grass").unwrap();
     assert_eq!(small.weight(10, 3, grass), 255);
 }
+
+#[test]
+fn retained_sites_repaint_without_reading_ground() {
+    use procgena_terrain::ground::GroundGrid;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Counted(AtomicUsize);
+    impl GroundSource for Counted {
+        fn site(&self, p: DVec2, _: FeatureTier) -> GroundSite {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            GroundSite::new(p.x as f32 * 20.0, Vec2::new(0.3, 0.5))
+        }
+    }
+    let source = Counted(AtomicUsize::new(0));
+    let key = ChunkKey::new(-1, 2, 0);
+    let grid = GroundGrid::chunk(&source, key, FeatureTier::Fine).unwrap();
+    let count = source.0.load(Ordering::Relaxed);
+    for vertical in [0.5, 1.0, 2.0] {
+        let painter = GroundStack::bare(7, vertical);
+        let retained = grid.paint(&painter);
+        assert_eq!(source.0.load(Ordering::Relaxed), count);
+        let fresh = GroundWeights::chunk(&painter, &source, key, FeatureTier::Fine).unwrap();
+        assert_eq!(retained, fresh);
+        source.0.store(count, Ordering::Relaxed);
+    }
+    assert_eq!(count, (GROUND_TEXELS * GROUND_TEXELS) as usize);
+}

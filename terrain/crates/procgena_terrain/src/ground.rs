@@ -48,7 +48,7 @@ pub use layer::{Condition, GroundLayer, GroundNoise, HeightRule, Ramp, Reach, Sc
 pub use material::{GroundMaterial, MaterialCatalogue, MaterialId, Projection, ground_textures};
 pub use site::{GroundSite, GroundSource, OnGround, Water};
 pub use stack::{GroundMix, GroundOverlay, GroundPainter, GroundStack};
-pub use weights::{GROUND_TEXELS, GroundWeights, PALETTE_SIZE};
+pub use weights::{GROUND_TEXELS, GroundGrid, GroundWeights, PALETTE_SIZE};
 
 /// Why a catalogue or a stack of ground layers is invalid.
 #[derive(Debug, Clone, PartialEq)]

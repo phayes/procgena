@@ -3,7 +3,7 @@
 
 use glam::{DVec2, UVec2};
 
-use super::{GroundMix, GroundPainter, GroundSource, MaterialCatalogue, MaterialId};
+use super::{GroundMix, GroundPainter, GroundSite, GroundSource, MaterialCatalogue, MaterialId};
 use crate::{CHUNK_CELLS, ChunkError, ChunkKey, FeatureTier};
 
 /// Texels along each side of a chunk's weights, at every level: one on
@@ -97,22 +97,7 @@ impl GroundWeights {
         tier: FeatureTier,
         point: impl Fn(u32, u32) -> DVec2 + Sync,
     ) -> Result<Self, ChunkError> {
-        // Resolve a world's regions once for the entire grid, retaining
-        // the original texel order for palette totals and quantisation.
-        let points: Vec<_> = (0..size.y)
-            .flat_map(|j| (0..size.x).map(move |i| (i, j)))
-            .map(|(i, j)| point(i, j))
-            .collect();
-        let sites = source.sites(&points, tier);
-        assert_eq!(sites.len(), points.len(), "one site per point");
-        for (p, site) in points.iter().zip(&sites) {
-            if !site.height.is_finite() {
-                return Err(ChunkError::NoGround(*p));
-            }
-        }
-        let located: Vec<_> = points.iter().zip(&sites).collect();
-        let mixes = crate::batch::map(&located, |&(p, site)| painter.paint(*p, site));
-        Ok(Self::from_mixes(size, &mixes, painter.catalogue()))
+        Ok(GroundGrid::sample(source, size, tier, point)?.paint(painter))
     }
 
     /// Weights from one mix per texel, row by row along x.
@@ -256,6 +241,78 @@ impl GroundWeights {
     /// chunk's smallest corner (see [`ChunkKey::step`]).
     pub fn chunk_point(key: ChunkKey, i: u32, j: u32) -> DVec2 {
         key.half_point(i64::from(i), i64::from(j))
+    }
+}
+
+/// Sampled ground independent of its paint. Retain this across material edits
+/// to repaint without querying terrain, or upload its sites for GPU painting.
+#[derive(Debug, Clone)]
+pub struct GroundGrid {
+    size: UVec2,
+    points: Vec<DVec2>,
+    sites: Vec<GroundSite>,
+}
+
+impl GroundGrid {
+    /// Samples the same texels as [`GroundWeights::chunk`].
+    ///
+    /// # Errors
+    /// Returns [`ChunkError::NoGround`] if any site has a non-finite height.
+    pub fn chunk(
+        source: &(impl GroundSource + ?Sized),
+        key: ChunkKey,
+        tier: FeatureTier,
+    ) -> Result<Self, ChunkError> {
+        Self::sample(source, UVec2::splat(GROUND_TEXELS), tier, |i, j| {
+            GroundWeights::chunk_point(key, i, j)
+        })
+    }
+
+    fn sample(
+        source: &(impl GroundSource + ?Sized),
+        size: UVec2,
+        tier: FeatureTier,
+        point: impl Fn(u32, u32) -> DVec2,
+    ) -> Result<Self, ChunkError> {
+        let points: Vec<_> = (0..size.y)
+            .flat_map(|j| (0..size.x).map(move |i| (i, j)))
+            .map(|(i, j)| point(i, j))
+            .collect();
+        let sites = source.sites(&points, tier);
+        assert_eq!(sites.len(), points.len(), "one site per point");
+        for (p, site) in points.iter().zip(&sites) {
+            if !site.height.is_finite() {
+                return Err(ChunkError::NoGround(*p));
+            }
+        }
+        Ok(Self {
+            size,
+            points,
+            sites,
+        })
+    }
+
+    /// Repaints these samples, with the same palette and quantisation as
+    /// [`GroundWeights::chunk`], without reading any ground.
+    pub fn paint(&self, painter: &(impl GroundPainter + ?Sized)) -> GroundWeights {
+        let located: Vec<_> = self.points.iter().zip(&self.sites).collect();
+        let mixes = crate::batch::map(&located, |&(p, site)| painter.paint(*p, site));
+        GroundWeights::from_mixes(self.size, &mixes, painter.catalogue())
+    }
+
+    /// Number of samples along x and z.
+    pub fn size(&self) -> UVec2 {
+        self.size
+    }
+
+    /// World positions, row by row along x.
+    pub fn points(&self) -> &[DVec2] {
+        &self.points
+    }
+
+    /// Sites in the same order as [`points`](Self::points).
+    pub fn sites(&self) -> &[GroundSite] {
+        &self.sites
     }
 }
 
