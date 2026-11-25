@@ -77,8 +77,11 @@ pub struct Terrain {
     agreements: Vec<(usize, EdgeAgreement)>,
     /// The rivers and ponds: the planning stage after the river trace.
     hydrology: Arc<plan::Hydrology>,
-    /// The roads, once planned: the last stage.
+    /// The roads drawn at this terrain's tier, once planned: the last
+    /// stage.
     roads: Option<Arc<plan::Roads>>,
+    /// The roads in outline, once planned, which the full roads follow.
+    outline: Option<Arc<plan::RoadOutline>>,
     /// Both stages, ready to carve the ground.
     features: Features,
     /// How far the features are planned.
@@ -452,8 +455,8 @@ impl TerrainGenerator {
     /// [`trace_rivers`](Self::trace_rivers)), planning only the features of
     /// the roughest tier (see [`FeatureTier`]); [`Terrain::with_tier`] adds
     /// the rest later. Today that leaves out the roads, whose crossings'
-    /// pieces aren't carved either: routing roads is the slowest stage, so
-    /// a distant view can skip it.
+    /// pieces aren't carved either, so a distant view can skip routing
+    /// them.
     ///
     /// # Errors
     ///
@@ -536,6 +539,7 @@ impl TerrainGenerator {
             agreements: paired,
             hydrology: Arc::default(),
             roads: None,
+            outline: None,
             features: Features::default(),
             tier: FeatureTier::ALL[0],
             differences: [0.0; FeatureTier::ALL.len()],
@@ -575,17 +579,18 @@ impl RiverTrace {
 }
 
 impl Terrain {
-    /// This terrain with every feature drawn at `tier` or before planned
-    /// and carved in. At [`Fine`](FeatureTier::Fine) it is the terrain
-    /// [`TerrainGenerator::build`] gives. Features already planned are
-    /// kept as they are, so asking for an earlier tier than the terrain
-    /// has changes nothing.
+    /// This terrain with every feature drawn at `tier` planned as that
+    /// tier draws it, and carved in (see [`FeatureKind::tiers`]). At
+    /// [`Fine`](FeatureTier::Fine) it is the terrain
+    /// [`TerrainGenerator::build`] gives, whichever tiers it went through.
+    /// Asking for an earlier tier than the terrain has changes nothing.
     pub fn with_tier(mut self, tier: FeatureTier) -> Self {
-        // Rivers and ponds are planned when the terrain is built; roads at
-        // the first tier they are drawn at.
-        if self.roads.is_none() && tier >= FeatureKind::Road.first_tier() {
+        // Rivers and ponds are planned when the terrain is built. Roads are
+        // outlined at the mid tier, and planned in full along the outline
+        // at the fine tier.
+        if tier >= FeatureTier::Mid && self.tier < FeatureTier::Mid {
             let before = self.clone();
-            let roads = plan::roads(
+            let outline = plan::road_outline(
                 &self.generator.options,
                 &self.generator.relief,
                 &self.region,
@@ -593,16 +598,46 @@ impl Terrain {
                 &self.hydrology.rivers,
                 &|p| self.base_height(p),
             );
+            self.roads = Some(Arc::new(outline.roads.clone()));
+            self.outline = Some(Arc::new(outline));
+            self.features = self.gather();
+            let lines = self.roads().to_vec();
+            self.record_difference(FeatureTier::Mid, &before, &lines);
+        }
+        if tier >= FeatureTier::Fine && self.tier < FeatureTier::Fine {
+            let before = self.clone();
+            let outline = self.outline.clone().expect("the outline is planned first");
+            let roads = plan::roads(
+                &self.generator.options,
+                &self.generator.relief,
+                &self.region,
+                &self.paired(),
+                &self.hydrology.rivers,
+                &|p| self.base_height(p),
+                &outline,
+            );
             self.roads = Some(Arc::new(roads));
             self.features = self.gather();
 
-            // How far the roads moved the ground.
-            let index = FeatureKind::Road.first_tier().position();
-            self.differences[index] =
-                self.differences[index].max(moved(&before, &self, self.roads()));
+            // The ground moves along the full roads, and back where the
+            // outline was.
+            let lines: Vec<FeatureLine> = self
+                .roads()
+                .iter()
+                .chain(&outline.roads.roads)
+                .cloned()
+                .collect();
+            self.record_difference(FeatureTier::Fine, &before, &lines);
         }
         self.tier = self.tier.max(tier);
         self
+    }
+
+    /// Records how far `tier` moved the ground from `before` to this
+    /// terrain, measured along `lines`.
+    fn record_difference(&mut self, tier: FeatureTier, before: &Terrain, lines: &[FeatureLine]) {
+        let index = tier.position();
+        self.differences[index] = self.differences[index].max(moved(before, self, lines));
     }
 
     /// How far this terrain's features are planned (see

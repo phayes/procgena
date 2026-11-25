@@ -370,6 +370,7 @@ pub fn terrain_line(state: &BuildState) -> (String, bool) {
         let doing = match progress.stage {
             Some(RegionStage::Plan) => "planning regions",
             Some(RegionStage::Tier(FeatureTier::Rough)) => "shaping ground",
+            Some(RegionStage::Tier(FeatureTier::Mid)) => "outlining roads",
             Some(RegionStage::Tier(FeatureTier::Fine)) => "adding roads",
             None if progress.refining > 0 => "adding roads to near ground",
             None => "reading chunks",

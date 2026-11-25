@@ -22,6 +22,8 @@
 //!   draws more triangles;
 //! - `--rough-from <level>`: draw chunk levels from this one up at the
 //!   rough tier only, without roads;
+//! - `--mid-from <level>`: draw chunk levels from this one up (below
+//!   `--rough-from`) at the mid tier, with roads in outline;
 //! - `--levels`, `--borders`: start with chunk levels tinted, or chunk
 //!   borders drawn;
 //! - `--textures`: draw the ground with its texture sets, read from
@@ -130,6 +132,7 @@ struct Scene {
     eye: Vec3,
     target: Vec3,
     rough_from: Option<u8>,
+    mid_from: Option<u8>,
     headless: bool,
 }
 
@@ -297,6 +300,7 @@ fn main() {
             target,
             rough_from: value("--rough-from")
                 .map(|v| v.parse().expect("--rough-from needs a level")),
+            mid_from: value("--mid-from").map(|v| v.parse().expect("--mid-from needs a level")),
             headless,
         })
         .add_systems(Startup, setup)
@@ -317,6 +321,7 @@ fn setup(
     let world = scene.world.take().expect("set up once");
     commands.spawn(TerrainStream {
         rough_from: scene.rough_from,
+        mid_from: scene.mid_from,
         ..TerrainStream::world(world)
     });
 

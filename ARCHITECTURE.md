@@ -956,10 +956,11 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   be drawn from an early tier before its costly features are planned, so
   a distant mountain never waits for a road search (story 5). Such a far
   tile is **provisional**: only drawing may use it. Placement, masks and
-  queries read the fine tier. Built so far: two tiers, roads fine only
-  (`FeatureTier`, `WorldTerrain::terrain_tier`), with near chunks refined
-  in the background and skirts sized by how far each tier moves the
-  ground.
+  queries read the fine tier. Built so far: three tiers (`FeatureTier`,
+  `WorldTerrain::terrain_tier`): rough without roads, mid with roads in
+  outline on a coarse grid, fine with each road planned along its outline
+  (2026-11-25, TE7), with near chunks refined in the background and
+  skirts sized by how far each tier moves the ground.
 - **Borders follow the tiers** (decided 2026-11-24): a far region
   negotiates only its rough border (low-band relief and crossings), and
   only regions near the camera and their ring negotiate detail. See

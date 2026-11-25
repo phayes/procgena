@@ -632,12 +632,60 @@ pub(crate) fn hydrology(
     }
 }
 
-/// Plans the region's roads after its rivers `rivers`: routes from the
-/// agreed road crossings to each other and to the network's end, then the
-/// crossing pieces. A region without a polygon gets none.
+/// A region's roads in outline, planned on a coarse grid: the roads drawn
+/// at the [`Mid`](crate::FeatureTier::Mid) tier, and the routes the fine
+/// roads follow.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RoadOutline {
+    /// The outline's routes, without the crossing pieces.
+    routes: Vec<FeatureLine>,
+    /// The outline's hub and the road level there, if any road reached it.
+    end: Option<(DVec2, f32)>,
+    /// The roads to draw in outline, crossing pieces included.
+    pub roads: Roads,
+}
+
+/// Plans the region's roads in outline after its rivers `rivers`: routes
+/// on a coarse grid from the agreed road crossings to each other and to
+/// the network's end, then the crossing pieces. A region without a
+/// polygon gets none.
 ///
 /// `agreements` pairs each shared edge's index in the region with its
 /// agreement. `base` is the terrain's bent height before any carving.
+pub(crate) fn road_outline(
+    options: &TerrainOptions,
+    relief: &Relief,
+    region: &Region,
+    agreements: &[(usize, &EdgeAgreement)],
+    rivers: &[FeatureLine],
+    base: &dyn Fn(DVec2) -> f32,
+) -> RoadOutline {
+    let Boundary::Polygon(polygon) = &region.boundary else {
+        return RoadOutline::default();
+    };
+    let starts = road_starts(options, region, agreements);
+    let grades = |p| relief.road_grades(p);
+    let Routes { roads, end } = coarse_routes(polygon, &starts, rivers, &grades, base);
+    RoadOutline {
+        roads: finish_roads(
+            Routes {
+                roads: roads.clone(),
+                end,
+            },
+            region,
+            agreements,
+            base,
+        ),
+        routes: roads,
+        end,
+    }
+}
+
+/// Plans the region's roads at full detail along `outline` (see
+/// [`road_outline`], planned with the same arguments): each stays within
+/// the outline's corridor, with the same crossings and hub. A region
+/// without a polygon, or an outline without a hub, gets none but the
+/// crossing pieces.
 pub(crate) fn roads(
     options: &TerrainOptions,
     relief: &Relief,
@@ -645,19 +693,35 @@ pub(crate) fn roads(
     agreements: &[(usize, &EdgeAgreement)],
     rivers: &[FeatureLine],
     base: &dyn Fn(DVec2) -> f32,
+    outline: &RoadOutline,
 ) -> Roads {
     let Boundary::Polygon(polygon) = &region.boundary else {
         return Roads::default();
     };
+    let starts = road_starts(options, region, agreements);
+    let grades = |p| relief.road_grades(p);
+    let coarse = Routes {
+        roads: outline.routes.clone(),
+        end: outline.end,
+    };
+    let fine = refined_routes(polygon, &coarse, ROAD_CELL, &starts, rivers, &grades, base);
+    finish_roads(fine, region, agreements, base)
+}
 
-    // Where the roads start: the region's end of each road crossing.
-    let mut road_starts = Vec::new();
+/// Where the region's roads start: the region's end of each road
+/// crossing.
+fn road_starts(
+    options: &TerrainOptions,
+    region: &Region,
+    agreements: &[(usize, &EdgeAgreement)],
+) -> Vec<RoadStart> {
+    let mut starts = Vec::new();
     for &(index, agreement) in agreements {
         let edge = &region.edges[index];
         let side = side_of(region, edge);
         for port in agreement.ports.iter().filter(|p| p.kind == PortKind::Road) {
             let (point, level) = piece_end(edge, port, side);
-            road_starts.push(RoadStart {
+            starts.push(RoadStart {
                 point,
                 level,
                 width: port.width,
@@ -665,20 +729,18 @@ pub(crate) fn roads(
             });
         }
     }
+    starts
+}
 
-    // Routes linking them: outlined on a coarse grid, then planned on
-    // their own, finer grid along that outline.
-    let grades = |p| relief.road_grades(p);
-    let coarse = coarse_routes(polygon, &road_starts, rivers, &grades, base);
-    let Routes { mut roads, end } = refined_routes(
-        polygon,
-        &coarse,
-        ROAD_CELL,
-        &road_starts,
-        rivers,
-        &grades,
-        base,
-    );
+/// The roads to carve from `routes`: each with its banks, the crossing
+/// pieces, and the network's end as a point of interest.
+fn finish_roads(
+    routes: Routes,
+    region: &Region,
+    agreements: &[(usize, &EdgeAgreement)],
+    base: &dyn Fn(DVec2) -> f32,
+) -> Roads {
+    let Routes { mut roads, end } = routes;
     let points_of_interest = end
         .map(|(position, level)| PointOfInterest {
             kind: PoiKind::RoadEnd,

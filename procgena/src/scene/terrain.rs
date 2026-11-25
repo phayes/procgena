@@ -24,9 +24,15 @@ use super::{AddSubject, Shown};
 /// How far terrain is drawn, in metres.
 pub(crate) const VIEW_DISTANCE: f32 = 3000.0;
 
-/// Chunk levels from this one up are drawn at the rough tier only, without
-/// roads, so far ground appears before the roads are routed.
-const ROUGH_FROM: u8 = 3;
+/// Chunk levels from this one up (about 2 km) are drawn at the rough tier
+/// only, without roads, so far ground appears before the roads are
+/// routed.
+const ROUGH_FROM: u8 = 4;
+
+/// Chunk levels from this one up to [`ROUGH_FROM`] (about 512 m to 2 km)
+/// are drawn at the mid tier, with roads in outline, so middle-distance
+/// ground has its roads without waiting for them in full.
+const MID_FROM: u8 = 2;
 
 /// What terrain mode shows.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -157,6 +163,7 @@ fn stream(world: WorldTerrain) -> (TerrainStream, OverlaySource) {
     let stream = TerrainStream {
         ground: ground.clone(),
         rough_from: Some(ROUGH_FROM),
+        mid_from: Some(MID_FROM),
         regions: Some(tracker),
         ..TerrainStream::new(world.clone())
     };

@@ -1860,10 +1860,19 @@ features and paint.
   `--measure` (720p, load average about 20): 64 chunks, 0.56 M triangles
   and about 7 ms a frame before; 252 chunks, 2.2 M triangles and 10–13 ms
   after. `--cell-pixels` tries other targets (5 px: 3.9 M triangles;
-  4 px: 6 M). **Left:** the camera's own field of view (today
-  `ViewScale::DEFAULT`, as for IX), paint resolution per level, the
-  middle feature tier (TE5's coarse road outline can feed it), and
-  progressive loading. Geomorphing is wanted but deferred by the user
+  4 px: 6 M). Since then: the stream swaps area by area as chunks are
+  read (`ChunkSelection::blend`), splitting coarse drawn chunks into
+  stand-ins (`ChunkSamples::stand_in`) beside finer ones (60 m/s, 30 m up:
+  coarse ground underfoot 55% → 0%); `TerrainPlugin::detailed` makes the
+  levels follow the narrowest viewer's field of view; the studio reads 8
+  chunks at once; and a `Mid` feature tier draws roads on TE5's coarse
+  outline (studio: fine to 512 m, mid to 2 km, rough beyond). Paint
+  resolution per level turned out to follow the mesh already (two texels
+  per cell). **Left:** faster flight than about 120 m/s (at 200 m/s
+  coarse ground is still underfoot about 30% of the time: main-thread
+  swap work and reads), measured mid-tier build costs (the progress
+  weights are estimates), and geomorphing. Geomorphing is wanted but
+  deferred by the user
   (2026-11-25). The plan: each vertex carries its height and normal on the
   next coarser level, and the vertex shader blends the two by distance.
   The blend must finish inside the level's hysteresis band, so a swap

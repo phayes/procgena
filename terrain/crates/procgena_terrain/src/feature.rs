@@ -39,6 +39,9 @@ pub enum FeatureTier {
     /// The relief, its borders and the cheap features: enough to draw far
     /// ground soon.
     Rough,
+    /// Every feature, the costly ones in outline (roads on a coarse
+    /// route): enough to draw ground at middle distance with its roads.
+    Mid,
     /// Every feature: the real ground.
     #[default]
     Fine,
@@ -46,7 +49,7 @@ pub enum FeatureTier {
 
 impl FeatureTier {
     /// Every tier, from roughest to finest.
-    pub const ALL: [FeatureTier; 2] = [FeatureTier::Rough, FeatureTier::Fine];
+    pub const ALL: [FeatureTier; 3] = [FeatureTier::Rough, FeatureTier::Mid, FeatureTier::Fine];
 
     /// The position of this tier in [`ALL`](Self::ALL).
     pub(crate) fn position(self) -> usize {
@@ -61,17 +64,18 @@ impl FeatureKind {
     /// Every kind of feature.
     pub const ALL: [FeatureKind; 3] = [FeatureKind::River, FeatureKind::Pond, FeatureKind::Road];
 
-    /// The tiers this kind of feature is drawn at, roughest first. A kind
-    /// drawn at several tiers is planned once, at the first of them, and
-    /// kept unchanged at the later ones. Every kind is drawn at
-    /// [`Fine`](FeatureTier::Fine).
+    /// The tiers this kind of feature is drawn at, roughest first. Every
+    /// kind is drawn at [`Fine`](FeatureTier::Fine).
     ///
-    /// Rivers and ponds are cheap to plan, so they are drawn at every
-    /// tier; roads take most of a region's planning, so they are fine only.
+    /// Rivers and ponds are cheap to plan, so they are planned once and
+    /// drawn the same at every tier. Roads are costly: they are drawn from
+    /// [`Mid`](FeatureTier::Mid) on, in outline there, and at full detail
+    /// at [`Fine`](FeatureTier::Fine), each within a few tens of metres of
+    /// its outline, with the same border crossings.
     pub fn tiers(self) -> &'static [FeatureTier] {
         match self {
             Self::River | Self::Pond => &FeatureTier::ALL,
-            Self::Road => &[FeatureTier::Fine],
+            Self::Road => &[FeatureTier::Mid, FeatureTier::Fine],
         }
     }
 

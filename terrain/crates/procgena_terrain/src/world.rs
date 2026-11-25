@@ -381,9 +381,11 @@ impl WorldTerrain {
     /// [`FeatureTier`]), built now if it isn't kept already. At
     /// [`Fine`](FeatureTier::Fine) it is [`terrain`](Self::terrain).
     ///
-    /// An earlier tier comes much sooner, since the costly features are
-    /// left out: today the roads, the slowest part of building a region.
-    /// It is the same ground away from the features it leaves out. Use it
+    /// An earlier tier comes sooner, since the costly features are left
+    /// out or drawn in outline: today the roads, left out at
+    /// [`Rough`](FeatureTier::Rough) and on a coarse route at
+    /// [`Mid`](FeatureTier::Mid). It is the same ground away from the
+    /// features it leaves out or outlines. Use it
     /// only to draw far ground while the fine terrain is built; placement
     /// and queries need the fine terrain. Each tier is kept on its own, so
     /// asking for an earlier tier gives that tier even when a later one is

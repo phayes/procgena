@@ -5,13 +5,16 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use procgena_terrain::{FeatureTier, ProgressHook, RegionProgress, RegionStage};
 
-/// Rough cost of one region stage, in units of a region plan. Measured in
-/// the terrain crate's benchmark: the fine tier's road search dominates.
+/// Rough cost of one region stage, in units of a region plan. The plan
+/// and rough tier were measured in the terrain crate's benchmark; the mid
+/// and fine tiers (the road outline, then the roads along it) are
+/// estimates, not yet measured.
 pub(crate) fn stage_cost(stage: RegionStage) -> f32 {
     match stage {
         RegionStage::Plan => 1.0,
         RegionStage::Tier(FeatureTier::Rough) => 0.6,
-        RegionStage::Tier(FeatureTier::Fine) => 5.0,
+        RegionStage::Tier(FeatureTier::Mid) => 0.3,
+        RegionStage::Tier(FeatureTier::Fine) => 1.0,
     }
 }
 
@@ -19,6 +22,7 @@ pub(crate) fn stage_cost(stage: RegionStage) -> f32 {
 const STAGES: [RegionStage; 1 + FeatureTier::ALL.len()] = [
     RegionStage::Plan,
     RegionStage::Tier(FeatureTier::Rough),
+    RegionStage::Tier(FeatureTier::Mid),
     RegionStage::Tier(FeatureTier::Fine),
 ];
 
@@ -131,17 +135,19 @@ mod tests {
         hook(&started(RegionStage::Plan));
         hook(&started(fine));
         let counts = tracker.counts();
-        assert_eq!(counts.total, 6.0);
+        let both = stage_cost(RegionStage::Plan) + stage_cost(fine);
+        assert_eq!(counts.total, both);
         assert_eq!(counts.stage(), Some(fine));
         hook(&finished(RegionStage::Plan));
         hook(&finished(fine));
         let counts = tracker.counts();
-        assert_eq!((counts.done, counts.total), (6.0, 6.0));
+        assert_eq!((counts.done, counts.total), (both, both));
         assert_eq!(counts.stage(), None);
 
         // A new batch starts from nothing.
-        hook(&started(RegionStage::Tier(FeatureTier::Rough)));
-        assert_eq!(tracker.counts().total, 0.6);
+        let rough = RegionStage::Tier(FeatureTier::Rough);
+        hook(&started(rough));
+        assert_eq!(tracker.counts().total, stage_cost(rough));
         assert_eq!(tracker.counts().done, 0.0);
     }
 }

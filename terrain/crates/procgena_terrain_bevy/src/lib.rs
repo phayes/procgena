@@ -245,8 +245,14 @@ pub struct TerrainStream {
     /// Chunk levels at and above this one are drawn only at the
     /// [`Rough`](FeatureTier::Rough) tier, which a [`WorldTerrain`] builds
     /// without its costly features (today the roads), so far ground
-    /// appears sooner. `None` draws the fine tier everywhere.
+    /// appears sooner. `None` draws no level at the rough tier.
     pub rough_from: Option<u8>,
+    /// Chunk levels at and above this one, below
+    /// [`rough_from`](Self::rough_from), are drawn only at the
+    /// [`Mid`](FeatureTier::Mid) tier, with the costly features in outline
+    /// (today the roads on a coarse route), which is quicker to build than
+    /// the fine tier. `None` draws no level at the mid tier.
+    pub mid_from: Option<u8>,
     /// Counts the source's region builds, so [`TerrainProgress`] can
     /// include them; `None` counts chunks only.
     pub regions: Option<RegionTracker>,
@@ -267,6 +273,7 @@ impl TerrainStream {
             source,
             ground: Arc::new(GroundStack::bare(0, 1.0)),
             rough_from: None,
+            mid_from: None,
             regions: None,
             coarse_first: true,
         }
@@ -286,6 +293,7 @@ impl TerrainStream {
             ground: Arc::new(GroundStack::bare(world.options().seed, 1.0)),
             source: Arc::new(world),
             rough_from: None,
+            mid_from: None,
             regions: Some(tracker),
             coarse_first: true,
         }
@@ -293,9 +301,13 @@ impl TerrainStream {
 
     /// The tier chunks at `level` end up drawn at.
     pub fn tier(&self, level: u8) -> FeatureTier {
-        match self.rough_from {
-            Some(from) if level >= from => FeatureTier::Rough,
-            _ => FeatureTier::Fine,
+        let from = |from: Option<u8>| from.is_some_and(|from| level >= from);
+        if from(self.rough_from) {
+            FeatureTier::Rough
+        } else if from(self.mid_from) {
+            FeatureTier::Mid
+        } else {
+            FeatureTier::Fine
         }
     }
 }

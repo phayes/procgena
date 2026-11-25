@@ -498,6 +498,47 @@ fn a_chunk_without_finer_neighbours_is_a_plain_grid() {
 }
 
 #[test]
+fn mid_tier_roads_outline_the_fine_ones() {
+    let (full, bare) = plains();
+    let mid = bare.with_tier(FeatureTier::Mid);
+    let fine = mid.clone().with_tier(FeatureTier::Fine);
+    assert_eq!(mid.tier(), FeatureTier::Mid);
+    assert!(!mid.roads().is_empty());
+
+    // Going through the mid tier gives the fine roads a terrain is built
+    // with.
+    assert_eq!(fine.roads(), full.roads());
+
+    // Every fine road starts where an outline road starts, and stays within
+    // the outline's corridor (48 m) and a coarse cell (16 m) of it.
+    let distance = |line: &procgena_terrain::FeatureLine, p: DVec2| {
+        line.points
+            .windows(2)
+            .map(|w| {
+                let ab = w[1] - w[0];
+                let t = ((p - w[0]).dot(ab) / ab.length_squared().max(1e-12)).clamp(0.0, 1.0);
+                p.distance(w[0] + ab * t)
+            })
+            .fold(f64::INFINITY, f64::min)
+    };
+    for road in fine.roads() {
+        assert!(mid.roads().iter().any(|o| o.points[0] == road.points[0]));
+        for &p in &road.points {
+            let nearest = mid
+                .roads()
+                .iter()
+                .map(|o| distance(o, p))
+                .fold(f64::INFINITY, f64::min);
+            assert!(nearest <= 64.0, "{p} is {nearest} m from the outline");
+        }
+    }
+
+    // Chunks drawn at the mid tier sit within skirt reach of fine ones.
+    assert!(fine.tier_difference(FeatureTier::Mid) > 0.0);
+    assert_eq!(fine.tier_difference(FeatureTier::Fine), 0.0);
+}
+
+#[test]
 fn rough_chunks_match_fine_ones_away_from_roads() {
     let (full, bare) = plains();
     assert_eq!(
@@ -690,17 +731,26 @@ fn a_world_gives_provisional_and_canonical_chunks() {
         }
     }
 
-    // The fine tier adds only the roads; nothing is built twice.
+    // The mid and fine tiers add only the roads, in outline and then in
+    // full; nothing is built twice.
     let fine = world.terrain(region).unwrap();
     let all = told.lock().unwrap().clone();
+    let mid_stage = RegionStage::Tier(FeatureTier::Mid);
+    assert_eq!(
+        finished(&all[after_ground.len()..], mid_stage),
+        vec![region]
+    );
     assert_eq!(
         finished(&all[after_ground.len()..], fine_stage),
         vec![region]
     );
-    assert_eq!(all.len(), after_ground.len() + 2);
+    assert_eq!(all.len(), after_ground.len() + 4);
+    let mid = world.terrain_tier(region, FeatureTier::Mid).unwrap();
     assert!(rough.tier() == FeatureTier::Rough && fine.tier() == FeatureTier::Fine);
-    assert!(rough.roads().is_empty() && !fine.roads().is_empty());
+    assert_eq!(mid.tier(), FeatureTier::Mid);
+    assert!(rough.roads().is_empty() && !mid.roads().is_empty() && !fine.roads().is_empty());
     assert_eq!(rough.rivers(), fine.rivers());
+    assert_eq!(mid.rivers(), fine.rivers());
     // With the fine tier built, the rough tier is still the rough one.
     let again = world.terrain_tier(region, FeatureTier::Rough).unwrap();
     assert!(Arc::ptr_eq(&again, &rough));
