@@ -15,11 +15,11 @@ use bevy::pbr::StandardMaterialKey;
 use bevy::prelude::*;
 use bevy::render::combined_bind_group::CombinedBindGroupData;
 use bevy::transform::TransformSystems;
-use procgena_core::chain::{DistanceChain, ViewScale};
-use procgena_core::{LevelForm, Lod, LodLevel, OptionsHash, PoolId, SpecimenId};
+use procgena_core::chain::DistanceChain;
+use procgena_core::{Lod, OptionsHash, PoolId, SpecimenId};
 use procgena_core_bevy::instanced::{
     ExternalMeshId, InstancedCopy, InstancedMaterialPlugin, InstancedPart, InstancedScatter,
-    InstancedSlot, PartMesh, SpecimenCache,
+    InstancedSlot, PartMesh, SpecimenCache, chain_lod,
 };
 use procgena_impostor::{ImpostorMaterial, ImpostorPipelineKey};
 use procgena_stone::gpu::MAX_GPU_RESOLUTION;
@@ -346,31 +346,11 @@ fn pool_material(pool: &StonePool, textures: Option<&StoneTextures>) -> StoneMat
 }
 
 /// The shared instanced renderer's level table for pooled rocks: the shared
-/// [`DistanceChain`]'s steps as metre distances for a rock 1 m across seen
-/// through a [`ViewScale::DEFAULT`] camera at High quality. With each copy's
-/// [`InstancedCopy::size`] set to its rock's bounding diameter, the renderer's
-/// fade bands are exactly [`DistanceChain::ranges`] at every quality.
-///
-/// The table holds the game-level mesh (level 0), the lower mesh (level 1)
-/// and, with `impostor`, the impostor (level 2, casting no shadows). Without
-/// it, the lower mesh is drawn until the cull.
-///
-/// Temporary: it translates the chain into the renderer's older level table
-/// only until the renderer takes the chain itself. IX Step 4 deletes it.
+/// [`DistanceChain`]'s game-level mesh, lower mesh and, with `impostor`,
+/// impostor (see [`chain_lod`]). Each copy's [`InstancedCopy::size`] is its
+/// rock's bounding diameter.
 pub(crate) fn renderer_lod(impostor: bool) -> Lod {
-    let chain = DistanceChain::DEFAULT;
-    let distance = |threshold: f32| ViewScale::DEFAULT.get() / threshold;
-    let mut levels = vec![
-        LodLevel::new(0.0, chain.hysteresis, ()),
-        LodLevel::new(distance(chain.lower_below), chain.hysteresis, ()),
-    ];
-    if impostor {
-        let level = LodLevel::new(distance(chain.impostor_below), chain.hysteresis, ())
-            .with_form(LevelForm::Impostor)
-            .without_shadows();
-        levels.push(level);
-    }
-    Lod::new(1.0, levels).with_cull(distance(chain.cull_below))
+    chain_lod(&DistanceChain::DEFAULT, impostor)
 }
 
 /// One slot per variant of `pool`, defined at `version`, each drawing the
@@ -539,45 +519,5 @@ mod tests {
         let mut ultra = valid.clone();
         ultra.options.mesh.game_level = StoneDetail::ULTRA;
         assert_eq!(ultra.validate(), Ok(()));
-    }
-
-    /// The renderer's table, scaled as the renderer scales it (by a copy's
-    /// size and the quality's distance scale), gives the chain's own fade
-    /// bands at every quality, with and without the impostor.
-    #[test]
-    fn the_renderer_table_draws_the_chain() {
-        let chain = DistanceChain::DEFAULT;
-        let size = StoneOptions::default().bounding_diameter();
-        let factor = DistanceChain::factor(size, ViewScale::DEFAULT);
-        let close = |a: f32, b: f32| (a - b).abs() <= b.abs() * 1e-5 || a == b;
-        let same = |a: &procgena_core::LodRange, b: &procgena_core::LodRange| {
-            close(a.fade_in.start, b.fade_in.start)
-                && close(a.fade_in.end, b.fade_in.end)
-                && close(a.fade_out.start, b.fade_out.start)
-                && close(a.fade_out.end, b.fade_out.end)
-        };
-        for impostor in [false, true] {
-            let lod = renderer_lod(impostor);
-            lod.validate().unwrap();
-            assert_eq!(lod.levels.len(), if impostor { 3 } else { 2 });
-            assert!(lod.levels[..2].iter().all(|level| level.casts_shadows));
-            for quality in procgena_core::Quality::ALL {
-                let table = lod.ranges(size / lod.reference_size * quality.distance_scale());
-                let [game, lower, last] = chain.ranges(factor, quality);
-                let expected = if impostor {
-                    vec![game, lower, last]
-                } else {
-                    let lower = procgena_core::LodRange {
-                        fade_in: lower.fade_in,
-                        fade_out: last.fade_out,
-                    };
-                    vec![game, lower]
-                };
-                for (got, want) in table.iter().zip(&expected) {
-                    assert!(same(got, want), "{quality:?}: {got:?} != {want:?}");
-                }
-            }
-        }
-        assert!(!renderer_lod(true).levels[2].casts_shadows);
     }
 }
