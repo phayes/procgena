@@ -70,11 +70,13 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use glam::{DVec2, DVec3};
 use procgena_core::Lod;
+use procgena_core::chain::ViewScale;
 use procgena_core_bevy::{LodPlugin, LodQuality};
 use procgena_terrain::ground::{GroundPainter, GroundSource, GroundStack, GroundWeights};
 use procgena_terrain::{
-    ChunkError, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSelectionError,
-    ChunkSource, FeatureTier, RegionStage, Transitions, WaterMesh, WorldTerrain, chunk_lod,
+    ChunkDetail, ChunkError, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection,
+    ChunkSelectionError, ChunkSource, FeatureTier, RegionStage, Transitions, WaterMesh,
+    WorldTerrain,
 };
 
 pub use material::{DEFAULT_VARIATION, TerrainExtension, TerrainMaterial, TerrainSurface};
@@ -93,25 +95,31 @@ pub const DEFAULT_VIEW_DISTANCE: f32 = 4000.0;
 /// shared [`LodPlugin`], whose [`LodQuality`] scales every chunk level's
 /// distance and the view distance.
 ///
-/// Make one with [`new`](Self::new), which checks the chunk levels, or use
-/// the default: [`chunk_lod`] drawn out to [`DEFAULT_VIEW_DISTANCE`].
+/// Make one with [`detailed`](Self::detailed), whose chunk levels follow
+/// the viewers' field of view, or [`new`](Self::new), with fixed chunk
+/// levels, or use the default: [`ChunkDetail::DEFAULT`] drawn out to
+/// [`DEFAULT_VIEW_DISTANCE`].
 #[derive(Debug, Clone)]
 pub struct TerrainPlugin {
     lod: Lod,
+    detail: Option<(ChunkDetail, f32)>,
     variation: f32,
     max_reads: usize,
 }
 
 impl Default for TerrainPlugin {
     fn default() -> Self {
-        Self::new(chunk_lod(DEFAULT_VIEW_DISTANCE)).expect("the usual chunk levels are valid")
+        Self::detailed(ChunkDetail::DEFAULT, DEFAULT_VIEW_DISTANCE)
+            .expect("the usual chunk levels are valid")
     }
 }
 
 impl TerrainPlugin {
     /// The plugin drawing chunk levels `lod`: level `i` of the `Lod` is
-    /// chunk level `i`, and its cull distance is the view distance.
-    /// [`chunk_lod`] gives the usual levels for any view distance.
+    /// chunk level `i`, and its cull distance is the view distance. The
+    /// levels stay the same whatever the viewers' field of view.
+    /// [`chunk_lod`](procgena_terrain::chunk_lod) gives the usual levels
+    /// for any view distance.
     ///
     /// # Errors
     ///
@@ -122,8 +130,30 @@ impl TerrainPlugin {
         ChunkSelection::around(&lod, 1.0, &[], None)?;
         Ok(Self {
             lod,
+            detail: None,
             variation: DEFAULT_VARIATION,
             max_reads: 4,
+        })
+    }
+
+    /// The plugin drawing chunks as fine as `detail` asks, out to
+    /// `view_distance` metres. The levels follow the field of view of the
+    /// [`TerrainViewer`] cameras: the narrowest, which needs the finest
+    /// chunks, wins, and `detail`'s own [`view`](ChunkDetail::view) is used
+    /// until a perspective viewer is seen.
+    ///
+    /// # Errors
+    ///
+    /// If `view_distance` isn't a positive number.
+    ///
+    /// # Panics
+    ///
+    /// If `detail`'s share of the screen isn't a positive number (see
+    /// [`ChunkDetail::lod`]).
+    pub fn detailed(detail: ChunkDetail, view_distance: f32) -> Result<Self, ChunkSelectionError> {
+        Ok(Self {
+            detail: Some((detail, view_distance)),
+            ..Self::new(detail.lod(view_distance))?
         })
     }
 
@@ -141,7 +171,7 @@ impl TerrainPlugin {
         self
     }
 
-    /// The chunk levels.
+    /// The chunk levels, before any viewer's field of view is seen.
     pub fn lod(&self) -> &Lod {
         &self.lod
     }
@@ -155,6 +185,7 @@ impl Plugin for TerrainPlugin {
         app.add_plugins(LodPlugin)
             .insert_resource(TerrainSettings {
                 lod: self.lod.clone(),
+                detail: self.detail,
                 variation: self.variation,
                 max_reads: self.max_reads,
             })
@@ -163,7 +194,13 @@ impl Plugin for TerrainPlugin {
             .init_resource::<GroundTextures>()
             .add_systems(
                 Update,
-                (reset_streams, stream_chunks, update_materials).chain(),
+                (
+                    follow_field_of_view,
+                    reset_streams,
+                    stream_chunks,
+                    update_materials,
+                )
+                    .chain(),
             );
     }
 }
@@ -325,7 +362,11 @@ pub struct TerrainDebug {
 /// The plugin's settings.
 #[derive(Resource)]
 struct TerrainSettings {
+    /// The chunk levels drawn now.
     lod: Lod,
+    /// The detail and view distance the levels follow the viewers' field
+    /// of view with, if they do.
+    detail: Option<(ChunkDetail, f32)>,
     variation: f32,
     max_reads: usize,
 }
@@ -507,6 +548,32 @@ fn chunk_material(
         },
         extension,
     })
+}
+
+/// With levels that follow a [`ChunkDetail`], sets them for the narrowest
+/// field of view among the perspective [`TerrainViewer`] cameras, when it
+/// changes.
+fn follow_field_of_view(
+    mut settings: ResMut<TerrainSettings>,
+    viewers: Query<&Projection, With<TerrainViewer>>,
+) {
+    let Some((detail, view_distance)) = settings.detail else {
+        return;
+    };
+    let narrowest = viewers
+        .iter()
+        .filter_map(|projection| match projection {
+            Projection::Perspective(p) if p.fov > 0.0 && p.fov < std::f32::consts::PI => {
+                Some(ViewScale::perspective(p.fov))
+            }
+            _ => None,
+        })
+        .max_by(|a, b| a.get().total_cmp(&b.get()));
+    let Some(view) = narrowest else { return };
+    let lod = ChunkDetail { view, ..detail }.lod(view_distance);
+    if lod != settings.lod {
+        settings.lod = lod;
+    }
 }
 
 /// Gives new streams their state, and starts changed ones over.
@@ -832,7 +899,7 @@ mod tests {
     use bevy::asset::AssetPlugin;
     use bevy::time::TimeUpdateStrategy;
     use procgena_terrain::{
-        Boundary, ChunkDetail, Region, RegionId, TerrainGenerator, TerrainPreset,
+        Boundary, ChunkDetail, Region, RegionId, TerrainGenerator, TerrainPreset, chunk_lod,
     };
 
     use super::*;
@@ -890,6 +957,7 @@ mod tests {
         // renderer.
         app.insert_resource(TerrainSettings {
             lod: plugin.lod.clone(),
+            detail: plugin.detail,
             variation: plugin.variation,
             max_reads: plugin.max_reads,
         })
@@ -930,6 +998,46 @@ mod tests {
         endless.cull_distance = None;
         assert!(TerrainPlugin::new(endless).is_err());
         assert!(TerrainPlugin::new(chunk_lod(4000.0)).is_ok());
+        assert!(TerrainPlugin::detailed(ChunkDetail::DEFAULT, -1.0).is_err());
+    }
+
+    #[test]
+    fn detailed_levels_follow_the_narrowest_field_of_view() {
+        let mut app = App::new();
+        let plugin = TerrainPlugin::detailed(ChunkDetail::DEFAULT, 4000.0).unwrap();
+        app.insert_resource(TerrainSettings {
+            lod: plugin.lod.clone(),
+            detail: plugin.detail,
+            variation: plugin.variation,
+            max_reads: plugin.max_reads,
+        })
+        .add_systems(Update, follow_field_of_view);
+        let level_1 = |app: &App| app.world().resource::<TerrainSettings>().lod.levels[1].distance;
+        let usual = level_1(&app);
+
+        // A viewer with Bevy's usual 45° keeps the usual levels; a second,
+        // zoomed in to 15°, needs finer ground three times as far out.
+        let perspective = |fov: f32| {
+            (
+                TerrainViewer,
+                Projection::Perspective(PerspectiveProjection { fov, ..default() }),
+            )
+        };
+        app.world_mut().spawn(perspective(45f32.to_radians()));
+        app.update();
+        assert!((level_1(&app) - usual).abs() < 1e-3);
+        app.world_mut().spawn(perspective(15f32.to_radians()));
+        app.update();
+        let ratio = level_1(&app) / usual;
+        let expected = (22.5f32.to_radians().tan()) / (7.5f32.to_radians().tan());
+        assert!((ratio - expected).abs() < 1e-3, "{ratio} times as far");
+
+        // Levels fixed by `new` stay put.
+        let fixed = TerrainPlugin::new(chunk_lod(4000.0)).unwrap();
+        app.world_mut().resource_mut::<TerrainSettings>().detail = fixed.detail;
+        app.world_mut().resource_mut::<TerrainSettings>().lod = fixed.lod.clone();
+        app.update();
+        assert_eq!(app.world().resource::<TerrainSettings>().lod, fixed.lod);
     }
 
     #[test]

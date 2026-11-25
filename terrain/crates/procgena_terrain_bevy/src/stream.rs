@@ -46,6 +46,9 @@ pub(crate) struct Stream {
     /// The drawn stand-ins: chunks drawn from a coarser chunk's ground
     /// until they are read themselves.
     stand_ins: HashMap<ChunkKey, Read>,
+    /// Whether the target or the reads changed since the drawn chunks
+    /// were last chosen, so [`swap`](Self::swap) may change them.
+    stale: bool,
 }
 
 /// What to change in the drawn chunks.
@@ -66,11 +69,13 @@ impl Stream {
         self.reading.clear();
         self.refreshed.clear();
         self.no_upgrade.clear();
+        self.stale = true;
     }
 
     /// Wants `target` from now on.
     pub(crate) fn retarget(&mut self, target: ChunkSelection) {
         self.target = target;
+        self.stale = true;
     }
 
     /// Chunks of the target that are neither read nor being read, nearest
@@ -137,6 +142,7 @@ impl Stream {
         self.reading.remove(&key);
         if !self.is_upgrade(key) {
             self.samples.insert(key, read);
+            self.stale = true;
         } else if read.is_none() {
             self.no_upgrade.insert(key);
         } else {
@@ -226,7 +232,9 @@ impl Stream {
     /// split into stand-ins where needed (see [`ChunkSelection::blend`]).
     /// After a reset, nothing changes until the whole target is read, so
     /// old and new ground are never drawn side by side. `None` when
-    /// nothing changes. Samples no longer needed are dropped.
+    /// nothing changes, which it skips working out when neither the target
+    /// nor the reads changed since the last call. Samples no longer needed
+    /// are dropped.
     pub(crate) fn swap(&mut self) -> Option<Swap> {
         // The chunks to draw next, and their stand-ins: kept if drawn as
         // such already, or split from the ground drawn now.
@@ -241,6 +249,11 @@ impl Stream {
             }
             (self.target.clone(), HashMap::new())
         } else {
+            // Nothing new to draw since the last choice.
+            if !self.stale {
+                return None;
+            }
+            self.stale = false;
             let blend = self
                 .target
                 .blend(&self.drawn, |key| self.samples.contains_key(&key));

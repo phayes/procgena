@@ -39,14 +39,18 @@ fn main() {
 
     let mut app = App::new();
     scene::add_asset_sources(&mut app);
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "procgena".into(),
-            resolution: (1440, 900).into(),
-            ..default()
-        }),
-        ..default()
-    }))
+    app.add_plugins(
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "procgena".into(),
+                    resolution: (1440, 900).into(),
+                    ..default()
+                }),
+                ..default()
+            })
+            .set(scene::task_pool_plugin()),
+    )
     // Sleep while nothing changes; the scene asks for frames when it needs them.
     .insert_resource(WinitSettings::desktop_app());
     if let Some(folder) = studio::project::ProjectFolder::default_project() {

@@ -16,7 +16,8 @@ const BYTES_PER_PIXEL: usize = 4;
 /// Row alignment the GPU uses when copying a texture into a buffer.
 const COPY_ROW_ALIGNMENT: usize = 256;
 
-/// Bevy's default plugins without a window, event loop or Ctrl-C handler.
+/// Bevy's default plugins without a window, event loop or Ctrl-C handler,
+/// with the studio's thread pools.
 ///
 /// Pipelined rendering is off, so each frame is finished when `update`
 /// returns. Bevy's logging can be set up only once per process, so only the
@@ -28,6 +29,7 @@ pub fn headless_plugins() -> PluginGroupBuilder {
         .disable::<PipelinedRenderingPlugin>()
         .disable::<TerminalCtrlCHandlerPlugin>()
         .disable::<WinitPlugin>()
+        .set(super::task_pool_plugin())
         .set(WindowPlugin {
             primary_window: None,
             exit_condition: ExitCondition::DontExit,

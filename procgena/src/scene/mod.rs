@@ -67,6 +67,7 @@ pub use plants::{FieldSettings, PlantsSubject};
 pub use protocol::{BuildStats, GroveProgress, ViewerCommand, ViewerEvent};
 pub use stone::StoneSubject;
 pub use subject::{AddSubject, Detail, Show, Shown};
+pub(crate) use terrain::task_pool_plugin;
 pub use terrain::{TerrainSettings, TerrainShow, TerrainSubject};
 pub use texture_reader::TextureDownloads;
 pub use tree::TreeSubject;

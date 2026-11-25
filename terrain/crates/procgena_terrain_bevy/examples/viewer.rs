@@ -198,7 +198,8 @@ fn main() {
     });
     let lod = detail.lod(view);
     let reads: Option<usize> = value("--reads").map(|n| n.parse().expect("--reads needs a number"));
-    let mut plugin = TerrainPlugin::new(lod.clone()).expect("--view needs a positive distance");
+    let mut plugin =
+        TerrainPlugin::detailed(detail, view).expect("--view needs a positive distance");
     if let Some(reads) = reads {
         plugin = plugin.with_max_reads(reads);
     }
