@@ -986,7 +986,8 @@ go to the few copies near the camera.
     by the user 2026-11-25; first called the "near level"). It is a style, and different kinds
     of object may want different ones, so each preset says which built
     level is the object's game level (level 1 by default; level 0
-    opt-in). It is more than the level drawn nearest the camera: it is
+    opt-in; tree presets default to level 0, the user, 2026-11-25). It
+    is more than the level drawn nearest the camera: it is
     the shape the rest of the game uses, so physics colliders, picking,
     CPU queries and impostor bakes all read it, and coarser levels exist
     only for drawing at a distance.
