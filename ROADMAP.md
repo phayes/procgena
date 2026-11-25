@@ -1037,11 +1037,25 @@ go to the few copies near the camera.
     impostor). Follow-up: give more objects clusters of their own (trees,
     stones and others), so cluster impostors have more to work on.
   - **The rest of the planning talk, settled 2026-11-25 (the user):**
-    - **Unit:** size on screen is a copy's height as a fraction of the
-      screen's height, so the chain is the same at any resolution. Each
-      impostor's frame size follows from where it takes over, so an
-      impostor is never shown larger than its frame. Good enough to
-      build on; follow-up: revisit the unit after the experiment.
+    - **Unit:** size on screen is a copy's largest dimension (its
+      bounding-sphere diameter, so fallen logs don't switch early) as a
+      fraction of the screen's height, so the chain is the same at any
+      resolution. Good enough to build on; follow-up: revisit the unit
+      after the experiment.
+    - **Impostor frames are baked once per preset**, sized for the
+      largest on-screen size any quality level can show (at
+      `Quality::Low`, where the impostor takes over soonest), with
+      mipmaps so higher quality levels sample a smaller copy. A quality
+      change never rebakes, and an impostor is never shown larger than
+      its frame. The experiment reports the memory cost against a
+      High-sized bake.
+    - **Build answers (2026-11-25):** terrain's chunk table moves into
+      `procgena_terrain` as its own type; `procgena_specimen` levels
+      drop their metre distances too; cull stays (about 3 px); the
+      proposed default thresholds are the starting point; stone keeps
+      its six resolutions with Medium Low as the default `game_level`;
+      new types land beside the old and the last asset step deletes the
+      old. Details: `docs/decisions/IX-plan.md`.
     - **The conversion is one churn window**, after the current wave
       lands, with no compatibility layer: the three-step `Lod` and a
       default chain in the engine-free core first, then stone, then
