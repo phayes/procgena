@@ -1,5 +1,5 @@
-//! Saves every preset as OBJ and GLB files, each holding all of its default
-//! levels of detail, plus a kindling scatter as one GLB file. The files go
+//! Saves every preset as OBJ and GLB files, each holding its game-level and
+//! lower meshes, plus a kindling scatter as one GLB file. The files go
 //! in `target/procgena_deadwood_export/` at the top of the workspace.
 //!
 //! ```bash
@@ -12,7 +12,7 @@ use std::path::Path;
 use glam::{DVec2, Vec2};
 use procgena_core::scatter::{ScatterArea, ScatterInput};
 use procgena_deadwood::export::{gltf, obj};
-use procgena_deadwood::{DeadwoodPreset, Piece, ScatterOptions, StickScatter, default_lod};
+use procgena_deadwood::{DeadwoodPreset, Piece, ScatterOptions, StickScatter};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir =
@@ -22,11 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Every preset, one object per level of detail.
     for preset in DeadwoodPreset::all() {
         let piece = Piece::from_preset(preset)?;
-        let meshes: Vec<_> = piece
-            .lod_meshes(&default_lod())?
-            .into_iter()
-            .map(|(_, m)| m)
-            .collect();
+        let meshes: Vec<_> = piece.lod_meshes().into_iter().map(|(_, m)| m).collect();
         let name = &preset.key;
 
         let files = obj::to_obj(&meshes, piece.options(), &format!("{name}.mtl"));

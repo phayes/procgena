@@ -246,6 +246,20 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.material.alpha_cutoff,
         pbr_input.material.base_color,
     );
+
+    // Impostor bake copies draw the unlit colour or normal, fully opaque,
+    // instead of lit colour (the normal is in the bake view's camera space,
+    // which is world space for bake copies).
+@if(BAKE_ALBEDO) {
+    var baked: FragmentOutput;
+    baked.color = vec4<f32>(pbr_input.material.base_color.rgb, 1.0);
+    return baked;
+}
+@if(BAKE_NORMAL) {
+    var baked: FragmentOutput;
+    baked.color = vec4<f32>(normalize(pbr_input.N) * 0.5 + 0.5, 1.0);
+    return baked;
+}
     apply_decals(&pbr_input);
 
     // Deferred rendering stores the surface to light later; forward

@@ -17,7 +17,7 @@ cold; a warm run takes about 10 s.
 
 | Crate | Command (after `cargo run -p <crate> --example viewer --`) | Textures from |
 |---|---|---|
-| `procgena_deadwood_bevy` | `--headless --screenshot <png>`; also `--preset <snake_name>`, `--scatter <kindling\|twig_litter>`, `--distance <m>` (for checking each detail level), `--closeup`, `--orbit <deg>`, `--flat`, `--no-textures` | `deadwood/assets/textures` |
+| `procgena_deadwood_bevy` | `--headless --screenshot <png>`; also `--preset <snake_name>`, `--scatter <kindling\|twig_litter>`, `--distance <m>` (for checking each step of the drawing chain), `--closeup`, `--orbit <deg>`, `--no-impostors`, `--no-textures` | `deadwood/assets/textures` |
 | `procgena_mushroom_bevy` | `--headless --screenshot <png>`; also `--preset <snake_name>`, `--closeup`, `--orbit <deg>`, `--flat` | `mushroom/assets/textures` |
 | `procgena_clump_bevy` | `--headless --screenshot <png>`; also `--eye x y z --target x y z` | `clump`, `stone`, `tree` assets |
 | `procgena_stone_bevy` | `--headless --screenshot <png>`; also `--eye`, `--target`, `--resolution w h` | `stone/assets/textures` |

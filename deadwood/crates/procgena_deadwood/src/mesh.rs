@@ -213,6 +213,36 @@ impl DeadwoodMesh {
                 .map_or(0, |r| r.strip.triangle_count() + r.cull.triangle_count())
             + self.leaves.as_ref().map_or(0, MeshBuffers::triangle_count)
     }
+
+    /// A sphere around everything the mesh draws, as a centre and a radius
+    /// in metres: the sphere through the corners of the smallest box around
+    /// the round stems, the leaf cards, and every position a strip can turn
+    /// to. A mesh with nothing in it gives a point at the origin.
+    ///
+    /// Its diameter is the piece's size on screen for choosing what to
+    /// draw, and an impostor of the piece covers it.
+    pub fn bounding_sphere(&self) -> ([f32; 3], f32) {
+        let mut min = Vec3::INFINITY;
+        let mut max = Vec3::NEG_INFINITY;
+        let mut add = |lo: Vec3, hi: Vec3| {
+            min = min.min(lo);
+            max = max.max(hi);
+        };
+        let buffers = std::iter::once(&self.surfaces).chain(self.leaves.as_ref());
+        for p in buffers.flat_map(|b| &b.positions) {
+            add(Vec3::from(*p), Vec3::from(*p));
+        }
+        for b in self.ribbons.iter().flat_map(|r| &r.billboards) {
+            let pivot = Vec3::from(b.pivot);
+            let reach = b.offset[0].hypot(b.offset[1]);
+            add(pivot - reach, pivot + reach);
+        }
+        if min.x > max.x {
+            return ([0.0; 3], 0.0);
+        }
+        let centre = (min + max) * 0.5;
+        (centre.into(), (max - centre).length())
+    }
 }
 
 /// Colours and rot for a piece.
@@ -272,7 +302,7 @@ pub(crate) fn build_mesh(limbs: &[Limb], detail: &DeadwoodDetail, shade: &Shade)
             if limb.role != Role::Main && r < detail.min_radius {
                 continue;
             }
-            if detail.strip_all || (limb.role != Role::Main && r < detail.ribbon_radius) {
+            if limb.role != Role::Main && r < detail.ribbon_radius {
                 ribbon(&mut ribbons, limb, detail, main_radius, shade);
                 continue;
             }

@@ -2,12 +2,11 @@
 //! generators use to hand meshes to each other, so that, for example, moss
 //! from `procgena_clump` can grow on a log.
 
+use procgena_core::chain::{DistanceChain, Step, ViewScale};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, TagSet, tags};
 
-use crate::detail::{DeadwoodLod, LodLevel};
 use crate::limb::SizeClass;
 use crate::mesh::{DeadwoodMesh, MeshBuffers, PartRange};
-use crate::options::OptionsError;
 use crate::piece::Piece;
 
 impl SizeClass {
@@ -40,34 +39,44 @@ impl DeadwoodMesh {
 }
 
 impl Piece {
-    /// Builds a [`Specimen`] with one level per level of `lod`, for handing
-    /// the piece to other procgena generators.
-    ///
-    /// # Errors
-    ///
-    /// Returns the first problem with `lod`; see [`crate::validate_lod`].
+    /// Builds a [`Specimen`] for handing the piece to other procgena
+    /// generators. It has two levels: the game-level mesh, then the lower
+    /// mesh (see [`Piece::lod_meshes`]).
     ///
     /// # Panics
     ///
     /// Panics if a mesh needs more vertices than fit in a 32-bit index.
-    pub fn specimen(&self, lod: &DeadwoodLod) -> Result<Specimen, OptionsError> {
-        Ok(specimen_from_meshes(&self.lod_meshes(lod)?))
+    pub fn specimen(&self) -> Specimen {
+        specimen_from_meshes(&self.lod_meshes())
     }
 }
 
-/// Builds a [`Specimen`] from meshes made by [`Piece::lod_meshes`]. Each
-/// level of the specimen starts at its level's
-/// [`distance`](procgena_core::LodLevel::distance).
-pub fn specimen_from_meshes(meshes: &[(LodLevel, DeadwoodMesh)]) -> Specimen {
+/// Builds a [`Specimen`] from meshes made by [`Piece::lod_meshes`]. The
+/// lower level starts where the default
+/// [`DistanceChain`](procgena_core::chain::DistanceChain) switches to it for
+/// this piece (see [`lower_start`]).
+pub fn specimen_from_meshes(meshes: &[(Step, DeadwoodMesh); 2]) -> Specimen {
+    let (_, radius) = meshes[0].1.bounding_sphere();
+    let starts = [0.0, lower_start(2.0 * radius)];
     Specimen {
         levels: meshes
             .iter()
-            .map(|(level, mesh)| Level {
-                start: level.distance,
+            .zip(starts)
+            .map(|((_, mesh), start)| Level {
+                start,
                 parts: mesh.specimen_parts(),
             })
             .collect(),
     }
+}
+
+/// The camera distance in metres where the default [`DistanceChain`]
+/// switches from the game-level mesh to the lower mesh, for a piece whose
+/// game-level mesh has a bounding sphere `diameter` metres across (see
+/// [`DeadwoodMesh::bounding_sphere`]), seen through a
+/// [`ViewScale::DEFAULT`] camera at High quality.
+pub fn lower_start(diameter: f32) -> f32 {
+    DistanceChain::factor(diameter, ViewScale::DEFAULT) / DistanceChain::DEFAULT.lower_below
 }
 
 /// Copies the vertices and triangles of `range` into a closed, tagged part,

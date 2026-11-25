@@ -174,15 +174,13 @@ mod tests {
         let kinds = kinds();
         let levels = |id| kinds.get(id).unwrap().detail_levels.len();
         assert_eq!(levels("tree"), crate::scene::lod_levels().len());
-        // The scene uses the mushroom and dead wood plugins' default levels.
+        // The scene uses the mushroom plugin's default levels.
         assert_eq!(
             levels("mushroom"),
             procgena_mushroom::default_lod().levels.len()
         );
-        assert_eq!(
-            levels("deadwood"),
-            procgena_deadwood::default_lod().levels.len()
-        );
+        // Dead wood shows each step of its drawing chain.
+        assert_eq!(levels("deadwood"), procgena_core::chain::Step::ALL.len());
         // Grass and plants have three levels.
         assert_eq!(levels("plant"), 3);
         assert_eq!(levels("plant_scatter"), 3);

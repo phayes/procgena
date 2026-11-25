@@ -1214,8 +1214,12 @@ go to the few copies near the camera.
     headless screenshot check of a rock across the chain, the Codex
     comment rewrite of Steps 1 and 2 (Codex was out of credits), and the
     real-bounds follow-up below.
-  - **Step 3, next:** dead wood (coordinate with the ED worker first: it
-    is making dead wood build once per copy), mushroom, tree (presets
+  - **Step 3 in progress:** dead wood built on branch
+    `claude/project-thread-4vtiyy` (game level → lower mesh → impostor for
+    single pieces and stick scatters, sized by each mesh's real bounding
+    sphere; see Step 3's "As built" in the plan), with the chain bridge
+    shared as `procgena_core_bevy::instanced::chain_lod`. Still to do:
+    mushroom, tree (presets
     default to level 0 as `game_level`; gains a `game_level` on
     `TreeOptions`, which touches ST2's presets), fruit; each drops its
     ribbon far forms. The last kind deletes the old `Lod`, `LodLevel`,

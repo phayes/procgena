@@ -1,5 +1,6 @@
-//! Renders dead wood at every detail level on a real GPU and checks that
-//! every shader pipeline compiles.
+//! Renders dead wood at every step of the drawing chain (game level, lower
+//! mesh and impostor) on a real GPU and checks that every shader pipeline
+//! compiles.
 //!
 //! Needs a GPU, so it is ignored by default. Run it with:
 //!
@@ -22,8 +23,9 @@ use bevy::tasks::tick_global_task_pools_on_main_thread;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use procgena_core::Quality;
+use procgena_core::chain::{DistanceChain, Step, ViewScale};
 use procgena_core_bevy::instanced::InstancedScatter;
-use procgena_deadwood::{DeadwoodPreset, ScatterOptions, default_lod, lod_size};
+use procgena_deadwood::{DeadwoodPreset, Piece, ScatterOptions};
 use procgena_deadwood_bevy::{
     DeadwoodGenerating, DeadwoodParams, DeadwoodPart, DeadwoodPartKind, DeadwoodPlugin,
     DeadwoodScatterParams, ScatterGround,
@@ -80,7 +82,7 @@ fn headless_app() -> App {
 
 /// Spawns a camera drawing into an image, a shadow-casting light, a stick
 /// scatter, and copies of a branch with strips at distances that fall in
-/// each of its detail levels.
+/// each step of its drawing chain.
 fn spawn_scene(app: &mut App) {
     let image = Image::new_target_texture(320, 240, TextureFormat::Rgba8UnormSrgb, None);
     let image = app.world_mut().resource_mut::<Assets<Image>>().add(image);
@@ -98,14 +100,16 @@ fn spawn_scene(app: &mut App) {
     ));
 
     // A dead branch has bark, a sawn and a snapped end, and side twigs that
-    // become strips; one copy per level, midway through it.
+    // become strips; one copy per step of the drawing chain, midway between
+    // its fades.
     let options = DeadwoodPreset::dead_branch().deadwood.clone();
-    let lod = default_lod();
-    let factor = lod.factor(lod_size(&options), Quality::High);
-    let mut starts: Vec<f32> = lod.levels.iter().map(|l| l.distance * factor).collect();
-    starts.push(lod.cull_distance.expect("the default levels cull") * factor);
-    for pair in starts.windows(2) {
-        let z = -(pair[0] + pair[1]) * 0.5;
+    let (_, radius) = Piece::new(options.clone())
+        .expect("the preset is valid")
+        .mesh()
+        .bounding_sphere();
+    let factor = DistanceChain::factor(radius * 2.0, ViewScale::DEFAULT);
+    for range in DistanceChain::DEFAULT.ranges(factor, Quality::High) {
+        let z = -(range.fade_in.end + range.fade_out.start) * 0.5;
         app.world_mut().spawn((
             DeadwoodParams::new(options.clone()),
             Transform::from_xyz(0.0, 0.0, z + 1.5),
@@ -124,8 +128,8 @@ fn spawn_scene(app: &mut App) {
     });
 }
 
-/// Runs frames until every piece is built and no pipeline has compiled for
-/// a while.
+/// Runs frames until every piece is built, an impostor is drawn, and no
+/// pipeline has compiled for a while.
 fn run_until_settled(app: &mut App) {
     let deadline = Instant::now() + LIMIT;
     let mut settled = 0;
@@ -141,10 +145,13 @@ fn run_until_settled(app: &mut App) {
             .iter(world)
             .next()
             .is_some();
-        let parts = world.query::<&DeadwoodPart>().iter(world).count();
+        let impostor_drawn = world
+            .query::<&DeadwoodPart>()
+            .iter(world)
+            .any(|part| part.kind == DeadwoodPartKind::Impostor);
         let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
         let compiling = cache.waiting_pipelines().next().is_some();
-        settled = if building || parts == 0 || compiling {
+        settled = if building || !impostor_drawn || compiling {
             0
         } else {
             settled + 1
@@ -154,20 +161,24 @@ fn run_until_settled(app: &mut App) {
 
 #[test]
 #[ignore = "needs a GPU"]
-fn every_detail_level_compiles_its_shaders() {
+fn every_step_compiles_its_shaders() {
     let mut app = headless_app();
     spawn_scene(&mut app);
     run_until_settled(&mut app);
 
-    // Every level, including the strips, was spawned.
+    // Every step, including the strips, was spawned.
     let world = app.world_mut();
     let parts: Vec<DeadwoodPart> = world
         .query::<&DeadwoodPart>()
         .iter(world)
         .copied()
         .collect();
-    for lod in 0..3 {
-        assert!(parts.iter().any(|p| p.lod == lod), "no part at level {lod}");
+    for step in Step::ALL {
+        assert!(
+            parts.iter().any(|p| p.step == step),
+            "no part at step {}",
+            step.name()
+        );
     }
     assert!(
         parts.iter().any(|p| p.kind == DeadwoodPartKind::Ribbon),
