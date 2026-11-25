@@ -16,7 +16,7 @@ import procgena_core_bevy::shaders::dither::{dither_level, is_drawn, switch_dist
 struct CullView {
     planes: array<vec4<f32>, 6>,
     lod_origin: vec4<f32>,
-    quality_scale: f32,
+    band_scale: f32,
     copy_count: u32,
     list_count: u32,
     part_count: u32,
@@ -150,7 +150,7 @@ fn host_state_of(host: Host) -> u32 {
 
     // The host's own level, switching in the middle of each fade band.
     let slot = slots[host.slot];
-    let host_distance = distance / (host.origin.w * view.quality_scale);
+    let host_distance = distance / (host.origin.w * view.band_scale);
     var host_level = 0u;
     for (var l = 1u; l < slot.level_count; l++) {
         if host_distance >= switch_distance(ranges[slot.first_range + l]) {
@@ -159,7 +159,7 @@ fn host_state_of(host: Host) -> u32 {
     }
 
     // The range of the rows' distances, in reference metres.
-    let row_scale = host.rows.y * view.quality_scale;
+    let row_scale = host.rows.y * view.band_scale;
     let near = max(distance - host.rows.x, 0.0);
     let far = distance + host.rows.x;
     if near >= host.reach * row_scale {
@@ -254,7 +254,7 @@ fn cull_rows(
         return;
     }
     let distance = length(world_point(host, row.place.xyz) - view.lod_origin.xyz)
-        / (row.wind.w * host.rows.y * view.quality_scale);
+        / (row.wind.w * host.rows.y * view.band_scale);
     if view.shadow == 1u {
         let last = ranges[slot.first_range + slot.level_count - 1u];
         if distance >= 0.5 * last.z + 0.5 * last.w {

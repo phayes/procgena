@@ -3,9 +3,8 @@
 /// How far detail reaches, from [`Low`](Self::Low) for weak machines to
 /// [`Ultra`](Self::Ultra) for strong ones.
 ///
-/// Every [`DistanceChain`](crate::chain::DistanceChain) and
-/// [`Lod`](crate::Lod) is written for [`High`](Self::High). The other tiers
-/// multiply all of its distances, the cull included, by
+/// Every [`DistanceChain`](crate::chain::DistanceChain) is written for
+/// [`High`](Self::High). The other tiers multiply all of its distances, the cull included, by
 /// [`distance_scale`](Self::distance_scale), so every asset draws nearer or
 /// further together. For a chain this divides each size-on-screen
 /// threshold by the same factor: at [`Low`](Self::Low) a copy switches to

@@ -16,8 +16,7 @@
 //! - [`chain`]: how every asset kind is drawn: its game-level mesh, one
 //!   coarser mesh, then an impostor, switched by size on screen and scaled
 //!   by the [`Quality`] setting.
-//! - [`Lod`]: the older table of levels of detail by distance in metres,
-//!   still used by the assets that have not moved to [`chain`] yet.
+//! - [`LodRange`]: the fade bands in metres a chain step is drawn over.
 //! - [`scatter`]: the [`Scatter`](scatter::Scatter) trait, what every
 //!   Scatter takes as input, the shared integer placement rules on a
 //!   lattice fixed to the World, footprints and masks, and the shared rules
@@ -57,7 +56,7 @@ pub use address::{
 };
 pub use content_hash::{ContentHash, ContentHasher, OptionsHash, content_hash};
 pub use ground::{FlatGround, GRADIENT_STEP, Ground, GroundSample, HeightGrid};
-pub use lod::{FarForm, LevelForm, Lod, LodError, LodLevel, LodRange};
+pub use lod::{FarForm, LodRange};
 pub use quality::Quality;
 pub use rng::Rng;
 pub use seed::{CHILD_KEY_MAX_LEN, ChildKey, KeyError, child_seed, region_seed};

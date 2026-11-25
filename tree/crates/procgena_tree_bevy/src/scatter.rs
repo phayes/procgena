@@ -1654,10 +1654,12 @@ mod tests {
         // mesh, never on its impostor.
         for table in rows.tables.iter() {
             assert!(!table.is_empty(), "every variant bears fruit");
-            assert!(table.iter().any(|row| row.host_levels == 0b01));
+            let game = procgena_core_bevy::instanced::AttachedRow::steps([Step::Game]);
+            let lower = procgena_core_bevy::instanced::AttachedRow::steps([Step::Lower]);
+            assert!(table.iter().any(|row| row.host_steps == game));
             assert!(table.iter().all(|row| {
                 (variants..drawn.slots.len()).contains(&(row.slot as usize))
-                    && matches!(row.host_levels, 0b01 | 0b10)
+                    && (row.host_steps == game || row.host_steps == lower)
             }));
         }
         for slot in &drawn.slots[variants..] {

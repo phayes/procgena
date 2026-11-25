@@ -2,23 +2,29 @@
 //!
 //! A Scatter draws through this module instead of spawning an entity per
 //! copy. Put an [`InstancedScatter`] on one entity: it lists the Scatter's
-//! slots (one specimen each, with its parts at every detail level) and its
-//! copies (a slot, a transform, a size and a wind phase each). Every camera
-//! and shadow map then picks, on the GPU, the copies it sees and the level
-//! each is drawn at, and draws each part once for all its visible copies.
+//! slots (one specimen each, with its parts at every step of the shared
+//! drawing chain, [`procgena_core::chain`]) and its copies (a slot, a
+//! transform, a size and a wind phase each). Every camera and shadow map
+//! then picks, on the GPU, the copies it sees and the step each is drawn
+//! at, by its size on screen, and draws each part once for all its visible
+//! copies.
 //!
-//! - Levels fade into each other by dithering in the main pass, the prepass
+//! - Steps fade into each other by dithering in the main pass, the prepass
 //!   and the deferred G-buffer pass, with the shared dither of
-//!   [`LodPlugin`]. Shadow maps draw one level per copy,
-//!   switching in the middle of each fade band, and only levels that
-//!   [cast shadows](procgena_core::LodLevel::casts_shadows).
+//!   [`LodPlugin`]. Shadow maps draw one step per copy, switching in the
+//!   middle of each fade band, and only the mesh steps: impostors cast no
+//!   shadows.
+//! - Each camera measures size on screen through its own field of view, so
+//!   a narrow lens keeps detail further away. Orthographic cameras use
+//!   [`ViewScale::DEFAULT`](procgena_core::chain::ViewScale::DEFAULT).
+//!   Shadow maps follow the camera they are drawn for.
 //! - Distances follow [`LodQuality`](crate::LodQuality) as it changes.
 //! - Parts are drawn with their own materials. Each material type must be
 //!   registered with [`InstancedMaterialPlugin`], and its vertex shaders must
 //!   read the per-copy input described there.
 //! - Parts are usually Bevy [`Mesh`] assets, but a plugin that builds its
 //!   meshes on the GPU can draw them too: see [`PartMesh::External`].
-//! - [`SpecimenCache`] holds built parts by [`SpecimenId`] and detail level,
+//! - [`SpecimenCache`] holds built parts by [`SpecimenId`] and step,
 //!   so Scatters that share a specimen share its meshes. Entries no
 //!   [`InstancedScatter`] uses are dropped after a short while.
 //!
@@ -39,9 +45,9 @@ use bevy::ecs::prelude::*;
 use bevy::math::{Affine3A, Quat, Vec3};
 use bevy::mesh::Mesh;
 use bevy::prelude::{Handle, Transform};
-use procgena_core::{Lod, SpecimenId};
+use procgena_core::SpecimenId;
+use procgena_core::chain::{DistanceChain, Step};
 
-pub use chain::chain_lod;
 pub use material::{
     ATTACHED_SIZE, INSTANCE_LOCATION, INSTANCE_SIZE, INSTANCED_MESH_SHADER,
     INSTANCED_PREPASS_SHADER, InstancedMaterialPlugin, InstancedStandard, InstancedStandardKey,
@@ -97,8 +103,8 @@ pub struct InstancedScatter {
     pub copies: Arc<[InstancedCopy]>,
 }
 
-/// One specimen as a Scatter draws it: its parts at every detail level, and
-/// the levels' distances.
+/// One specimen as a Scatter draws it: its parts at every step, and where
+/// each step takes over.
 #[derive(Clone, Debug)]
 pub struct InstancedSlot {
     /// Which specimen this is. It keeps the slot's parts in the
@@ -109,13 +115,24 @@ pub struct InstancedSlot {
     /// cluster, each set on the ground where it stands); 0 for specimens
     /// drawn whole.
     pub piece: u32,
-    /// The detail levels, written for a copy of the Lod's reference size.
-    /// A part's [`level`](InstancedPart::level) indexes its levels, and
-    /// their [`casts_shadows`](procgena_core::LodLevel::casts_shadows) says
-    /// which levels draw into shadow maps. Must pass
-    /// [`Lod::validate`]; the renderer skips slots that don't.
-    pub lod: Lod,
-    /// Every part, at every level.
+    /// Where each step takes over, by a copy's size on screen; usually
+    /// [`DistanceChain::DEFAULT`]. Must pass [`DistanceChain::validate`];
+    /// the renderer skips slots that don't.
+    pub chain: DistanceChain,
+    /// Whether copies stop being drawn once they shrink below the chain's
+    /// [`cull_below`](DistanceChain::cull_below). Usually true. Set it to
+    /// false for a slot that [`InstancedAttached`] rows draw when the host
+    /// decides how far they are drawn (through
+    /// [`AttachedRow::host_steps`]): its last step is then drawn at any
+    /// distance its host draws it.
+    pub cull: bool,
+    /// Whether the slot has an impostor step. Without one, the lower mesh
+    /// is drawn until the cull, so a slot can be shown while its impostor
+    /// bakes; set it once the impostor's part is added.
+    pub impostor: bool,
+    /// Every part, at every step. A step with no parts draws nothing, such
+    /// as a host whose own meshes are drawn elsewhere and whose slot only
+    /// carries its rows.
     pub parts: Vec<InstancedPart>,
     /// A sphere around every part at every level, in the specimen's own
     /// coordinates, as a centre and radius. Copies are culled with it, so
@@ -123,11 +140,11 @@ pub struct InstancedSlot {
     pub bounds: (Vec3, f32),
 }
 
-/// One mesh and material of a specimen at one detail level.
+/// One mesh and material of a specimen at one step.
 #[derive(Clone, Debug, PartialEq)]
 pub struct InstancedPart {
-    /// The detail level, from 0 for the nearest.
-    pub level: u32,
+    /// The step the part is drawn at.
+    pub step: Step,
     /// The mesh.
     pub mesh: PartMesh,
     /// A handle to a material asset whose type was registered with
@@ -149,7 +166,7 @@ pub enum PartMesh {
 /// Names a mesh in the render world's [`ExternalMeshes`]. The plugin that
 /// builds the mesh chooses the number; different meshes need different
 /// numbers, so derive it from what the mesh is built from (for example a
-/// content hash of the specimen and level).
+/// content hash of the specimen and step).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ExternalMeshId(pub u64);
 
@@ -160,10 +177,9 @@ pub struct InstancedCopy {
     pub slot: u32,
     /// Where the copy is, relative to the [`InstancedScatter`] entity.
     pub transform: Affine3A,
-    /// The copy's size for choosing detail levels, in the units of its
-    /// slot's [`Lod::reference_size`]: a copy of the reference size switches
-    /// levels at the Lod's distances, one twice as large twice as far.
-    /// Must be positive.
+    /// The copy's size for choosing steps: its bounding-sphere diameter in
+    /// metres, scale included. A copy twice as large switches steps twice
+    /// as far away. Must be positive.
     pub size: f32,
     /// A number from 0 to 1 that offsets the copy's wind sway, so copies of
     /// one specimen don't sway in step. Shaders read it with
@@ -180,13 +196,14 @@ pub struct InstancedCopy {
 /// once per host slot, so a thousand copies of one tree cost nothing more
 /// per copy than the tree itself.
 ///
-/// Each camera and shadow map picks the rows it draws and the level each
-/// is drawn at on the GPU, in two steps. First, once per host copy: copies
+/// Each camera and shadow map picks the rows it draws and the step each
+/// is drawn at on the GPU, in two stages. First, once per host copy: copies
 /// out of view, or too far for any row to be drawn, draw no rows, and in a
-/// camera, copies whose rows all fall inside one level (outside its fade
-/// bands) draw every row at that level without testing each one. Then, for
+/// camera, copies whose rows all fall inside one step (outside its fade
+/// bands) draw every row at that step without testing each one. Then, for
 /// the other host copies, each row is tested against the view on its own
-/// and drawn at the level its own distance gives, fading as copies do.
+/// and drawn at the step its own size on screen gives, fading as copies
+/// do.
 ///
 /// A slot that rows draw is drawn only by rows: copies of it in
 /// [`InstancedScatter::copies`] are skipped, and its own table, if any, is
@@ -213,40 +230,47 @@ pub struct AttachedRow {
     pub rotation: Quat,
     /// How much it is scaled, the same along every axis.
     pub scale: f32,
-    /// Its size for choosing detail levels, in the units of its slot's
-    /// [`Lod::reference_size`], before the host copy's own scale. Must be
+    /// Its size for choosing steps: its bounding-sphere diameter in metres,
+    /// `scale` included, before the host copy's own scale. Must be
     /// positive.
     pub size: f32,
     /// Three numbers a material's vertex shader reads with
     /// `attached_wind`, such as how its host's branch sways where it is
     /// attached.
     pub wind: Vec3,
-    /// The host's detail levels at which the row is drawn, one bit per
-    /// level (bit 0 for level 0). The host's level here is the one it
-    /// switches to at the middle of each fade band, as in shadow maps, so
-    /// rows appear and vanish there without fading. Use it to thin rows on
-    /// far hosts (keep fewer rows at far levels, perhaps as enlarged
-    /// duplicates), or to stop drawing rows where the host's own far level
-    /// already shows them. [`AttachedRow::ALL_LEVELS`] draws the row at
-    /// every level.
-    pub host_levels: u32,
+    /// The host's steps at which the row is drawn, one bit per step (bit
+    /// [`Step::index`]). The host's step here is the one it switches to at
+    /// the middle of each fade band, as in shadow maps, so rows appear and
+    /// vanish there without fading. Use it to thin rows on far hosts (keep
+    /// fewer rows at the lower mesh, perhaps as enlarged duplicates), or to
+    /// stop drawing rows where the host's impostor already shows them.
+    /// [`AttachedRow::ALL_STEPS`] draws the row at every step;
+    /// [`AttachedRow::steps`] builds a mask.
+    pub host_steps: u32,
 }
 
 impl AttachedRow {
-    /// A [`host_levels`](Self::host_levels) mask with every level set.
-    pub const ALL_LEVELS: u32 = u32::MAX;
+    /// A [`host_steps`](Self::host_steps) mask with every step set.
+    pub const ALL_STEPS: u32 = u32::MAX;
+
+    /// A [`host_steps`](Self::host_steps) mask with `steps` set.
+    pub fn steps(steps: impl IntoIterator<Item = Step>) -> u32 {
+        steps
+            .into_iter()
+            .fold(0, |mask, step| mask | (1 << step.index()))
+    }
 }
 
-/// Built parts by specimen, piece and detail level, shared by every Scatter.
+/// Built parts by specimen, piece and step, shared by every Scatter.
 ///
 /// Look a specimen up before building it, and insert what you build. An
 /// entry stays while any [`InstancedScatter`] has a slot with its specimen,
 /// and is dropped about a second after the last one stops using it. A
-/// specimen's parts must not depend on anything but its id, piece and level
-/// (an asset plugin's detail levels count as fixed for the app's run).
+/// specimen's parts must not depend on anything but its id, piece and step
+/// (an asset plugin's settings count as fixed for the app's run).
 #[derive(Resource, Debug, Default)]
 pub struct SpecimenCache {
-    entries: HashMap<(SpecimenId, u32, u32), CacheEntry>,
+    entries: HashMap<(SpecimenId, u32, Step), CacheEntry>,
 }
 
 #[derive(Debug)]
@@ -261,30 +285,30 @@ struct CacheEntry {
 const PRUNE_FRAMES: u32 = 60;
 
 impl SpecimenCache {
-    /// The parts of piece `piece` of `specimen` at detail level `level`, if
-    /// cached. Use piece 0 for specimens drawn whole.
+    /// The parts of piece `piece` of `specimen` at `step`, if cached. Use
+    /// piece 0 for specimens drawn whole.
     pub fn get(
         &self,
         specimen: SpecimenId,
         piece: u32,
-        level: u32,
+        step: Step,
     ) -> Option<Arc<[InstancedPart]>> {
         self.entries
-            .get(&(specimen, piece, level))
+            .get(&(specimen, piece, step))
             .map(|entry| entry.parts.clone())
     }
 
     /// Caches `parts` as the parts of piece `piece` of `specimen` at
-    /// `level`, replacing any.
+    /// `step`, replacing any.
     pub fn insert(
         &mut self,
         specimen: SpecimenId,
         piece: u32,
-        level: u32,
+        step: Step,
         parts: Vec<InstancedPart>,
     ) {
         self.entries.insert(
-            (specimen, piece, level),
+            (specimen, piece, step),
             CacheEntry {
                 parts: parts.into(),
                 unused_frames: 0,
@@ -292,22 +316,22 @@ impl SpecimenCache {
         );
     }
 
-    /// The parts of piece `piece` of `specimen` at every level from 0 to
-    /// `levels − 1`, if all are cached.
-    pub fn get_levels(
+    /// The parts of piece `piece` of `specimen` at every one of `steps`, if
+    /// all are cached.
+    pub fn get_steps(
         &self,
         specimen: SpecimenId,
         piece: u32,
-        levels: u32,
+        steps: impl IntoIterator<Item = Step>,
     ) -> Option<Vec<InstancedPart>> {
         let mut parts = Vec::new();
-        for level in 0..levels {
-            parts.extend(self.get(specimen, piece, level)?.iter().cloned());
+        for step in steps {
+            parts.extend(self.get(specimen, piece, step)?.iter().cloned());
         }
         Some(parts)
     }
 
-    /// Number of cached (specimen, level) entries.
+    /// Number of cached (specimen, piece, step) entries.
     pub fn len(&self) -> usize {
         self.entries.len()
     }

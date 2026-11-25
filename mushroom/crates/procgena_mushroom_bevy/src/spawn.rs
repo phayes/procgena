@@ -20,7 +20,6 @@ use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
 use procgena_core::{ContentHasher, Ground, LodRange, Quality, SpecimenId, content_hash};
 use procgena_core_bevy::instanced::{
     InstancedCopy, InstancedPart, InstancedScatter, InstancedSlot, PartMesh, SpecimenCache,
-    chain_lod,
 };
 use procgena_core_bevy::{LodQuality, visibility_range};
 use procgena_impostor::BakeSettings;
@@ -998,8 +997,7 @@ fn scatter_draw(
         TextureSource,
     ),
 ) -> InstancedScatter {
-    let slot_lod = chain_lod(&DistanceChain::DEFAULT, false);
-    let levels = slot_lod.levels.len() as u32;
+    let mesh_steps = [Step::Game, Step::Lower];
     let mut diameters = Vec::with_capacity(built.variants.len());
     let slots: Vec<InstancedSlot> = built
         .variants
@@ -1009,21 +1007,23 @@ fn scatter_draw(
             let bounds = variant.bounds;
             diameters.push(variant.diameter);
             let parts = specimens
-                .get_levels(specimen, piece, levels)
+                .get_steps(specimen, piece, mesh_steps)
                 .unwrap_or_else(|| {
                     let assets = upload(variant, cache, meshes, materials, *textures);
                     let mut parts = Vec::new();
-                    for (level, assets) in assets.levels.iter().enumerate() {
-                        let level_parts = level_parts(level as u32, assets.as_ref());
-                        specimens.insert(specimen, piece, level as u32, level_parts.clone());
-                        parts.extend(level_parts);
+                    for (step, assets) in mesh_steps.into_iter().zip(&assets.levels) {
+                        let step_parts = step_parts(step, assets.as_ref());
+                        specimens.insert(specimen, piece, step, step_parts.clone());
+                        parts.extend(step_parts);
                     }
                     parts
                 });
             InstancedSlot {
                 specimen,
                 piece,
-                lod: slot_lod.clone(),
+                chain: DistanceChain::DEFAULT,
+                cull: true,
+                impostor: false,
                 parts,
                 bounds,
             }
@@ -1047,14 +1047,14 @@ fn scatter_draw(
 
 /// One mesh step's parts for the shared renderer: its surfaces, or nothing
 /// if the step has no triangles.
-fn level_parts(
-    level: u32,
+fn step_parts(
+    step: Step,
     assets: Option<&(Handle<Mesh>, Handle<MushroomMaterial>)>,
 ) -> Vec<InstancedPart> {
     assets
         .into_iter()
         .map(|(mesh, material)| InstancedPart {
-            level,
+            step,
             mesh: PartMesh::Mesh(mesh.clone()),
             material: material.clone().untyped(),
         })
@@ -1469,11 +1469,10 @@ mod tests {
                 slot.specimen.slot < u32::MAX,
                 "a body with no specimen slot"
             );
-            assert_eq!(slot.lod, chain_lod(&DistanceChain::DEFAULT, false));
-            let levels = slot.lod.levels.len() as u32;
-            assert_eq!(levels, 2, "the game-level and lower meshes");
+            assert_eq!(slot.chain, DistanceChain::DEFAULT);
+            assert!(!slot.impostor, "the game-level and lower meshes");
             assert_eq!(
-                cache.get_levels(slot.specimen, slot.piece, levels),
+                cache.get_steps(slot.specimen, slot.piece, [Step::Game, Step::Lower]),
                 Some(slot.parts.clone())
             );
         }

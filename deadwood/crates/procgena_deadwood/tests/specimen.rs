@@ -1,7 +1,7 @@
 //! Conversion to `procgena_specimen::Specimen`, with tags other generators can
 //! grow on.
 
-use procgena_deadwood::{DeadwoodPreset, Piece, lower_start};
+use procgena_deadwood::{DeadwoodPreset, Piece};
 use procgena_specimen::{TagFilter, tags};
 
 /// The surfaces procgena_clump's moss presets grow on.
@@ -16,11 +16,6 @@ fn specimens_are_valid_closed_and_tagged() {
         let specimen = piece.specimen();
         specimen.validate().unwrap();
         assert_eq!(specimen.levels.len(), 2);
-        // The lower mesh starts where the default chain switches to it.
-        let (_, radius) = piece.mesh().bounding_sphere();
-        assert_eq!(specimen.levels[0].start, 0.0);
-        assert_eq!(specimen.levels[1].start, lower_start(2.0 * radius));
-        assert!(specimen.levels[1].start > 0.0);
         for part in &specimen.levels[0].parts {
             assert!(part.closed, "{}", preset.name);
             assert!(!part.shells.is_empty());

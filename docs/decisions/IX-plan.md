@@ -496,6 +496,23 @@ reported to the coordinator ready to merge.
    - The studio shows a tree's two mesh steps (the level picker offers
      them), reports the step on screen from the parts' own ranges, and
      sizes the grove camera from a 25 m tree's impostor distance.
+
+   **As built (end of Step 3, the old types deleted):**
+   - `procgena_core` keeps only `LodRange` and `FarForm::GroundMaterial`
+     of the old `lod` module; `Lod`, `LodLevel`, `LevelForm`, `LodError`
+     and the ribbon `FarForm` variants are gone, and so is
+     `procgena_impostor::ImpostorLevel`, which only built a `LodLevel`.
+   - `procgena_specimen::Level` holds only its parts: a chained asset's
+     specimen is its game level, then its lower mesh. Dead wood's
+     `lower_start` and the `diameter` argument of mushroom's
+     `specimen_from_meshes` went with `Level::start`.
+   - Terrain's chunk table is `procgena_terrain::ChunkLevels` (a
+     `ChunkLevel { start, hysteresis }` per chunk level and a
+     `view_distance`), with `chunk_levels` and `ChunkDetail::levels` in
+     place of `chunk_lod` and `ChunkDetail::lod`, and
+     `ChunkSelectionError::Levels(ChunkLevelsError)` in place of the
+     `Lod`, `NoCullDistance` and `TooManyLevels` errors. The chunks
+     chosen are unchanged.
 4. **Renderers and the studio.** `procgena_core_bevy`'s instanced renderer
    takes three steps and per-view bands; impostors bake from `game_level`,
    with normals and no shadows; the disk cache (key: preset content hash +
@@ -518,7 +535,6 @@ reported to the coordinator ready to merge.
      the impostor's start makes no request; raising it makes one. To
      decide in Step 4: how the gate sits with the studio's background
      pre-bake, which bypasses it on purpose.
-
      **Deferred (the user, 2026-11-25):** not part of Step 4; a follow-up
      TODO in ROADMAP.md (IX, "Follow-up: bake only impostors that can be
      on screen"). Partial work is on branch `claude/project-thread-r7ngjq`:
@@ -534,6 +550,24 @@ reported to the coordinator ready to merge.
      copy's size; a tree's fruit impostors are requested only with the
      tree's own impostor (they are drawn only while the tree is on a mesh
      step), and `PrepareTreeScatter` would count as baking ahead.
+
+   **As built (Step 4, the instanced renderer):**
+   - An `InstancedSlot` holds its `DistanceChain`, `cull` (false for
+     attached slots whose host decides: their last step is drawn at any
+     distance), `impostor` (whether the impostor step is drawn; without
+     it, the lower mesh is drawn to the cull) and its parts, each tagged
+     with its `Step`. The `SpecimenCache` is keyed by step too
+     (`get_steps`). `chain_lod` and stone's bridge are deleted.
+   - Each copy and attached row carries its size (bounding-sphere
+     diameter, scale included). The bands are the chain's for a 1 m copy
+     at the default view and High quality; the cull shaders divide the
+     distance by `size × band_scale`, where `band_scale` is the quality's
+     distance scale times the view's own `ViewScale` over the default.
+     So a narrow lens keeps detail further away, an orthographic view
+     draws at the default scale, and shadow cascades use the camera they
+     are drawn for. Only the mesh steps cast shadows.
+   - Attached rows name the host steps they are drawn at as a mask
+     (`AttachedRow::host_steps`, built with `AttachedRow::steps`).
 5. **The experiment** on the new model, recorded in this file.
 
 Where a renderer change is needed to keep an asset drawing in steps 2 and

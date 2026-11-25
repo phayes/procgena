@@ -8,9 +8,7 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use procgena_core::chain::{DistanceChain, Step};
 use procgena_core::{LodRange, SpecimenId};
-use procgena_core_bevy::instanced::{
-    InstancedPart, InstancedScatter, InstancedSlot, PartMesh, chain_lod,
-};
+use procgena_core_bevy::instanced::{InstancedPart, InstancedScatter, InstancedSlot, PartMesh};
 use procgena_impostor::{
     BakeOutput, BakePart, BakeSettings, ImpostorKey, ImpostorQuad, ImpostorRequest, Impostors,
     ViewCoverage, frame_size_for,
@@ -201,7 +199,7 @@ pub(crate) fn show_scatter_impostors(
             let game = scatter.slots[index]
                 .parts
                 .iter()
-                .find(|part| part.level == Step::Game.index() as u32);
+                .find(|part| part.step == Step::Game);
             let Some(InstancedPart {
                 mesh: PartMesh::Mesh(mesh),
                 material,
@@ -222,15 +220,15 @@ pub(crate) fn show_scatter_impostors(
                 continue;
             };
 
-            // The impostor becomes the slot's last level, and the lower mesh
+            // The impostor becomes the slot's last step, and the lower mesh
             // now ends where it takes over.
             let slots = changed.get_or_insert_with(|| scatter.slots.to_vec());
             slots[index].parts.push(InstancedPart {
-                level: Step::Impostor.index() as u32,
+                step: Step::Impostor,
                 mesh: PartMesh::Mesh(quad.0.clone()),
                 material: material.untyped(),
             });
-            slots[index].lod = chain_lod(&DistanceChain::DEFAULT, true);
+            slots[index].impostor = true;
             *waiting = None;
         }
         if let Some(slots) = changed {

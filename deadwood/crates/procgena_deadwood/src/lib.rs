@@ -116,7 +116,7 @@ pub use scatter::{
     ScatterOptions, StickScatter,
 };
 pub use settle::RestingPose;
-pub use specimen::{lower_start, specimen_from_meshes};
+pub use specimen::specimen_from_meshes;
 pub use texture::{
     BARK_TEXTURE_SETS, END_TEXTURE_SETS, LEAF_TEXTURE_SETS, LeafMap, TextureCompression,
     TextureMap, TextureSize, bark_texture_path, end_texture_path, leaf_texture_path,
