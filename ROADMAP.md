@@ -667,6 +667,38 @@ the World level.
   either cross or avoid small regions without broken carving, and the
   studio shows the measured Biome areas.
 
+#### LK: Lakes, with rivers flowing in and out
+
+Decided by the user 2026-11-25. Today a river that reaches a hollow
+looks for the lowest rim and cuts through it, by up to `breach` metres
+(a few metres plus a share of the relief). That stays: it suits small,
+local rises. Only when the rim is too high does the river stop, with a
+small pond at its end sized from its width. Instead:
+
+- **Flood the whole hollow.** When the cut can't escape, the hollow fills
+  to its spill level (the lowest rim), making a lake. The river flows in,
+  and a new river flows out from the spill point and carries on
+  downhill. A lake can take several inflowing rivers.
+- **How high is configurable:** a terrain setting caps how far a lake
+  may rise above the inflowing water. If the spill level is above the
+  cap, the lake fills to the cap and has no outflow (a terminal lake).
+- **Lakebed:** a new label (`Landform::Lakebed` or a flag), carved below
+  the water level across the whole flooded area, with shores labelled as
+  today. Ground materials and the segmentation overlay pick it up.
+- **Points to settle when it starts:**
+  - lakes that would reach a region's border zone: stop at the border
+    clearance and spill there, or agree lakes across borders like river
+    crossings;
+  - the escape search's 4,096-cell limit, which a lake would exceed;
+  - lake depth and bed shape below the water;
+  - whether small ponds remain as their own feature.
+- **Needs:** nothing blocking; keeps to the river, plan and carve files,
+  so it is sequenced with TE5 and TE6, which also edit them.
+- **Done when:** basins in the shipped presets fill as lakes with rivers
+  in and out, terminal lakes appear where the cap applies, the labels
+  and overlay show lakebed, and the seam, feature and shipped suites
+  pass.
+
 ### Bare worlds
 
 #### B0: Empty Biomes
