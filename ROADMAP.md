@@ -1318,6 +1318,9 @@ recommendations accepted).
 
 #### TE4a: Relief bands
 
+**Parked (user, 2026-11-25), with TE4b.** The user may come back to
+per-tier negotiation; until then neither step is scheduled.
+
 Border negotiation per tier was decided by the user on 2026-11-24 (see
 ARCHITECTURE.md, "Border negotiation per tier", and the plan's section of
 that name). TE4 is built as two steps; this is the first.
@@ -1340,6 +1343,8 @@ that name). TE4 is built as two steps; this is the first.
   - the change in each preset's look is reported.
 
 #### TE4b: Per-tier border negotiation
+
+**Parked (user, 2026-11-25).** See TE4a.
 
 - **Covers:**
   - Rough offers for every planned region: low band and E, plus the river
@@ -1492,7 +1497,7 @@ a cell run in order within the wave.
 | 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2; GM0 → GM1; ST0 (alone in `procgena/src/`, after the Fruit and Flower tabs merge); IX planning | G4 (wave 5, not built yet) runs as G4a, then G4b. GM0 writes a new `ground` module in `procgena_terrain` and the Ecotope's ground in `procgena_biome`; it runs beside B1 only if they don't share files in `procgena_biome`. ST0 is a churn window for the studio only: no other lane edits `procgena/src/` while it runs. IX's planning step needs no code and can run any time. |
 | 8 | ED; R3a → R3's remaining asset parts (wave 5 started R3; deadwood → mushroom → tree); GP (after C3 and plant P4; D2's owed timing runs any time); W1; S1 (single Biome; see GP's question); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8 | After ST0 each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers (fruit AC1 in `tree/`, plant alignment, GM0 and B1 in `procgena_biome`). ST4 touches `procgena_impostor` and agrees it with fruit D2 and IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. ED's asset-cache and task-pool parts can start now; its `procgena_biome_bevy` and studio parts wait for GM1, plant P2 and ST1. R3a works in `stone/` plus one studio feature flag. |
 | 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's per-view distance override); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
-| TE (from wave 8) | TE1 → TE2 → TE3 → TE3b and TE4a → TE4b; TE5 beside them, landing before TE4b; GPU2 (after GM1 and G4a); GPU1 (after TE2) | The terrain editing track, decided 2026-11-24, with border negotiation per tier (TE4a, TE4b). TE4a also edits the presets and `noise.rs`/`relief.rs`. TE1–TE4b all edit `world.rs`, `procgena_terrain_bevy`'s stream and the studio's terrain scene, so they run one at a time. TE1 waits for GM1 to merge, since both touch the Bevy crate and the scene. TE5 keeps to the road files and lands before TE4. GPU2 works in new shader and Bevy files beside the CPU painter, so it can run beside TE2 or TE3. |
+| TE (from wave 8) | TE1 → TE2 → TE3 → TE3b (TE4a → TE4b parked by the user, 2026-11-25); TE5 beside them, landing before TE4b; GPU2 (after GM1 and G4a); GPU1 (after TE2) | The terrain editing track, decided 2026-11-24, with border negotiation per tier (TE4a, TE4b). TE4a also edits the presets and `noise.rs`/`relief.rs`. TE1–TE4b all edit `world.rs`, `procgena_terrain_bevy`'s stream and the studio's terrain scene, so they run one at a time. TE1 waits for GM1 to merge, since both touch the Bevy crate and the scene. TE5 keeps to the road files and lands before TE4. GPU2 works in new shader and Bevy files beside the CPU painter, so it can run beside TE2 or TE3. |
 
 Workers follow the scoped-check rules in [CLAUDE.md](CLAUDE.md); the
 coordinator runs the full suite once per wave.

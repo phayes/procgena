@@ -475,7 +475,9 @@ with volume only where a feature needs it (caves, overhangs), and rock
 outcrops are meshes the terrain builds and lays into the ground (review,
 "Decisions").
 
-**Border negotiation per tier** (decided 2026-11-24, user; design in
+**Border negotiation per tier** (decided 2026-11-24, user; parked
+2026-11-25 by the user, who may come back to it: until then borders are
+negotiated once, as today; design in
 [terrain/edit_cache_plan.md](terrain/edit_cache_plan.md), "Border
 negotiation per tier"). Borders are negotiated tier by tier, at the
 feature tiers' granularities, and far regions never settle their fine
