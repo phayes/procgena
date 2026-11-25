@@ -1210,10 +1210,10 @@ go to the few copies near the camera.
     single rocks and GPU pools drawn game level → lower mesh → impostor by
     size on screen, impostors baked from the game level, 256-pixel frames,
     no impostor shadows; the pool through the private `renderer_lod`
-    bridge. See Step 2's "As built" in the plan. Left of Step 2: a
-    headless screenshot check of a rock across the chain, the Codex
-    comment rewrite of Steps 1 and 2 (Codex was out of credits), and the
-    real-bounds follow-up below.
+    bridge. See Step 2's "As built" in the plan. Left of Step 2: the
+    Codex comment rewrite of Steps 1 and 2 (Codex was out of credits).
+    The headless screenshot of a rock across the chain and the real-bounds
+    follow-up below are done.
   - **Step 3, tree and fruit built** on branch
     `claude/project-thread-acr6e5`: `game_level` on `TreeOptions` and
     `FruitOptions`, two meshes each, ribbons, billboards and the tree
@@ -1248,16 +1248,13 @@ go to the few copies near the camera.
     impostor frames against High-sized ones.
   - **Other TODOs:** the Codex comment rewrite for Steps 1–2; IX2 (the
     quality-independent impostor switch, later).
-- **Follow-up (from IX Step 2, 2026-11-25): real bounds for stones.** A
-  rock's size on screen is measured by `StoneOptions::bounding_diameter`,
-  the stretched containing box's diagonal, because neither the CPU nor the
-  GPU mesher reports a real bound (the GPU status's `bounding_radius` is
-  the same box bound, and the pool culls with a fixed radius). On the
-  presets it is 1.5–1.9 times the mesh's widest span (4.5 times for
-  `ore`), so stones keep their game-level mesh up to about twice as far as
-  they should. Replace it with each specimen's real bounding sphere, the
-  same on the CPU and GPU paths, before the stone measurements of the
-  experiment are taken as final.
+- **Follow-up (from IX Step 2, 2026-11-25): real bounds for stones.**
+  Done 2026-11-25: a rock's size on screen is now its game-level mesh's
+  bounding-box diagonal, measured on the CPU for single rocks
+  (`Stone::bounding_diameter`) and by a GPU pass for pooled rocks
+  (`GpuStoneStatus::bounding_diameter`, handed back to the pool's copies).
+  On the presets it is 1.04–1.43 times the mesh's widest span (it was
+  1.5–4.5 times). The pool still culls with a fixed radius.
 
 #### IX2: Impostors that ignore the quality level (later)
 
@@ -1733,6 +1730,28 @@ that name). TE4 is built as two steps; this is the first.
 
 #### TE5: Road planning revamp
 
+**Status (2026-11-25): landed; the user accepted the new road look.**
+Measured and compared in `terrain/roads_plan.md` (timing with
+`--example road_cost`):
+
+- **Measurements:**
+  - Roads took a median of about 1.1 s per region in release, and up to
+    2.1 s.
+  - About 80% of that was reading heights and grades on the 8 m grid.
+    Most of each read is the border blending.
+  - The search, its reruns and `level_on_roads` were about 10%.
+- **The change:** roads are first outlined on a 16 m grid
+  (`road::coarse_routes`). They are then planned at 8 m only within 48 m of
+  that outline (`road::refined_routes`).
+- **Result:** about 3× faster. At the same machine load the median fell
+  from 1210 ms to 384 ms and the maximum from 2809 ms to 1431 ms. The
+  seam, feature and shipped suites pass.
+- **Left over:**
+  - The worst mountains regions are still around a second under heavy
+    load.
+  - The border-pull speed-ups below were kept out of TE5 by the user.
+  - The outline is the coarse route TE7's middle tier can draw.
+
 Decided by the user 2026-11-25: a complete revamp of road planning,
 choosing speed over perfection. Roads take about 5 s per near region
 against ARCHITECTURE's "up to about a second" plan budget.
@@ -1824,7 +1843,23 @@ coarseness is wanted. The terrain is a function that can be sampled at
 any spacing, so any level of detail can be generated; the costs are in
 features and paint.
 
-- **Today** (read from the code): chunk level `L` has 1 m × 2^L cells
+- **Status (2026-11-25):** levels now switch by size on screen
+  (`ChunkDetail`, the same rule as IX): level `L` takes over at
+  128 m × 2^L, so a cell is at most about 7 px of a 720 px screen (14 of
+  1440), at a cost of about 4× the triangles. Measured with the viewer's
+  `--measure` (720p, load average about 20): 64 chunks, 0.56 M triangles
+  and about 7 ms a frame before; 252 chunks, 2.2 M triangles and 10–13 ms
+  after. `--cell-pixels` tries other targets (5 px: 3.9 M triangles;
+  4 px: 6 M). **Left:** the camera's own field of view (today
+  `ViewScale::DEFAULT`, as for IX), paint resolution per level, the
+  middle feature tier (TE5's coarse road outline can feed it), and
+  progressive loading. Geomorphing is wanted but deferred by the user
+  (2026-11-25). The plan: each vertex carries its height and normal on the
+  next coarser level, and the vertex shader blends the two by distance.
+  The blend must finish inside the level's hysteresis band, so a swap
+  shows no change, and must be worked out in world space, so
+  neighbouring chunks agree.
+- **Before** (read from the code): chunk level `L` has 1 m × 2^L cells
   and starts at 64 m × 2^L (`chunk_lod`), so every level starts with a
   cell about 1/64 of the view distance across, roughly 30 px on a 1440 px
   screen at 45°, shrinking to about 15 px before the next level. Features
@@ -1922,6 +1957,60 @@ summary below is for ordering.
 - **In parallel:** after ST0, each milestone adds its own folder under
   `procgena/src/studio/`, so up to three lanes run at once; the plan's
   "Running them in parallel" gives the waves.
+
+### Documentation
+
+#### DS: Documentation clean-up (high priority)
+
+Asked for by the user 2026-11-25. The sweep in
+[docs/coordination/doc-sweep-2026-11-25.md](docs/coordination/doc-sweep-2026-11-25.md)
+(taken at `5a061d9`) found about 200 places where documents contradict
+each other, keep superseded decisions, or report stale status. Every
+document is treated by its class:
+
+- **Evergreen** (ARCHITECTURE.md, ROADMAP.md, CLAUDE.md, READMEs, and
+  reference docs such as `tree/docs/scatters.md` and `plant/docs/`):
+  corrected in place, so they describe only the current design and
+  current status, with no history.
+- **Obsolete plans** for finished work (for example
+  `tree/PLAN-tree-grove.md`, `tree/fruit_flower_plan.md`, and the port
+  plans): deleted. Anything still relevant (open follow-ups,
+  measurements, unbuilt items) moves first to ROADMAP or to the crate's
+  evergreen doc. Git keeps the history.
+- **Decision records** (`docs/decisions/`): kept as the record of why.
+  Each gets a status banner at the top (decided, or superseded by a
+  named milestone or decision) and its open-question lists marked as
+  answered. The bodies are not rewritten.
+- **Live plans** (`terrain/plan.md`, `terrain/edit_cache_plan.md`,
+  `procgena/studio_plan.md`, `fruit/plan.md`): the current design is kept
+  and corrected. Dated build logs and the sketches their "As built"
+  sections replaced are cut down or deleted.
+- **Coordination notes** (`docs/coordination/`): deleted once acted on,
+  with leftovers moved to ROADMAP. That includes `terrain-review.md` and,
+  at the end, the sweep report itself.
+
+- **Covers:**
+  - the user's answers to the sweep's "needs your decision" items
+    first, since many fixes depend on them;
+  - then the evergreen fixes, the deletions, banners and plan trims;
+  - two rules added to CLAUDE.md, so drift doesn't come back. First,
+    status lives only in ROADMAP, and other documents link to it rather
+    than restating it. Second, a decision that supersedes another
+    updates or bans every echo of the earlier one in the same change;
+  - one list of milestone and step IDs in ROADMAP, with local step
+    names prefixed so they no longer collide (for example world_plan's
+    W1–W6, and fruit's B1, D1 and D2).
+- **Needs:** nothing. It edits ARCHITECTURE.md, ROADMAP.md and
+  CLAUDE.md, so one agent at a time, and the agent re-checks the sweep's
+  line numbers against current master before editing.
+- **Done when:**
+  - the sweep's decision items are answered;
+  - every finding is fixed, or marked as intentionally kept;
+  - a link check over every `.md` file passes;
+  - a grep for the retired names (`procgena_mesh`, `GeneratedObject`,
+    `TreeGrove`, `PlantField`, `.grove.json`, `.field.ron`) finds them
+    only in decision records and the changelog;
+  - the sweep report is deleted.
 
 ### Later
 
@@ -2343,6 +2432,9 @@ Done (2026-11-24): items 10, 15 and 16 above.
 
 ### Follow-ups noted, no decision needed
 
+- **High priority: documentation clean-up (milestone DS).** Work through
+  [docs/coordination/doc-sweep-2026-11-25.md](docs/coordination/doc-sweep-2026-11-25.md),
+  starting with its decision items.
 - **High priority: A/B test plant P3** (the user, 2026-11-25). P3 (grass
   blades on a World-fixed grid, chosen by seed alone) merged to master
   at `2180527`; the last commit before it is `2180527^1`. Compare the

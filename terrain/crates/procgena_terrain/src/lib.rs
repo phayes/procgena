@@ -120,9 +120,9 @@ mod world;
 
 pub use carve::{FeatureKind, FeatureLine, PoiKind, PointOfInterest, Pond, RoadTags};
 pub use chunk::{
-    CHUNK_CELLS, CHUNK_SIZE, ChunkCorner, ChunkError, ChunkKey, ChunkMesh, ChunkSamples,
-    ChunkSelection, ChunkSelectionError, ChunkSide, ChunkSource, MAX_CHUNK_LEVEL, SurfacePoint,
-    Transitions, WaterMesh, chunk_lod,
+    CHUNK_CELLS, CHUNK_SIZE, ChunkCorner, ChunkDetail, ChunkError, ChunkKey, ChunkMesh,
+    ChunkSamples, ChunkSelection, ChunkSelectionError, ChunkSide, ChunkSource, MAX_CHUNK_LEVEL,
+    SurfacePoint, Transitions, WaterMesh, chunk_lod,
 };
 pub use converge::{
     BorderTarget, Convergence, DEFAULT_RELIEF_BLEND, DEFAULT_RELIEF_MEETING, EdgeTarget,

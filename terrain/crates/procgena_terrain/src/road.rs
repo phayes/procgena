@@ -87,6 +87,13 @@ const LEG_SPACING: f64 = 3.0;
 /// crowd each other, before it is kept as it is.
 const MAX_CROWDED_RETRIES: usize = 8;
 
+/// The cell size of the grid the road network is first outlined on, in
+/// metres.
+const COARSE_CELL: f64 = 16.0;
+
+/// How far a refined road may stray from its coarse outline, in metres.
+const CORRIDOR: f64 = 48.0;
+
 /// A road's start: the end of a border crossing on this side, and the road
 /// level there.
 pub(crate) struct RoadStart {
@@ -135,24 +142,45 @@ pub(crate) struct Routes {
 /// reasonably can, and `grades` gives the road grades at a point. Roads
 /// stay at least [`FEATURE_CLEARANCE`] from the border, apart from the
 /// straight first leg from each start.
+///
+/// The hub is the allowed cell nearest `hub_at` when given, otherwise a
+/// level cell near the middle of the region.
 pub(crate) fn route(
     grid: &Grid,
     starts: &[RoadStart],
     rivers: &[FeatureLine],
+    hub_at: Option<DVec2>,
     grades: &dyn Fn(DVec2) -> RoadGrades,
     ground: &dyn Fn(DVec2) -> f32,
 ) -> Routes {
     let allowed: Vec<bool> = (0..grid.heights.len())
         .map(|i| grid.inside[i] && grid.clearance[i] > FEATURE_CLEARANCE)
         .collect();
-    let Some(hub) = hub(grid, &allowed) else {
+    let hub = match hub_at {
+        Some(p) => nearest_allowed(grid, &allowed, p),
+        None => hub(grid, &allowed),
+    };
+    let Some(hub) = hub else {
         return Routes {
             roads: Vec::new(),
             end: None,
         };
     };
+
+    // Grades are read only where a road may pass; the search never steps
+    // onto the other cells.
+    let unused = RoadGrades {
+        grade: 1.0,
+        max_grade: 1.0,
+    };
     let cell_grades: Vec<RoadGrades> = (0..grid.heights.len())
-        .map(|i| grades(grid.centre(i)))
+        .map(|i| {
+            if allowed[i] {
+                grades(grid.centre(i))
+            } else {
+                unused
+            }
+        })
         .collect();
     let river = water(grid, rivers);
     let bridges = Bridges::new(grid, rivers);
@@ -258,6 +286,100 @@ pub(crate) fn route(
     }
     let end = level_on_roads(&roads, grid.centre(hub)).map(|level| (grid.centre(hub), level));
     Routes { roads, end }
+}
+
+/// Like [`route`], on a grid of [`COARSE_CELL`] metres over `polygon`: the
+/// road network in outline, cheap to plan, with the same starts and levels
+/// at the crossings. [`refined_routes`] follows it at full detail.
+pub(crate) fn coarse_routes(
+    polygon: &[DVec2],
+    starts: &[RoadStart],
+    rivers: &[FeatureLine],
+    grades: &dyn Fn(DVec2) -> RoadGrades,
+    ground: &dyn Fn(DVec2) -> f32,
+) -> Routes {
+    let grid = Grid::with_cell(polygon, ground, COARSE_CELL);
+    route(&grid, starts, rivers, None, grades, ground)
+}
+
+/// Like [`route`], on a grid of `cell` metres over `polygon` that covers
+/// only the ground within [`CORRIDOR`] metres of the `coarse` routes (see
+/// [`coarse_routes`], planned with the same arguments), with the same hub.
+/// Every refined road stays inside that corridor. With no coarse network
+/// there are no roads.
+pub(crate) fn refined_routes(
+    polygon: &[DVec2],
+    coarse: &Routes,
+    cell: f64,
+    starts: &[RoadStart],
+    rivers: &[FeatureLine],
+    grades: &dyn Fn(DVec2) -> RoadGrades,
+    ground: &dyn Fn(DVec2) -> f32,
+) -> Routes {
+    let Some((hub, _)) = coarse.end else {
+        return Routes {
+            roads: Vec::new(),
+            end: None,
+        };
+    };
+    let corridor = Corridor::new(&coarse.roads, hub, CORRIDOR);
+    let grid = Grid::with_cell_where(polygon, ground, cell, |p| corridor.contains(p));
+    route(&grid, starts, rivers, Some(hub), grades, ground)
+}
+
+/// The ground within a set distance of some lines and a point, bucketed so
+/// a point is tested only against the segments nearby.
+struct Corridor {
+    /// Bucket size, the corridor's half-width.
+    reach: f64,
+    /// For each bucket, the segments that may lie within `reach` of a point
+    /// in it.
+    buckets: HashMap<(i64, i64), Vec<(DVec2, DVec2)>>,
+}
+
+impl Corridor {
+    /// The ground within `reach` metres of `lines` or of `point`.
+    fn new(lines: &[FeatureLine], point: DVec2, reach: f64) -> Self {
+        let mut corridor = Self {
+            reach,
+            buckets: HashMap::new(),
+        };
+        let segments = lines
+            .iter()
+            .flat_map(|l| l.points.windows(2).map(|w| (w[0], w[1])))
+            .chain(std::iter::once((point, point)));
+        for (a, b) in segments {
+            let (lo, hi) = (corridor.bucket(a.min(b)), corridor.bucket(a.max(b)));
+            for x in lo.0 - 1..=hi.0 + 1 {
+                for z in lo.1 - 1..=hi.1 + 1 {
+                    corridor.buckets.entry((x, z)).or_default().push((a, b));
+                }
+            }
+        }
+        corridor
+    }
+
+    /// The bucket holding `p`.
+    fn bucket(&self, p: DVec2) -> (i64, i64) {
+        let q = (p / self.reach).floor();
+        (q.x as i64, q.y as i64)
+    }
+
+    /// Whether `p` lies in the corridor.
+    fn contains(&self, p: DVec2) -> bool {
+        self.buckets.get(&self.bucket(p)).is_some_and(|segments| {
+            segments
+                .iter()
+                .any(|&(a, b)| distance_to_segment(p, a, b) <= self.reach)
+        })
+    }
+}
+
+/// The distance from `p` to the segment from `a` to `b`.
+fn distance_to_segment(p: DVec2, a: DVec2, b: DVec2) -> f64 {
+    let ab = b - a;
+    let t = ((p - a).dot(ab) / ab.length_squared().max(1e-12)).clamp(0.0, 1.0);
+    p.distance(a + ab * t)
 }
 
 /// How steeply a road along `points` has its banks start at each point, as
@@ -595,6 +717,16 @@ fn first_cell(grid: &Grid, allowed: &[bool], point: DVec2) -> Option<usize> {
         })
 }
 
+/// The allowed cell nearest `point`, if any cell is allowed.
+fn nearest_allowed(grid: &Grid, allowed: &[bool], point: DVec2) -> Option<usize> {
+    (0..allowed.len()).filter(|&i| allowed[i]).min_by(|&a, &b| {
+        grid.centre(a)
+            .distance(point)
+            .total_cmp(&grid.centre(b).distance(point))
+            .then(a.cmp(&b))
+    })
+}
+
 /// Which cells of `grid` the lines of `rivers` pass through.
 fn water(grid: &Grid, rivers: &[FeatureLine]) -> Vec<bool> {
     let mut water = vec![false; grid.heights.len()];
@@ -856,7 +988,7 @@ mod tests {
             grade: 0.04,
             max_grade: 0.08,
         };
-        let Routes { roads, end } = route(&grid, &starts, &[], &grades, &ground);
+        let Routes { roads, end } = route(&grid, &starts, &[], None, &grades, &ground);
         assert_eq!(roads.len(), 2);
         // The network ends at the hub, where the first road arrives.
         let (hub, level) = end.expect("the roads reach the hub");
@@ -907,6 +1039,7 @@ mod tests {
             &grid,
             &[start],
             std::slice::from_ref(&river),
+            None,
             &grades,
             &ground,
         );

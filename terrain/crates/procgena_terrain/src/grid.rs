@@ -61,6 +61,20 @@ impl Grid {
     /// Like [`Grid::new`], with cells of `cell` metres where the region is
     /// small enough (larger regions get larger cells).
     pub(crate) fn with_cell(polygon: &[DVec2], height: impl Fn(DVec2) -> f32, cell: f64) -> Self {
+        Self::with_cell_where(polygon, height, cell, |_| true)
+    }
+
+    /// Like [`Grid::with_cell`], but a cell counts as inside the region only
+    /// if `keep` returns `true` for its centre. Cells left out get no
+    /// height and no clearance, and `height` is never called for them, so a
+    /// narrow `keep` makes the grid much cheaper to build. Cell size and
+    /// layout match [`Grid::with_cell`] for the same `polygon` and `cell`.
+    pub(crate) fn with_cell_where(
+        polygon: &[DVec2],
+        height: impl Fn(DVec2) -> f32,
+        cell: f64,
+        keep: impl Fn(DVec2) -> bool,
+    ) -> Self {
         // Bounding box and cell size.
         let (min, max) = polygon
             .iter()
@@ -86,7 +100,7 @@ impl Grid {
         };
         for i in 0..width * depth {
             let p = grid.centre(i);
-            let inside = boundary.contains(p);
+            let inside = keep(p) && boundary.contains(p);
             grid.inside.push(inside);
             grid.clearance.push(if inside {
                 boundary.distance_to_border(p)

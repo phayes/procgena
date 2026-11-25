@@ -4,9 +4,10 @@
 
 import package::generate::{
     Vertex, cell_case, crossing_count, crossing_id, crossing_vertex, crosses, inside, is_cell,
-    item_index, make_vertex, place_vertex, sample_coords, sample_count, sample_index, sample_position,
-    stone_gradient, vertex_normal, vertex_position, write_result, OVERFLOW_CROSSINGS,
-    OVERFLOW_INDICES, OVERFLOW_VERTICES, WORKGROUP_SIZE, indices, prefix, request, vertices,
+    item_index, make_vertex, measure_bounds, place_vertex, sample_coords, sample_count,
+    sample_index, sample_position, stone_gradient, vertex_normal, vertex_position, write_result,
+    OVERFLOW_CROSSINGS, OVERFLOW_INDICES, OVERFLOW_VERTICES, WORKGROUP_SIZE, indices, prefix,
+    request, vertices,
 };
 import package::field::normalize_or;
 import package::tables::{MC_EDGE_AXES, MC_EDGE_OFFSETS};
@@ -244,4 +245,11 @@ fn finish_dc() {
         overflow |= OVERFLOW_CROSSINGS;
     }
     write_result(overflow, totals.y, index_count, totals.x);
+}
+
+/// Measures the mesh's bounds into its status. Run after `finish_dc`;
+/// dispatch one workgroup.
+@compute @workgroup_size(WORKGROUP_SIZE)
+fn measure_dc(@builtin(local_invocation_index) local: u32) {
+    measure_bounds(local);
 }

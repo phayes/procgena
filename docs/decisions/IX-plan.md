@@ -380,13 +380,16 @@ reported to the coordinator ready to merge.
    - `game_level` stays out of the options hash and so out of the pool id
      and variant seeds (changing detail must not re-seed rocks; rule 3).
      It is in the impostor bake key and the single rock's cache key.
-   - Size measure: `StoneOptions::bounding_diameter()`, the stretched
-     containing box's diagonal, used by single rocks and pools alike. On
-     the presets it is 1.5–1.9× the mesh's widest span (4.5× for `ore`),
-     so stones keep their meshes further than the plan's table says. Real
-     bounds don't exist yet: the GPU mesher's `bounding_radius` is the same
-     cube bound, and the pool culls with a fixed radius. Follow-up in
-     ROADMAP: real per-specimen bounding spheres on both paths.
+   - Size measure (real bounds, later on 2026-11-25): the game-level
+     mesh's axis-aligned bounding-box diagonal, the diameter of a sphere
+     centred on that box. Single rocks measure their CPU mesh
+     (`Stone::bounding_diameter`); the GPU mesher measures each pooled mesh
+     in a `measure_mc` / `measure_dc` pass into
+     `GpuStoneStatus::bounding_diameter`, which the render world reads back
+     and hands to the main world's copies (until then, the settings' bound
+     `StoneOptions::bounding_diameter()` stands in). On the presets it is
+     1.04–1.43× the mesh's widest span; the settings' bound was 1.5–1.9×
+     (4.5× for `ore`). The pool still culls with a fixed radius.
    - The specimen's lower level keeps `Level::start` until the last asset
      step: the distance where the default chain switches to the lower mesh
      at the default view and High quality.

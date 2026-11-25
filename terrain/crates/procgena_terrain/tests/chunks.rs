@@ -8,11 +8,13 @@ use std::sync::{Arc, Mutex};
 
 use common::{DEFAULT, RIVER_SEEDS, hills_into_plains};
 use glam::{DVec2, DVec3};
+use procgena_core::chain::ViewScale;
 use procgena_core::{Lod, LodLevel};
 use procgena_terrain::{
-    CHUNK_CELLS, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSide, ChunkSource,
-    EdgeAgreement, Elevation, FeatureTier, RegionGraphOptions, RegionId, RegionProgress,
-    RegionStage, Terrain, Transitions, WorldTerrain, WorldTerrainOptions, chunk_lod, fixtures,
+    CHUNK_CELLS, ChunkDetail, ChunkKey, ChunkMesh, ChunkSamples, ChunkSelection, ChunkSide,
+    ChunkSource, EdgeAgreement, Elevation, FeatureTier, RegionGraphOptions, RegionId,
+    RegionProgress, RegionStage, Terrain, Transitions, WorldTerrain, WorldTerrainOptions,
+    chunk_lod, fixtures,
 };
 
 /// Four chunk levels, switching at 96, 192 and 384 m, drawn out to
@@ -261,11 +263,12 @@ fn the_usual_levels_fit_any_view_distance() {
     // the levels that start inside it.
     for (view, levels) in [
         (50.0, 1),
-        (150.0, 1),
-        (160.0, 2),
-        (3000.0, 6),
-        (4000.0, 6),
-        (6000.0, 7),
+        (300.0, 1),
+        (320.0, 2),
+        (3000.0, 5),
+        (4000.0, 5),
+        (6000.0, 6),
+        (12000.0, 7),
     ] {
         let lod = chunk_lod(view);
         assert_eq!(lod.levels.len(), levels, "view distance {view} m");
@@ -279,6 +282,40 @@ fn the_usual_levels_fit_any_view_distance() {
     endless.cull_distance = None;
     assert!(ChunkSelection::around(&endless, 1.0, &viewer, None).is_err());
     assert!(ChunkSelection::around(&chunk_lod(6000.0), 0.0, &viewer, None).is_err());
+}
+
+#[test]
+fn each_level_takes_over_at_its_size_on_screen() {
+    // Where a level takes over, one of its cells covers the detail's share
+    // of the screen, for any camera.
+    for view in [ViewScale::DEFAULT, ViewScale::perspective(0.4)] {
+        for cell_on_screen in [0.004, 0.01, 0.03] {
+            let detail = ChunkDetail {
+                cell_on_screen,
+                view,
+            };
+            let lod = detail.lod(1.0e6);
+            assert_eq!(lod.levels.len(), 7);
+            for (level, l) in lod.levels.iter().enumerate().skip(1) {
+                let cell = ChunkKey::new(0, 0, level as u8).step() as f32;
+                let on_screen = cell * view.get() / l.distance;
+                assert!(
+                    (on_screen - cell_on_screen).abs() < 1e-6,
+                    "level {level}: {on_screen} of the screen"
+                );
+            }
+        }
+    }
+    // A narrower field of view keeps each level farther out.
+    let wide = ChunkDetail::DEFAULT.lod(1.0e6);
+    let narrow = ChunkDetail {
+        view: ViewScale::perspective(0.4),
+        ..ChunkDetail::DEFAULT
+    }
+    .lod(1.0e6);
+    assert!(narrow.levels[1].distance > wide.levels[1].distance);
+    // The usual levels are the default detail's.
+    assert_eq!(chunk_lod(4000.0), ChunkDetail::default().lod(4000.0));
 }
 
 #[test]
@@ -309,6 +346,49 @@ fn chunks_one_level_apart_join_without_cracks() {
                 normals.insert(at, (mesh.key, n));
             }
         }
+    }
+}
+
+#[test]
+fn a_blend_draws_the_ready_chunks_and_keeps_the_rest_whole() {
+    let (full, _) = plains();
+    // The viewer walks 250 m along x from a point on a road.
+    let road = &full.roads()[0].points;
+    let p = road[road.len() / 2];
+    let (from, to) = (DVec3::new(p.x, 2.0, p.y), DVec3::new(p.x + 250.0, 2.0, p.y));
+    let drawn = ChunkSelection::around(&test_lod(), 1.0, &[from], None).unwrap();
+    let target = ChunkSelection::around(&test_lod(), 1.0, &[to], Some(&drawn)).unwrap();
+    let viewer = DVec2::new(to.x, to.z);
+
+    // With nothing ready the blend keeps what is drawn; with everything
+    // ready it is the target.
+    let none = target.blend(&drawn, |_| false);
+    assert!(!none.is_empty());
+    assert!(none.iter().all(|(key, _)| drawn.get(key).is_some()));
+    assert_eq!(target.blend(&drawn, |_| true), target);
+
+    // Chunks are read nearest first. At every stage, each chunk of the
+    // blend is drawn already or is a ready chunk of the target; ground
+    // that both selections draw is drawn; and the chunks join without
+    // cracks.
+    for reach in [60.0, 150.0, 400.0, 800.0] {
+        let ready = |key: ChunkKey| key.distance_to(viewer) < reach;
+        let blend = target.blend(&drawn, ready);
+        for (key, _) in blend.iter() {
+            assert!(
+                drawn.get(key).is_some() || (target.get(key).is_some() && ready(key)),
+                "{key} is neither drawn nor ready"
+            );
+        }
+        for i in -30..=30 {
+            for j in -30..=30 {
+                let q = viewer + DVec2::new(f64::from(i), f64::from(j)) * 37.0;
+                if holder(&drawn, q).is_some() && holder(&target, q).is_some() {
+                    assert!(holder(&blend, q).is_some(), "nothing drawn at {q}");
+                }
+            }
+        }
+        assert_watertight(&blend, &meshes(&full, &blend));
     }
 }
 

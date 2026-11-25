@@ -24,7 +24,7 @@ use procgena_stone::gpu::{
 };
 
 use super::{ExtractedPools, PoolMeshLayout};
-use crate::pool::{PoolDefinition, StonePool, external_mesh_id};
+use crate::pool::{MeasuredPoolSizes, PoolDefinition, StonePool, external_mesh_id};
 
 /// Where the status read-back is: waiting for the GPU, or holding the bytes.
 const READBACK_MAPPING: u8 = 0;
@@ -234,22 +234,47 @@ impl RenderPool {
     /// Processes available GPU status without waiting, and schedules
     /// generation with more capacity after overflow, unless the retry limit
     /// has been reached.
-    fn check_readback(&mut self) {
-        let Some(readback) = &self.readback else {
-            return;
-        };
+    ///
+    /// Returns each variant's measured size once its status is read: its
+    /// game-level mesh's bounding diameter in metres, or `None` for a
+    /// variant whose mesh did not fit or is empty.
+    fn check_readback(&mut self) -> Option<Vec<Option<f32>>> {
+        let readback = self.readback.as_ref()?;
         if readback.state.load(Ordering::Acquire) != READBACK_READY {
-            return;
+            return None;
         }
         let bytes = readback.bytes.lock().map(|b| b.clone()).unwrap_or_default();
         self.readback = None;
         if bytes.is_empty() {
             warn!("procgena_stone_bevy: a stone pool's generation status could not be read");
-            return;
+            return None;
         }
         let statuses = GpuStoneStatus::decode(&bytes);
+        let sizes = self.measured_sizes(&statuses);
+        self.grow_overflowed(&statuses);
+        Some(sizes)
+    }
+
+    /// Each variant's game-level bounding diameter in metres, from the
+    /// pool's statuses in request order, or `None` where it was not measured.
+    fn measured_sizes(&self, statuses: &[GpuStoneStatus]) -> Vec<Option<f32>> {
+        let lods = self.definition_levels();
+        self.requests
+            .chunks(lods)
+            .zip(statuses.chunks(lods))
+            .map(|(requests, statuses)| {
+                let (request, status) = (&requests[0], statuses.first()?);
+                let measured = status.fits() && status.bounding_diameter > 0.0;
+                measured.then_some(status.bounding_diameter * request.options.scale)
+            })
+            .collect()
+    }
+
+    /// Schedules generation with more room for every mesh that overflowed,
+    /// unless the retry limit has been reached.
+    fn grow_overflowed(&mut self, statuses: &[GpuStoneStatus]) {
         let mut overflowed = false;
-        for (request, status) in self.requests.iter_mut().zip(&statuses) {
+        for (request, status) in self.requests.iter_mut().zip(statuses) {
             if !status.fits() {
                 overflowed = true;
                 request.grow_to_fit(status);
@@ -309,6 +334,7 @@ fn plan_batches(requests: &[GpuStoneRequest], lods: usize, limit: u64) -> Vec<Ra
 pub(crate) fn prepare_pools(
     mut render_pools: ResMut<RenderPools>,
     extracted: Res<ExtractedPools>,
+    measured: Res<MeasuredPoolSizes>,
     layout: Option<Res<PoolMeshLayout>>,
     mut external: ResMut<ExternalMeshes>,
     device: Res<RenderDevice>,
@@ -333,8 +359,10 @@ pub(crate) fn prepare_pools(
     }
 
     // Generate pools that are new or need more room.
-    for pool in pools.values_mut() {
-        pool.check_readback();
+    for (id, pool) in pools.iter_mut() {
+        if let Some(sizes) = pool.check_readback() {
+            measured.post(*id, pool.version, sizes);
+        }
         if pool.needs_generation && !pool.failed {
             let generator =
                 generator.get_or_insert_with(|| GpuStoneGenerator::new(device.wgpu_device()));

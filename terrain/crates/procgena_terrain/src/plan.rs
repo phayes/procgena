@@ -16,7 +16,9 @@ use crate::ports::{
 use crate::region::{Boundary, Region, RegionEdge, point_at, segments};
 use crate::relief::Relief;
 use crate::river::{End, Occupied, Traced, Tracing, trace_inbound, trace_own};
-use crate::road::{RoadStart, Routes, along_mean, banks, distance_along, route};
+use crate::road::{
+    RoadStart, Routes, along_mean, banks, coarse_routes, distance_along, refined_routes,
+};
 use crate::seam::{EdgeAgreement, EdgeSample, smooth};
 
 /// Chaikin smoothing passes applied to rivers.
@@ -84,7 +86,6 @@ const BEND_SHARE: f64 = 0.4;
 /// The cell size of the grid roads are planned on, in metres: fine enough
 /// for a road to find ledges and saddles a little wider than itself.
 const ROAD_CELL: f64 = 8.0;
-
 /// The smallest depth a river may cut through a rise, in metres.
 const BREACH_BASE: f32 = 4.0;
 
@@ -665,13 +666,17 @@ pub(crate) fn roads(
         }
     }
 
-    // Routes linking them, planned on their own, finer grid.
-    let road_grid = Grid::with_cell(polygon, base, ROAD_CELL);
-    let Routes { mut roads, end } = route(
-        &road_grid,
+    // Routes linking them: outlined on a coarse grid, then planned on
+    // their own, finer grid along that outline.
+    let grades = |p| relief.road_grades(p);
+    let coarse = coarse_routes(polygon, &road_starts, rivers, &grades, base);
+    let Routes { mut roads, end } = refined_routes(
+        polygon,
+        &coarse,
+        ROAD_CELL,
         &road_starts,
         rivers,
-        &|p| relief.road_grades(p),
+        &grades,
         base,
     );
     let points_of_interest = end

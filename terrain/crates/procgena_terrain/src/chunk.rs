@@ -50,6 +50,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use glam::{DVec2, DVec3, Vec3};
+use procgena_core::chain::ViewScale;
 use procgena_core::{Lod, LodLevel};
 
 use crate::{FeatureTier, SampleDetail, Terrain, WorldTerrain};
@@ -932,25 +933,82 @@ pub struct WaterMesh {
 }
 
 /// The terrain's usual chunk levels, drawn out to `view_distance` metres:
-/// level 0 out to 128 m, and each level after that out to twice as far, up
-/// to level 6 (4 km chunks). Levels that would start too close to the view
-/// distance to be seen are left out, so any positive view distance gives
-/// levels [`ChunkSelection::around`] accepts.
-///
-/// Level `i` of the `Lod` is chunk level `i`: its distance is where that
-/// chunk level starts, and its cull distance is `view_distance`.
+/// [`ChunkDetail::DEFAULT`]'s levels (level 0 out to 256 m, and each level
+/// after that out to twice as far). See [`ChunkDetail::lod`].
 pub fn chunk_lod(view_distance: f32) -> Lod {
-    const HYSTERESIS: f32 = 0.1;
-    let mut levels = vec![LodLevel::new(0.0, HYSTERESIS, ())];
-    levels.extend(
-        (1..=6)
-            .map(|level| LodLevel::new(64.0 * f32::powi(2.0, level), HYSTERESIS, ()))
-            // A level must finish fading in before the ground fades out.
-            .take_while(|level| {
-                level.distance * (1.0 + HYSTERESIS) <= view_distance * (1.0 - HYSTERESIS)
-            }),
-    );
-    Lod::new(CHUNK_SIZE as f32, levels).with_cull(view_distance)
+    ChunkDetail::DEFAULT.lod(view_distance)
+}
+
+/// How fine the terrain looks on screen: which chunk level is drawn at
+/// each distance from the camera.
+///
+/// A chunk at level `L` is a grid of cells `2^L` metres across
+/// ([`ChunkKey::step`]). Each level takes over from the finer one before it
+/// where one of its cells, seen face on, covers
+/// [`cell_on_screen`](Self::cell_on_screen) of the screen's height. Past
+/// level 0, no cell is drawn larger than that, whatever the screen's
+/// resolution.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChunkDetail {
+    /// The largest share of the screen's height one cell covers, past
+    /// level 0. Smaller values draw finer ground and more triangles:
+    /// halving it draws about four times as many. Must be positive.
+    pub cell_on_screen: f32,
+    /// How large things look through the camera the terrain is drawn for.
+    pub view: ViewScale,
+}
+
+impl ChunkDetail {
+    /// The usual detail: with Bevy's default 45° field of view, a cell
+    /// covers at most about 7 pixels of a 720-pixel-high screen (14 of
+    /// 1440), and level `L` takes over at 128 m × 2^`L`.
+    pub const DEFAULT: Self = Self {
+        cell_on_screen: ViewScale::DEFAULT.get() / 128.0,
+        view: ViewScale::DEFAULT,
+    };
+
+    /// The chunk levels for this detail, drawn out to `view_distance`
+    /// metres, up to level 6 (4 km chunks). Levels that would start too
+    /// close to the view distance to be seen are left out, so any positive
+    /// view distance gives levels [`ChunkSelection::around`] accepts.
+    ///
+    /// Level `i` of the `Lod` is chunk level `i`: its distance is where that
+    /// chunk level starts, and its cull distance is `view_distance`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`cell_on_screen`](Self::cell_on_screen) isn't a positive
+    /// number.
+    pub fn lod(self, view_distance: f32) -> Lod {
+        const HYSTERESIS: f32 = 0.1;
+        assert!(
+            self.cell_on_screen.is_finite() && self.cell_on_screen > 0.0,
+            "a cell's share of the screen, {}, is not a positive number",
+            self.cell_on_screen
+        );
+
+        // Level `L` starts where one of its cells covers `cell_on_screen`.
+        let start = |level: u8| {
+            let cell = ChunkKey::size_at(level) / f64::from(CHUNK_CELLS);
+            cell as f32 * self.view.get() / self.cell_on_screen
+        };
+        let mut levels = vec![LodLevel::new(0.0, HYSTERESIS, ())];
+        levels.extend(
+            (1..=6)
+                .map(|level| LodLevel::new(start(level), HYSTERESIS, ()))
+                // A level must finish fading in before the ground fades out.
+                .take_while(|level| {
+                    level.distance * (1.0 + HYSTERESIS) <= view_distance * (1.0 - HYSTERESIS)
+                }),
+        );
+        Lod::new(CHUNK_SIZE as f32, levels).with_cull(view_distance)
+    }
+}
+
+impl Default for ChunkDetail {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
 }
 
 /// Why chunks could not be chosen.
@@ -1118,6 +1176,137 @@ impl ChunkSelection {
     pub fn is_empty(&self) -> bool {
         self.chunks.is_empty()
     }
+
+    /// The chunks to draw on the way from `drawn` to this selection, using
+    /// only the chunks of this selection that `ready` says can be drawn.
+    ///
+    /// Each part of the ground is drawn from this selection where all its
+    /// chunks there are ready, and from `drawn` elsewhere; where neither
+    /// can draw it, it is left out. Ground that only `drawn` covers is left
+    /// out. Like any selection, the result never overlaps itself, chunks
+    /// that touch are at most one level apart, and its transitions fit the
+    /// chunks it actually holds, so a chunk kept from `drawn` may need
+    /// meshing again. With every chunk ready, it is this selection; with
+    /// none ready, it is `drawn` within this selection's ground.
+    pub fn blend(&self, drawn: &ChunkSelection, ready: impl Fn(ChunkKey) -> bool) -> Self {
+        let target: BTreeSet<ChunkKey> = self.chunks.keys().copied().collect();
+        let old: BTreeSet<ChunkKey> = drawn.chunks.keys().copied().collect();
+
+        // The areas to fill: this selection's chunks, grouped under their
+        // ancestors at the coarsest level either selection uses.
+        let Some(top) = target.iter().chain(&old).map(|k| k.level).max() else {
+            return Self::default();
+        };
+        let roots: BTreeSet<ChunkKey> = target
+            .iter()
+            .map(|&k| ancestor_at(k, top).expect("no chunk is above the top level"))
+            .collect();
+
+        // Fill each area, falling back to `drawn` where this selection's
+        // chunks meet `drawn`'s more than a level apart, until none do.
+        let mut forced: BTreeSet<ChunkKey> = BTreeSet::new();
+        loop {
+            let mut picked: BTreeMap<ChunkKey, bool> = BTreeMap::new();
+            for &root in &roots {
+                let mut out = Vec::new();
+                if pick(root, &target, &old, &ready, &forced, &mut out) {
+                    picked.extend(out);
+                }
+            }
+            let leaves: BTreeSet<ChunkKey> = picked.keys().copied().collect();
+            match unbalanced(&leaves) {
+                // Of two chunks too far apart, one is new: draw its area
+                // from `drawn` instead.
+                Some((a, b)) => {
+                    let new = if picked[&a] { a } else { b };
+                    debug_assert!(picked[&new], "the drawn chunks are balanced");
+                    forced.insert(new);
+                }
+                None => {
+                    let chunks = leaves
+                        .iter()
+                        .map(|&key| (key, transitions_of(key, &leaves)))
+                        .collect();
+                    return Self { chunks };
+                }
+            }
+        }
+    }
+}
+
+/// The chunk at `level` that holds `key`, or `key` itself at that level;
+/// `None` if `key` is coarser.
+fn ancestor_at(key: ChunkKey, level: u8) -> Option<ChunkKey> {
+    let mut at = key;
+    while at.level < level {
+        at = at.parent()?;
+    }
+    (at.level == level).then_some(at)
+}
+
+/// Adds to `out` the chunks that draw `node`, each marked `true` if it
+/// comes from `target` and `false` if from `old`, and returns whether
+/// `node` can be drawn. `target`'s chunks are used where all of them in a
+/// part of `node` are `ready` and that part isn't `forced`; `old`'s
+/// elsewhere. On `false`, `out` is left as it was.
+fn pick(
+    node: ChunkKey,
+    target: &BTreeSet<ChunkKey>,
+    old: &BTreeSet<ChunkKey>,
+    ready: &impl Fn(ChunkKey) -> bool,
+    forced: &BTreeSet<ChunkKey>,
+    out: &mut Vec<(ChunkKey, bool)>,
+) -> bool {
+    // From the target: the chunk itself, or its children each drawn as
+    // best they can.
+    if !forced.contains(&node) {
+        if target.contains(&node) {
+            if ready(node) {
+                out.push((node, true));
+                return true;
+            }
+        } else if let Some(children) = node.children() {
+            let mark = out.len();
+            if children
+                .iter()
+                .all(|&c| pick(c, target, old, ready, forced, out))
+            {
+                return true;
+            }
+            out.truncate(mark);
+        }
+    }
+
+    // From what is drawn.
+    let mark = out.len();
+    if cover(node, old, out) {
+        return true;
+    }
+    out.truncate(mark);
+    false
+}
+
+/// Adds to `out` the chunks of `old` that make up exactly `node`, marked
+/// `false`, and returns whether they do. On `false`, `out` may hold some
+/// of them.
+fn cover(node: ChunkKey, old: &BTreeSet<ChunkKey>, out: &mut Vec<(ChunkKey, bool)>) -> bool {
+    if old.contains(&node) {
+        out.push((node, false));
+        return true;
+    }
+    node.children()
+        .is_some_and(|children| children.iter().all(|&c| cover(c, old, out)))
+}
+
+/// Two chunks of `leaves` that touch along a side or at a corner and are
+/// more than a level apart, the finer first, if any.
+fn unbalanced(leaves: &BTreeSet<ChunkKey>) -> Option<(ChunkKey, ChunkKey)> {
+    leaves.iter().find_map(|&key| {
+        AROUND.iter().find_map(|&(dx, dz)| {
+            let coarse = covering(key.offset(dx, dz), leaves)?;
+            (coarse.level > key.level + 1).then_some((key, coarse))
+        })
+    })
 }
 
 /// Adds `key` to `leaves`, or its children recursively where `split` says.
