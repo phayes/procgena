@@ -43,6 +43,13 @@ pub const MUSHROOM_TEXTURE_ROOT: &str = "procgena_mushroom://textures";
 /// locations with [`add_asset_sources`].
 pub const DEADWOOD_TEXTURE_ROOT: &str = "procgena_deadwood://textures";
 
+/// Path prefix for loading the ground textures supplied with
+/// procgena_terrain.
+///
+/// Use as [`GroundTextureSettings::root`](procgena_terrain_bevy::GroundTextureSettings::root)
+/// after registering the texture locations with [`add_asset_sources`].
+pub const TERRAIN_TEXTURE_ROOT: &str = "procgena_terrain://textures";
+
 /// A generator's asset folder, registered as an asset source.
 struct GeneratorAssets {
     /// The asset source name, as in `procgena_tree://`.
@@ -73,20 +80,23 @@ macro_rules! generator_assets {
 }
 
 /// Every generator whose assets the studio loads.
-const GENERATORS: [GeneratorAssets; 5] = [
+const GENERATORS: [GeneratorAssets; 6] = [
     generator_assets!("procgena_tree", "tree"),
     generator_assets!("procgena_stone", "stone"),
     generator_assets!("procgena_clump", "clump"),
     generator_assets!("procgena_mushroom", "mushroom"),
     generator_assets!("procgena_deadwood", "deadwood"),
+    generator_assets!("procgena_terrain", "terrain"),
 ];
 
-/// Makes tree, rock, clump, mushroom and dead wood textures available
-/// through `procgena_tree://`, `procgena_stone://`, `procgena_clump://`,
-/// `procgena_mushroom://` and `procgena_deadwood://`.
+/// Makes tree, rock, clump, mushroom, dead wood and ground textures
+/// available through `procgena_tree://`, `procgena_stone://`,
+/// `procgena_clump://`, `procgena_mushroom://`, `procgena_deadwood://` and
+/// `procgena_terrain://`.
 ///
 /// Files are read from the workspace's `tree/assets`, `stone/assets`,
-/// `clump/assets`, `mushroom/assets` and `deadwood/assets` folders, at their build-time
+/// `clump/assets`, `mushroom/assets`, `deadwood/assets` and `terrain/assets`
+/// folders, at their build-time
 /// locations. Published textures missing there are downloaded when first
 /// loaded and kept in the user's cache folder (such as
 /// `~/Library/Caches/procgena/textures/` on macOS), so the textures need no
@@ -159,6 +169,10 @@ mod tests {
             (
                 "procgena_deadwood",
                 "textures/end/TreeEnd005-1k-color-bc7.ktx2",
+            ),
+            (
+                "procgena_terrain",
+                "textures/soil/mud_forest-512-color-bc7.ktx2",
             ),
         ];
         for (generator, (source, sample)) in GENERATORS.iter().zip(samples) {

@@ -10,7 +10,9 @@ use procgena_biome::{Ecotope, EcotopeError, EcotopePlacement};
 use procgena_core::scatter::{Mask, ScatterArea, ScatterInput};
 use procgena_core::{ChildKey, Ground};
 use procgena_terrain::ground::GroundWeights;
-use procgena_terrain_bevy::{TerrainExtension, TerrainMaterial, TerrainMaterialPlugin};
+use procgena_terrain_bevy::{
+    GroundTextureSettings, GroundTextures, TerrainExtension, TerrainMaterial, TerrainMaterialPlugin,
+};
 
 use crate::ground::{EcotopeGroundPatch, GroundPatch, ground_mesh, patch_weights};
 use crate::spawn_layer;
@@ -239,6 +241,8 @@ fn finish_placing(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<TerrainMaterial>>,
+    textures: Res<GroundTextures>,
+    texture_settings: Res<GroundTextureSettings>,
 ) {
     for (entity, mut p, current, drawn) in &mut placing {
         let Some((result, place_time, ground)) = block_on(poll_once(&mut p.task)) else {
@@ -315,8 +319,12 @@ fn finish_placing(
                 ground_time = Some(time);
                 let (min, max, _) = settings.rectangle(params.area);
                 let mesh = ground_mesh(&*params.ground, min, max, settings.cell);
-                let extension =
-                    TerrainExtension::new(&weights, settings.base.catalogue(), &mut images);
+                let extension = TerrainExtension::new(
+                    &weights,
+                    settings.base.catalogue(),
+                    Some((&textures, &texture_settings)),
+                    &mut images,
+                );
                 let material = TerrainMaterial {
                     base: StandardMaterial {
                         reflectance: 0.2,
@@ -411,8 +419,11 @@ mod tests {
             MinimalPlugins,
             AssetPlugin::default(),
             bevy::mesh::MeshPlugin,
-            EcotopePlugin,
         ))
+        // The terrain material's shader modules load when the plugin is
+        // added, so shaders must be an asset type by then.
+        .init_asset::<bevy::shader::Shader>()
+        .add_plugins(EcotopePlugin)
         .init_asset::<Image>()
         .init_asset::<StandardMaterial>()
         .init_resource::<Finished>()
