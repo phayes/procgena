@@ -95,6 +95,23 @@ pub struct DeadwoodScatterParams {
     pub ground: ScatterGround,
 }
 
+/// Draws dead wood that is already placed, such as an Ecotope's logs, at
+/// the transforms its [`StickScatter`] gives, relative to this entity.
+///
+/// Each of the Scatter's variants is meshed once, however many copies it
+/// has, and every copy is drawn through the shared instanced renderer, as
+/// for a [`DeadwoodScatterParams`]. Pass the World seed the Scatter was
+/// placed with, which names each variant's specimen. Changing either field
+/// rebuilds the drawing.
+#[derive(Component, Debug, Clone)]
+#[require(Transform, Visibility)]
+pub struct DeadwoodPlacedParams {
+    /// The placed copies and their variants.
+    pub sticks: Arc<StickScatter>,
+    /// The seed the Scatter was placed with.
+    pub world_seed: u32,
+}
+
 /// The ground a [`DeadwoodScatterParams`] lays its sticks on.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScatterGround {
@@ -296,6 +313,8 @@ enum Input {
     Single(Arc<DeadwoodOptions>),
     /// A stick scatter on flat ground, and the size of its area.
     FlatScatter(ScatterOptions, Vec2),
+    /// Sticks already placed, and the World seed they were placed with.
+    Placed(Arc<StickScatter>, u32),
     /// A stick scatter over a host's specimen, with the host's (uniform)
     /// world scale.
     HostScatter {
@@ -315,6 +334,7 @@ impl PartialEq for Input {
         match (self, other) {
             (Input::Single(a), Input::Single(b)) => a == b,
             (Input::FlatScatter(a, x), Input::FlatScatter(b, y)) => a == b && x == y,
+            (Input::Placed(a, x), Input::Placed(b, y)) => (Arc::ptr_eq(a, b) || a == b) && x == y,
             (
                 Input::HostScatter {
                     scatter: a,
@@ -449,10 +469,15 @@ pub(crate) fn remove_deadwood(
     mut commands: Commands,
     mut singles: RemovedComponents<DeadwoodParams>,
     mut scatters: RemovedComponents<DeadwoodScatterParams>,
+    mut placed: RemovedComponents<DeadwoodPlacedParams>,
     children: Query<&Children>,
     parts: Query<(), With<DeadwoodPart>>,
 ) {
-    let removed: Vec<Entity> = singles.read().chain(scatters.read()).collect();
+    let removed: Vec<Entity> = singles
+        .read()
+        .chain(scatters.read())
+        .chain(placed.read())
+        .collect();
     for entity in removed {
         despawn_parts(&mut commands, children.get(entity).ok(), &parts);
         if let Ok(mut entity) = commands.get_entity(entity) {
@@ -503,6 +528,7 @@ pub(crate) fn start_generation(
     mut commands: Commands,
     singles: Query<(Entity, &DeadwoodParams)>,
     scatters: Query<(Entity, &DeadwoodScatterParams, Option<&ChildOf>)>,
+    placed: Query<(Entity, &DeadwoodPlacedParams)>,
     state: Query<(
         Option<&Building>,
         Option<&Attempted>,
@@ -528,6 +554,10 @@ pub(crate) fn start_generation(
             entity,
             options.map_or(Wanted::Wait, |o| Wanted::Build(Input::Single(o))),
         ));
+    }
+    for (entity, params) in &placed {
+        let input = Input::Placed(params.sticks.clone(), params.world_seed);
+        wanted.push((entity, Wanted::Build(input)));
     }
     for (entity, params, parent) in &scatters {
         let (filter, cell) = match &params.ground {
@@ -678,6 +708,7 @@ fn build(input: &Input, lod: &DeadwoodLod) -> Result<Built, DeadwoodBuildError> 
             })
         }
         Input::FlatScatter(scatter, size) => scatter_sticks(scatter, *size, &FlatGround, 1.0, lod),
+        Input::Placed(sticks, world_seed) => placed_sticks(sticks, *world_seed, lod),
         Input::HostScatter {
             scatter,
             size,
@@ -733,6 +764,36 @@ fn scatter_sticks(
     let pool = scatter.variant_pool();
     let specimens = (0..variants.len() as u32)
         .map(|v| SpecimenId::new(scatter.default_seed, pool, v))
+        .collect();
+    Ok(Built {
+        variants,
+        instances,
+        single: None,
+        specimens,
+    })
+}
+
+/// Meshes each variant of the placed `sticks` once and lists every copy at
+/// its placed transform. Variant `v` is the specimen in slot `v` of the
+/// Scatter's variant pool, in the World seeded with `world_seed`.
+fn placed_sticks(
+    sticks: &StickScatter,
+    world_seed: u32,
+    lod: &DeadwoodLod,
+) -> Result<Built, DeadwoodBuildError> {
+    let variants = sticks
+        .variants()
+        .iter()
+        .map(|piece| build_variant(piece, lod).map(|(variant, _)| variant))
+        .collect::<Result<Vec<_>, _>>()?;
+    let instances = sticks
+        .instances()
+        .iter()
+        .map(|i| (i.variant, Transform::from_matrix(Mat4::from(i.transform))))
+        .collect();
+    let pool = sticks.options().variant_pool();
+    let specimens = (0..variants.len() as u32)
+        .map(|v| SpecimenId::new(world_seed, pool, v))
         .collect();
     Ok(Built {
         variants,
@@ -1210,15 +1271,18 @@ fn variant_ranges(lod: &DeadwoodLod, size: f32, quality: Quality) -> Vec<Visibil
         .collect()
 }
 
+/// Entities that draw many pieces through an [`InstancedScatter`].
+type DrawsScatter = Or<(With<DeadwoodScatterParams>, With<DeadwoodPlacedParams>)>;
+
 /// After parts or scatters are removed or replaced, forgets cached variants
 /// and materials that no remaining part or scatter draws, so Bevy can free
 /// them.
 pub(crate) fn prune_cache(
     mut removed: RemovedComponents<DeadwoodPart>,
     mut removed_scatters: RemovedComponents<InstancedScatter>,
-    replaced: Query<(), (Changed<InstancedScatter>, With<DeadwoodScatterParams>)>,
+    replaced: Query<(), (Changed<InstancedScatter>, DrawsScatter)>,
     parts: Query<&Mesh3d, With<DeadwoodPart>>,
-    scatters: Query<&InstancedScatter, With<DeadwoodScatterParams>>,
+    scatters: Query<&InstancedScatter, DrawsScatter>,
     mut cache: ResMut<DeadwoodCache>,
 ) {
     let removed = removed.read().count() + removed_scatters.read().count();
@@ -1624,6 +1688,61 @@ mod tests {
                 Some(slot.parts.clone())
             );
         }
+    }
+
+    #[test]
+    fn placed_sticks_mesh_each_variant_once_and_draw_every_copy() {
+        // Logs placed elsewhere, as an Ecotope places them.
+        let mut app = app();
+        let scatter = ScatterOptions::fallen_logs();
+        let area = ScatterArea::new(DVec2::ZERO, Vec2::splat(30.0));
+        let sticks =
+            StickScatter::new(&scatter, &ScatterInput::new(&FlatGround, area, 11)).unwrap();
+        assert!(sticks.instances().len() > sticks.variants().len());
+        let entity = app
+            .world_mut()
+            .spawn(DeadwoodPlacedParams {
+                sticks: Arc::new(sticks.clone()),
+                world_seed: 11,
+            })
+            .id();
+        run_until_finished(&mut app, entity);
+
+        // One slot per variant, one copy per log at its placed transform,
+        // and no entity per log.
+        assert!(parts(&mut app, entity).is_empty());
+        let drawn = app
+            .world()
+            .entity(entity)
+            .get::<InstancedScatter>()
+            .unwrap();
+        assert_eq!(drawn.slots.len(), sticks.variants().len());
+        let pool = scatter.variant_pool();
+        for (v, slot) in drawn.slots.iter().enumerate() {
+            assert_eq!(slot.specimen, SpecimenId::new(11, pool, v as u32));
+            assert!(slot.parts.iter().any(|p| p.level == 0));
+        }
+        let placed = copies(&app, entity);
+        assert_eq!(placed.len(), sticks.instances().len());
+        for (copy, log) in placed.iter().zip(sticks.instances()) {
+            assert_eq!(copy.slot, log.variant);
+            assert!(
+                copy.transform
+                    .translation
+                    .abs_diff_eq(log.transform.translation, 1e-5)
+            );
+        }
+
+        // The same placement again is not rebuilt.
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(DeadwoodPlacedParams {
+                sticks: Arc::new(sticks),
+                world_seed: 11,
+            });
+        app.update();
+        assert!(!app.world().entity(entity).contains::<Building>());
+        assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
     }
 
     /// A host entity with a ground specimen, at `scale`.

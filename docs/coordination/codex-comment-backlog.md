@@ -564,6 +564,19 @@ All under `terrain/crates/procgena_terrain/`:
 - `tree/crates/procgena_tree_bevy/examples/viewer.rs`: the
   `--cluster-cards` docs
 
+## Lanes whose item lists are in the shared notes folder
+
+Each lane's report in the coordinator's notes folder
+(`~/Library/Application Support/Claude/side-session-notes/local_a7c3560a-043b-437f-a6b6-85f52de6e974/`)
+lists its comments by file and item:
+
+- **G4b terrain labels** (`a1dbdd3`, `7971222`, `b0f794d`): `g4b-report.md`.
+- **GM2 ground textures** (`fd3425d`, `017315d`, `70eafeb`, `86421fd`):
+  `gm2-report.md`, plus the two shader commits' changes to
+  `terrain/crates/procgena_terrain_bevy/src/shaders/terrain_fragment.wesl`.
+- **ED Ecotope draw** (`b9b2f40`, `78ae0a9`, `70f01ff`, `c9eb45e`):
+  `ecotope-gpu-profile/comment-rewrite-queue.md`.
+
 ## Lanes whose item lists were not saved (file level)
 
 These lanes reported their comment lists only in session messages that are

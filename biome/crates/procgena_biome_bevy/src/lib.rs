@@ -55,14 +55,17 @@ use bevy::prelude::*;
 use procgena_biome::{Ecotope, EcotopePlacement, FootprintMask, ScatterCopies, ScatterKind};
 use procgena_core::Ground;
 use procgena_core::scatter::{Mask, ScatterArea};
-use procgena_deadwood_bevy::DeadwoodParams;
+use procgena_deadwood_bevy::DeadwoodPlacedParams;
 use procgena_mushroom_bevy::MushroomGroundScatterParams;
 use procgena_plant_bevy::PlantScatter;
+#[cfg(not(feature = "gpu"))]
 use procgena_stone_bevy::StoneParams;
 use procgena_tree_bevy::TreeParams;
 
 mod ground;
 mod placing;
+#[cfg(feature = "gpu")]
+mod stones;
 
 pub use ground::{EcotopeGroundPatch, GroundPatch, ground_mesh, rolling_hills};
 pub use placing::{
@@ -78,9 +81,15 @@ pub struct EcotopeRoot;
 
 /// Marks the entity that holds one Scatter of a drawn Ecotope. It stands at
 /// the centre of the area the Ecotope was placed over, at height 0. Its
-/// children are the Scatter's copies: one [`TreeParams`], [`StoneParams`] or
-/// [`DeadwoodParams`] per copy, or one [`MushroomGroundScatterParams`] for
-/// the whole Scatter.
+/// children are the Scatter's copies: one [`TreeParams`] or
+/// [`StoneParams`](procgena_stone_bevy::StoneParams) per copy, or one
+/// [`DeadwoodPlacedParams`] or [`MushroomGroundScatterParams`] for the
+/// whole Scatter.
+///
+/// With the `gpu` feature, stones are instead drawn through GPU-generated
+/// pools: one child per stone class, holding one
+/// [`PooledStone`](procgena_stone_bevy::PooledStone) per stone. Add the
+/// stone plugin with its own `gpu` feature to draw them.
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
 #[require(Transform, Visibility)]
 pub struct EcotopeLayer {
@@ -167,6 +176,14 @@ fn spawn_layer(
                 commands.spawn((TreeParams::new(options), at(&tree.transform)));
             }
         }
+        #[cfg(feature = "gpu")]
+        (ScatterKind::Stone(_), copies @ ScatterCopies::Stone(_)) => {
+            // One GPU pool per class, drawing that class's stones.
+            for class in stones::pooled_classes(copies) {
+                commands.spawn((class, ChildOf(holder)));
+            }
+        }
+        #[cfg(not(feature = "gpu"))]
         (ScatterKind::Stone(_), ScatterCopies::Stone(stones)) => {
             for stone in stones.instances() {
                 let options = stones.variant(stone.class, stone.variant).clone();
@@ -174,10 +191,14 @@ fn spawn_layer(
             }
         }
         (ScatterKind::Deadwood(_), ScatterCopies::Deadwood(wood)) => {
-            for copy in wood.instances() {
-                let options = wood.variants()[copy.variant as usize].options().clone();
-                commands.spawn((DeadwoodParams::new(options), at(&copy.transform)));
-            }
+            // Each variant meshed once, every copy drawn instanced.
+            commands.spawn((
+                DeadwoodPlacedParams {
+                    sticks: Arc::new(wood.clone()),
+                    world_seed: layer.seed(),
+                },
+                ChildOf(holder),
+            ));
         }
         (ScatterKind::Mushroom { mushroom, scatter }, ScatterCopies::Mushroom(_)) => {
             // Placed again by the mushroom crate, with the same input.
@@ -304,14 +325,20 @@ mod tests {
                     count(|w, e| w.get::<TreeParams>(e).is_some()),
                     layer.copies().len()
                 ),
+                #[cfg(not(feature = "gpu"))]
                 ScatterCopies::Stone(_) => assert_eq!(
                     count(|w, e| w.get::<StoneParams>(e).is_some()),
                     layer.copies().len()
                 ),
-                ScatterCopies::Deadwood(_) => assert_eq!(
-                    count(|w, e| w.get::<DeadwoodParams>(e).is_some()),
-                    layer.copies().len()
+                // One pooled class per stone class.
+                #[cfg(feature = "gpu")]
+                ScatterCopies::Stone(placed) => assert_eq!(
+                    count(|w, e| w.get::<crate::stones::PooledClass>(e).is_some()),
+                    placed.options().classes.len()
                 ),
+                ScatterCopies::Deadwood(_) => {
+                    assert_eq!(count(|w, e| w.get::<DeadwoodPlacedParams>(e).is_some()), 1)
+                }
                 ScatterCopies::Plant(bake) => {
                     // One field over the area, from the bake, with the
                     // Scatter's seed.

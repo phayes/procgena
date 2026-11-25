@@ -515,6 +515,32 @@ goldens, which have no baseline on this machine).
   World-level follow-up). Tests in `tests/measures.rs`, images from
   `--example measures_dump`. The relief height (`GroundSite::relief_height`)
   is not filled: see the G4a report. G4b is next.
+- **Status (2026-11-25): G4b built.** `Terrain::annotate(p)` (and
+  `SampleDetail::Labels` on `query`, `WorldTerrain::annotate`, the
+  `LabelField` trait, `HeightTile::sample_labelled`) gives `Labels`: one
+  `Landform` (plain, slope, cliff, ridge, peak, valley, basin, riverbed,
+  pondbed, road, riverbank, shore), each with a name and a colour, and
+  `Flags` (underwater, river, pond, road, road bank, wet). Water and
+  roads come first, then cliffs (55°), banks, then shape from the
+  height's principal bends on a 3 × 3 stencil, then slope (20°). The
+  shape step and bend threshold follow the World's scale (12 m and
+  0.012 /m at scale 1, chosen by the user as 24 m and 0.006 /m on the
+  medium worlds): the World's `WorldScale` now reaches the terrain crate
+  (`WorldTerrainOptions::scale`, `Terrain::with_scale`), default 1. Labels
+  from water and roads, and the flags, agree exactly across borders;
+  shape labels may differ in a thin strip along borders (2.9% of border
+  points on the medium test worlds; accepted by the user 2026-11-25, see
+  ARCHITECTURE "4.2 Terrain"). No label needs relief height
+  (item 31). Hill, mountain and plateau labels (a 150 m relief ring)
+  would need the neighbours' ground at World level. Tests in
+  `tests/labels.rs`, images from `--example labels_dump`.
+- **Follow-up:** Gully label, separate from Valley by scale (user,
+  2026-11-25; parked). Tried briefly: a second, narrow stencil (4 m at
+  scale 1, 8 m at medium, to match the carved valley-wall gullies 40 m
+  and 20 m apart) concave past its own threshold, taking precedence over
+  the broad shape but not over water, roads, cliffs or banks. It costs 8
+  more heights per labelled sample. Not judged on maps or border numbers
+  before it was parked.
 
 #### G5: WorldTerrain (W1–W4)
 
@@ -588,6 +614,10 @@ From D5 (decided by the user 2026-11-24; see
 - **Done when:** the seam and feature suites pass at the small, medium
   and large classes, and the region floor follows from scale (about
   1.4 km with today's fixed widths; see D5's "floor tension").
+- **Started in G4b (2026-11-25):** the scale pair now reaches the terrain
+  crate (`WorldScale` moved to `procgena_terrain` and re-exported by
+  `procgena_world`; `WorldTerrainOptions::scale`; `Terrain::scale`).
+  Only the labels read it so far.
 
 ### Bare worlds
 
@@ -1090,6 +1120,35 @@ go to the few copies near the camera.
   and the results and the user's decision on defaults are recorded in
   the plan.
 
+#### IX2: Impostors that ignore the quality level (later)
+
+Asked for by the user 2026-11-25, as a later milestone, not part of the
+IX build. If impostors are good enough, they should look great at every
+quality level, so the quality level should not move where they take
+over.
+
+- **The idea:** IX's experiment finds the closest point X where an
+  impostor still looks right. Inside X a mesh is needed at every quality
+  level; beyond X the impostor looks right at every quality level. So
+  the impostor switch is fixed at X for all of them, and the quality
+  level moves only the lower-mesh switch and the cull point (and perhaps
+  cluster impostors later). The bake is then sized for X alone, which
+  removes the extra image memory of IX's bake sized for
+  `Quality::Low`.
+- **Covers:** experiments that find X per scene (and check whether one
+  X holds for every kind), quality scaling taken off `impostor_below`,
+  the bake size following X, and frame time on Low measured against
+  IX's results.
+- **Risk:** Low loses its biggest lever, pulling impostors closer. If Low
+  is then too slow, an opt-in "Low pulls impostors in" setting can
+  come back.
+- **Needs:** IX built and measured. IX's `DistanceChain` applies quality
+  scaling per threshold and sizes frames from a threshold, so this is a
+  small change.
+- **Done when:** X is measured on IX's scenes, the user has judged the
+  impostors at every quality level, and the decision is recorded in
+  `docs/decisions/IX-plan.md`.
+
 The next three milestones come from profiling the studio's Ecotope tab
 (2026-11-24, [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)).
 The goal is settled: GPU placement, masks and building for every Scatter.
@@ -1101,16 +1160,21 @@ and lose cached stones.
 #### ED: Ecotope draw speed
 
 Real work in its own right, next to the GPU milestones, not instead of
-them.
+them. Split by the user (2026-11-24): its stone-cache fix and "re-place
+only from the edited Scatter down" were built first; the rest follows.
 
 - **Covers:**
   - Edits re-place only from the edited Scatter down, keeping each
     Scatter's prepared shapes by settings and seed.
   - Specimen caches survive a layer redraw. Today stone's prune drops all
     7 cached stones on an edit to the pines.
-  - Dead wood is built once per variant, not once per copy.
+  - Dead wood is built once per variant, not once per copy (built
+    2026-11-24: the Ecotope's logs draw through `DeadwoodPlacedParams`).
   - The render pipelines an Ecotope needs are warmed up when one opens.
-    macOS compiles them synchronously, which stalls frames.
+    macOS compiles them synchronously, which stalls frames. Deferred
+    (2026-11-24): with warm caches the stalls are 0.3–1.6 s and mostly
+    first compiles, so a warm-up would only move them; revisit after a
+    quiet windowed run.
   - In the studio, impostors are baked only when they could be on screen.
 - **Needs:** C3a. Its cache and dead wood parts touch only the asset
   Bevy crates. Its re-placing, warm-up and bake parts edit
@@ -1123,7 +1187,8 @@ them.
 #### R3a: Stone GPU building in the Ecotope
 
 The first piece of R3, pulled forward because stones dominate the
-profile.
+profile. Decided by the user (2026-11-24): R3a goes ahead of the rest of
+R3.
 
 - **Covers:**
   - Ecotope stones are built by `procgena_stone`'s existing GPU mesher
@@ -1131,8 +1196,11 @@ profile.
     0's resolution, provisional).
   - They are drawn through `StonePool` on R2's renderer, instead of one
     entity per copy.
-  - The pool gains per-variant settings (each class's `StoneScatter`
-    variants) and an impostor level.
+  - One pool per stone class: the class's own settings in the Scatter's
+    World already give its variants, so the pool needs no per-variant
+    settings.
+  - The pool gains an impostor level, baked from the CPU-built baked
+    level.
   - `procgena_biome_bevy`'s stone layer spawns pooled stones.
   - The CPU path stays the reference.
   - The footprint measure stays on the CPU, kept across edits.
@@ -1299,6 +1367,17 @@ label-chosen material.
 - **Done when:** the pine forest floor and a cliff draw with real
   textures, memory matches the plan's arithmetic, and far ground samples
   no textures.
+- **Status (2026-11-24): done.**
+  - The pine and the oak and maple forest floors draw with CC0 textures:
+    soil, needles, moss, fresh and decayed leaf litter. Cliffs are
+    triplanar rock.
+  - 6 sets at 512 px measure 6.3 MB, matching the arithmetic. Textures
+    stop at 140 m, and chunk levels 3 and up never read them.
+  - The studio's Ecotope editor edits ground layers.
+  - Left for later: premixed far chunks, a resident cap, and moving clump
+    and stone onto the shared loader.
+  - The `gs://ze_textures/terrain/` upload is the user's.
+  - See "As built: GM2" and decisions 12 and 13 in the plan.
 
 #### GM3: Ground on measures and labels, and the Biome base ground
 

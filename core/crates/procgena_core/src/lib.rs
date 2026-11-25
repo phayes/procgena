@@ -13,8 +13,11 @@
 //! - [`Ground`]: the shape of the land things are scattered on, with its
 //!   height and slope at any World position. [`FlatGround`], closures and
 //!   [`HeightGrid`] are ready-made grounds.
-//! - [`Lod`]: an asset's levels of detail, scaled by each copy's size and
+//! - [`chain`]: how every asset kind is drawn: its game-level mesh, one
+//!   coarser mesh, then an impostor, switched by size on screen and scaled
 //!   by the [`Quality`] setting.
+//! - [`Lod`]: the older table of levels of detail by distance in metres,
+//!   still used by the assets that have not moved to [`chain`] yet.
 //! - [`scatter`]: the [`Scatter`](scatter::Scatter) trait, what every
 //!   Scatter takes as input, the shared integer placement rules on a
 //!   lattice fixed to the World, footprints and masks, and the shared rules
@@ -34,6 +37,7 @@
 //! shape belongs in `procgena_specimen`, which builds on this crate.
 
 mod address;
+pub mod chain;
 mod content_hash;
 mod ground;
 pub mod hash;
