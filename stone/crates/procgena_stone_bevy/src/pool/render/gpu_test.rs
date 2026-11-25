@@ -241,6 +241,42 @@ fn gpu_pool_regenerates_meshes_that_overflowed() {
 
 #[test]
 #[ignore = "needs a GPU"]
+fn gpu_pool_variants_gain_their_baked_impostor_as_the_last_level() {
+    let positions = [Vec3::new(0.0, 0.0, -8.0), Vec3::new(0.0, 0.0, -40.0)];
+    let mut app = headless_app(&positions);
+    run_until_generated(&mut app);
+
+    // Each variant's impostor is baked in the background, then drawn
+    // after its two mesh levels.
+    let impostor_level = |app: &mut App| {
+        let mut scatters = app.world_mut().query::<&InstancedScatter>();
+        let scatter = scatters.single(app.world()).expect("one pool drawer");
+        scatter
+            .slots
+            .iter()
+            .all(|slot| slot.lod.levels.len() == 3 && slot.parts.iter().any(|p| p.level == 2))
+    };
+    for _ in 0..MAX_FRAMES {
+        if impostor_level(&mut app) {
+            break;
+        }
+        app.update();
+    }
+    assert!(impostor_level(&mut app), "every variant has an impostor");
+    let mut scatters = app.world_mut().query::<&InstancedScatter>();
+    let scatter = scatters.single(app.world()).expect("one pool drawer");
+    for slot in scatter.slots.iter() {
+        assert_eq!(
+            slot.lod.levels[2].form,
+            procgena_core::LevelForm::Impostor,
+            "the last level is the impostor"
+        );
+        assert_eq!(slot.parts.iter().filter(|p| p.level == 2).count(), 1);
+    }
+}
+
+#[test]
+#[ignore = "needs a GPU"]
 fn gpu_pool_regenerates_when_its_asset_changes() {
     let mut app = headless_app(&[Vec3::new(0.0, 0.0, -8.0)]);
     run_until_generated(&mut app);

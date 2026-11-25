@@ -1130,7 +1130,8 @@ and lose cached stones.
 #### ED: Ecotope draw speed
 
 Real work in its own right, next to the GPU milestones, not instead of
-them.
+them. Split by the user (2026-11-24): its stone-cache fix and "re-place
+only from the edited Scatter down" were built first; the rest follows.
 
 - **Covers:**
   - Edits re-place only from the edited Scatter down, keeping each
@@ -1152,7 +1153,8 @@ them.
 #### R3a: Stone GPU building in the Ecotope
 
 The first piece of R3, pulled forward because stones dominate the
-profile.
+profile. Decided by the user (2026-11-24): R3a goes ahead of the rest of
+R3.
 
 - **Covers:**
   - Ecotope stones are built by `procgena_stone`'s existing GPU mesher
@@ -1160,8 +1162,11 @@ profile.
     0's resolution, provisional).
   - They are drawn through `StonePool` on R2's renderer, instead of one
     entity per copy.
-  - The pool gains per-variant settings (each class's `StoneScatter`
-    variants) and an impostor level.
+  - One pool per stone class: the class's own settings in the Scatter's
+    World already give its variants, so the pool needs no per-variant
+    settings.
+  - The pool gains an impostor level, baked from the CPU-built baked
+    level.
   - `procgena_biome_bevy`'s stone layer spawns pooled stones.
   - The CPU path stays the reference.
   - The footprint measure stays on the CPU, kept across edits.
