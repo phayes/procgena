@@ -1010,7 +1010,9 @@ go to the few copies near the camera.
     - **At most one lower mesh level** (revisit if needed), and every
       asset kind has one: mushrooms and small dead wood pass through
       their simple geometry too, just quickly, since the switch is by
-      size on screen.
+      size on screen. The switches are based on size on screen alone,
+      with the same thresholds for every kind; no kind has its own
+      switching rule.
     - **The preset carries only its `game_level` detail.** The lower
       mesh level is derived from it by a default rule, not listed in
       the preset.
