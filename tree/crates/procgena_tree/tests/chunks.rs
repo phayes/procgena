@@ -3,14 +3,14 @@
 //! masks for the Scatters below.
 
 use glam::{DVec2, Vec2};
+use procgena_core::chain::{DistanceChain, ViewScale};
 use procgena_core::scatter::conformance::{
     assert_chunks_match_area, assert_keeps_clear, assert_resolves,
 };
 use procgena_core::scatter::{ChunkGrid, Disc, Footprints, MaskSource};
 use procgena_core::{AddressPrefix, RegionId};
 use procgena_tree::{
-    FlatGround, LOD_CULL_DISTANCE, LOD_REFERENCE_SIZE, Scatter, ScatterArea, ScatterInput,
-    TreeScatter, TreeScatterPreset,
+    FlatGround, Scatter, ScatterArea, ScatterInput, TreeScatter, TreeScatterPreset,
 };
 
 fn rolling(p: DVec2) -> f32 {
@@ -83,15 +83,17 @@ fn the_reach_and_slots_describe_the_scatter() {
     let widest = scatter.trees.iter().map(|t| t.spacing).fold(0.0, f32::max);
     assert_eq!(reach.spacing, widest);
     assert_eq!(scatter.lattice().cell_metres(), 0.5);
-    // The tallest tree at its largest scale is drawn to the cull distance
-    // scaled by its height.
+    // The largest tree, bounded by a diameter of twice its tallest height at
+    // its largest scale, is drawn until the default chain's cull fades it out.
     let tallest = scatter
         .trees
         .iter()
         .map(|t| t.tree.height_bound())
         .fold(0.0, f32::max);
     let largest = 1.0 + 3.0 * scatter.variation.scale_jitter;
-    let expected = LOD_CULL_DISTANCE * tallest * largest / LOD_REFERENCE_SIZE;
+    let factor = DistanceChain::factor(2.0 * tallest * largest, ViewScale::DEFAULT);
+    let chain = DistanceChain::DEFAULT;
+    let expected = factor / chain.cull_below * (1.0 + chain.hysteresis);
     assert!((scatter.draw_range() - expected).abs() < 1e-2 * expected);
 
     let slots = scatter.slots(0);

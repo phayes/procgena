@@ -1,45 +1,42 @@
-//! Tree subject: a single generated tree, with its detail levels.
+//! Tree subject: a single generated tree, drawn by the shared drawing
+//! chain: its game-level mesh, its lower mesh, then its impostor.
 
 use std::sync::Arc;
 
+use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
-use procgena_core::LodLevel;
+use procgena_core::chain::{DistanceChain, Step, ViewScale};
 use procgena_tree::TreeOptions;
 use procgena_tree_bevy::{
-    TreeFinished, TreeGenerating, TreeLevel, TreeMaterial, TreeParams, TreePart, TreePartKind,
-    TreeScatterAssets, default_tree_lod,
+    TreeFinished, TreeGenerating, TreeMaterial, TreeParams, TreePart, TreePartKind,
+    TreeScatterAssets,
 };
 
 use super::orbit::{OrbitCamera, OrbitLimits};
 use super::protocol::{BuildStats, MeshSize, ViewerEvent};
-use super::subject::{LevelPart, SceneState, Subject, SubjectLook, show_level};
+use super::subject::{
+    LevelPart, SavedRange, SceneState, Subject, SubjectLook, level_in_range, show_level,
+};
 use super::viewport::{ViewportActivity, ViewportCamera};
 use super::{AddSubject, Shown};
 
-/// Camera distances at which each tree detail level starts, nearest first.
-const LOD_DISTANCES: [f32; 4] = [0.0, 175.0, 275.0, 500.0];
+/// The tree mesh steps the scene reports sizes for, and that can be chosen
+/// to show alone: the game-level mesh, then the lower mesh. The impostor
+/// is the step after them.
+pub const TREE_STEPS: [Step; 2] = [Step::Game, Step::Lower];
 
-/// Camera distance in metres beyond which trees, alone or in a grove, are
-/// drawn as impostors: flat pictures baked from the tree. It is beyond the
-/// farthest mesh level, which starts at 500 m.
-pub(crate) const IMPOSTOR_DISTANCE: f32 = 800.0;
-
-/// The tree detail levels the scene shows, most detailed first: procgena_tree_bevy's
-/// default levels, switched at greater camera distances so that full detail
-/// lasts further out. The lowest level starts at 500 m.
-pub fn lod_levels() -> Vec<LodLevel<TreeLevel>> {
-    let mut levels = default_tree_lod().levels;
-    for (level, distance) in levels.iter_mut().zip(LOD_DISTANCES) {
-        level.distance = distance;
-    }
-    levels
+/// How far away, in metres, a tree `size` metres across (its
+/// bounding-sphere diameter) starts turning into its impostor, at High
+/// quality.
+pub(crate) fn impostor_distance(size: f32) -> f32 {
+    DistanceChain::factor(size, ViewScale::DEFAULT) / DistanceChain::DEFAULT.impostor_below
 }
 
 /// A single tree, built from its [`TreeOptions`].
 ///
 /// A changed tree is rebuilt in the background and replaces the old one
 /// once ready; [`ViewerEvent::TreeBuilt`] reports each build. While it is
-/// shown, [`ViewerEvent::LodShown`] reports the detail level on screen.
+/// shown, [`ViewerEvent::LodShown`] reports the step on screen.
 pub struct TreeSubject;
 
 impl Subject for TreeSubject {
@@ -72,22 +69,22 @@ pub(crate) fn tree_view() -> OrbitCamera {
         pitch: 0.05,
         distance: 12.5,
         limits: OrbitLimits {
-            // Far enough out to reach the lowest detail level.
-            distance: (0.5, 60.0),
+            // Far enough out to see a 10 m tree switch to its lower mesh.
+            distance: (0.5, 150.0),
             pitch: (-0.15, 1.3),
         },
     }
 }
 
-/// Adds the tree subject and the detail level handling of every tree part.
+/// Adds the tree subject and the step handling of every tree part.
 pub(crate) fn plugin(app: &mut App) {
     app.add_subject::<TreeSubject>()
         .add_systems(Update, (render_while_loading, report_lod))
         .add_observer(report_tree);
 }
 
-/// Shows each tree part as the shown subject's detail asks. Trellis wires
-/// show at every level.
+/// Shows each tree part as the shown subject's detail asks, by its step's
+/// index. Trellis wires show at every step.
 pub(crate) fn apply_lod(
     mut commands: Commands,
     look: Res<SubjectLook>,
@@ -101,7 +98,7 @@ pub(crate) fn apply_lod(
         show_level(
             &mut commands,
             entity,
-            part.lod,
+            part.step.index(),
             look.detail,
             visibility,
             ranges,
@@ -109,35 +106,49 @@ pub(crate) fn apply_lod(
     }
 }
 
-/// The detail level that the camera distance `distance` selects.
-fn lod_at(distance: f32) -> usize {
-    lod_levels()
-        .iter()
-        .rposition(|level| distance >= level.distance)
-        .unwrap_or(0)
-}
-
-/// Reports the tree detail level on screen whenever it changes, and when a
-/// tree is first shown.
+/// Reports the tree step on screen, by its index, whenever it changes, and
+/// when a tree is first shown.
 fn report_lod(
     state: Res<SceneState>,
     look: Res<SubjectLook>,
     camera: Query<&Transform, With<ViewportCamera>>,
-    mut reported: Local<Option<(u64, usize)>>,
+    children: Query<&Children>,
+    parts: Query<(&TreePart, Option<&VisibilityRange>, Option<&SavedRange>)>,
+    mut reported: Local<Option<(u64, Option<usize>)>>,
     mut events: MessageWriter<ViewerEvent>,
 ) {
-    if !state.shows::<TreeSubject>() {
+    let Some((shown, _)) = state.get::<TreeSubject>() else {
         return;
-    }
+    };
     let Ok(camera) = camera.single() else {
         return;
     };
+
+    // Each step's own distance range, from the shown tree's bark. Their
+    // ranges grow with the tree's size.
+    let kids = children.get(shown.entity).into_iter().flatten();
+    let ranges: Vec<(usize, &VisibilityRange)> = parts
+        .iter_many(kids)
+        .flatten()
+        .filter(|(part, ..)| matches!(part.kind, TreePartKind::Bark | TreePartKind::Impostor))
+        .filter_map(|(part, range, saved)| {
+            Some((part.step.index(), saved.map(|s| &s.0).or(range)?))
+        })
+        .collect();
+    if ranges.is_empty() {
+        return;
+    }
+
     // The tree stands at the origin.
-    let shown = look.detail.level_for(lod_at(camera.translation.length()));
-    let now = (state.generation(), shown);
+    let step = level_in_range(camera.translation.length(), &ranges);
+    let step = match look.detail {
+        super::Detail::Level(n) => Some(n),
+        detail => step.map(|step| detail.level_for(step)),
+    };
+    let now = (state.generation(), step);
     if *reported != Some(now) {
         *reported = Some(now);
-        events.write(ViewerEvent::LodShown(shown));
+        events.write(ViewerEvent::LodShown(step));
     }
 }
 
@@ -167,21 +178,22 @@ fn report_tree(
     events.write(ViewerEvent::TreeBuilt(result));
 }
 
-/// The size of each detail level of the tree `tree`.
+/// The size of the game-level and lower meshes of the tree `tree`.
 pub(crate) fn tree_sizes(
     tree: Entity,
     children: &Query<&Children>,
     parts: &Query<(&TreePart, &Mesh3d)>,
     meshes: &Assets<Mesh>,
 ) -> Vec<MeshSize> {
-    let mut levels = vec![MeshSize::default(); lod_levels().len()];
+    let mut levels = vec![MeshSize::default(); TREE_STEPS.len()];
     let kids = children.get(tree).into_iter().flatten();
     add_tree_parts(&mut levels, parts.iter_many(kids).flatten(), meshes);
     levels
 }
 
-/// Adds the size of each tree part in `parts` to its detail level's entry in
-/// `levels`. Trellis wires show at every level, so they count toward each.
+/// Adds the size of each mesh part in `parts` to its step's entry in
+/// `levels`. Trellis wires show at every step, so they count toward each.
+/// The impostor is not counted.
 fn add_tree_parts<'a>(
     levels: &mut [MeshSize],
     parts: impl Iterator<Item = (&'a TreePart, &'a Mesh3d)>,
@@ -193,10 +205,11 @@ fn add_tree_parts<'a>(
         };
         let vertices = mesh.count_vertices();
         let triangles = mesh.indices().map_or(0, |i| i.len() / 3);
-        let sizes = if part.kind == TreePartKind::Trellis {
-            &mut levels[..]
-        } else {
-            levels.get_mut(part.lod..=part.lod).unwrap_or_default()
+        let index = part.step.index();
+        let sizes = match part.kind {
+            TreePartKind::Trellis => &mut levels[..],
+            TreePartKind::Impostor => &mut [],
+            _ => levels.get_mut(index..=index).unwrap_or_default(),
         };
         for size in sizes {
             size.vertices += vertices;
@@ -273,19 +286,27 @@ mod tests {
             .collect()
     }
 
-    /// Three bark levels with distance ranges, and an unranged trellis wire.
+    /// Bark at both mesh steps and the impostor, with distance ranges, and
+    /// an unranged trellis wire.
     fn spawn_tree(world: &mut World) -> [VisibilityRange; 3] {
         let ranges = [
             range(0.0, 100.0),
             range(100.0, 250.0),
             range(250.0, f32::INFINITY),
         ];
-        for (lod, range) in ranges.iter().enumerate() {
-            let kind = TreePartKind::Bark;
-            world.spawn((TreePart { lod, kind }, Visibility::Inherited, range.clone()));
+        for (step, range) in Step::ALL.into_iter().zip(&ranges) {
+            let kind = match step {
+                Step::Impostor => TreePartKind::Impostor,
+                _ => TreePartKind::Bark,
+            };
+            world.spawn((
+                TreePart { step, kind },
+                Visibility::Inherited,
+                range.clone(),
+            ));
         }
         let trellis = TreePart {
-            lod: 0,
+            step: Step::Game,
             kind: TreePartKind::Trellis,
         };
         world.spawn((trellis, Visibility::Inherited));
@@ -299,12 +320,12 @@ mod tests {
 
         // Only level 2 and the trellis show, and level 2 shows at any distance.
         for (part, visibility, range) in apply(&mut world, Detail::Level(2)) {
-            let shown = part.kind == TreePartKind::Trellis || part.lod == 2;
+            let shown = part.kind == TreePartKind::Trellis || part.step.index() == 2;
             assert_eq!(visibility == Visibility::Inherited, shown, "{part:?}");
             let expected = match part.kind {
                 TreePartKind::Trellis => None,
-                _ if part.lod == 2 => Some(every_distance()),
-                _ => Some(ranges[part.lod].clone()),
+                _ if part.step.index() == 2 => Some(every_distance()),
+                _ => Some(ranges[part.step.index()].clone()),
             };
             assert!(range == expected, "{part:?} has the wrong range");
         }
@@ -312,7 +333,8 @@ mod tests {
         // Distance switching comes back with the original ranges.
         for (part, visibility, range) in apply(&mut world, Detail::default()) {
             assert_eq!(visibility, Visibility::Inherited, "{part:?}");
-            let original = (part.kind != TreePartKind::Trellis).then(|| ranges[part.lod].clone());
+            let original =
+                (part.kind != TreePartKind::Trellis).then(|| ranges[part.step.index()].clone());
             assert!(range == original, "{part:?} has the wrong range");
         }
     }
@@ -330,10 +352,10 @@ mod tests {
             }
             assert_eq!(
                 visibility == Visibility::Inherited,
-                part.lod >= 1,
+                part.step.index() >= 1,
                 "{part:?}"
             );
-            let expected = match part.lod {
+            let expected = match part.step.index() {
                 1 => range_from_camera(&ranges[1]),
                 lod => ranges[lod].clone(),
             };
@@ -343,7 +365,8 @@ mod tests {
         // Every level comes back with its own range.
         for (part, visibility, range) in apply(&mut world, Detail::default()) {
             assert_eq!(visibility, Visibility::Inherited, "{part:?}");
-            let original = (part.kind != TreePartKind::Trellis).then(|| ranges[part.lod].clone());
+            let original =
+                (part.kind != TreePartKind::Trellis).then(|| ranges[part.step.index()].clone());
             assert!(range == original, "{part:?} has the wrong range");
         }
     }
@@ -355,19 +378,34 @@ mod tests {
         }
     }
 
+    /// Sizes count each mesh step's parts, trellis wires at both steps and
+    /// the impostor at neither.
     #[test]
-    fn camera_distance_picks_the_level() {
-        assert_eq!(lod_at(0.0), 0);
-        assert_eq!(lod_at(174.0), 0);
-        assert_eq!(lod_at(175.0), 1);
-        assert_eq!(lod_at(275.0), 2);
-        assert_eq!(lod_at(499.0), 2);
-        assert_eq!(lod_at(500.0), 3);
-        assert_eq!(lod_at(1000.0), 3);
+    fn sizes_count_each_mesh_step() {
+        let mut meshes = Assets::<Mesh>::default();
+        let mut quad = || Mesh3d(meshes.add(Mesh::from(Rectangle::default())));
+        let parts = [
+            (Step::Game, TreePartKind::Bark),
+            (Step::Lower, TreePartKind::Leaves),
+            (Step::Game, TreePartKind::Trellis),
+            (Step::Impostor, TreePartKind::Impostor),
+        ]
+        .map(|(step, kind)| (TreePart { step, kind }, quad()));
+        let mut levels = vec![MeshSize::default(); TREE_STEPS.len()];
+        add_tree_parts(&mut levels, parts.iter().map(|(p, m)| (p, m)), &meshes);
+        // Each step has its own quad and the trellis wire's.
+        let two_quads = MeshSize {
+            vertices: 8,
+            triangles: 4,
+        };
+        assert_eq!(levels, [two_quads, two_quads]);
     }
 
+    /// A taller tree turns into its impostor farther away, in proportion.
     #[test]
-    fn every_tree_detail_level_has_a_distance() {
-        assert_eq!(default_tree_lod().levels.len(), LOD_DISTANCES.len());
+    fn the_impostor_distance_grows_with_the_tree() {
+        let near = impostor_distance(10.0);
+        assert!((impostor_distance(20.0) - 2.0 * near).abs() < 1e-3);
+        assert!(near > 100.0, "{near}");
     }
 }

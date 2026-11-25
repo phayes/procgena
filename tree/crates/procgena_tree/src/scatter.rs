@@ -19,6 +19,7 @@ mod presets;
 use std::fmt;
 
 use glam::{Affine3A, DVec2, Quat, Vec3};
+use procgena_core::chain::{DistanceChain, ViewScale};
 use procgena_core::hash::{pcg2, seed_for};
 use procgena_core::scatter::lattice::{self, Fixed2};
 use procgena_core::scatter::{
@@ -28,7 +29,6 @@ use procgena_core::scatter::{
 use procgena_core::{CellId, ChildKey, CopyAddress, Quality, SpecimenId};
 use serde::{Deserialize, Serialize};
 
-use crate::mesh::default_lod;
 use crate::options::{OptionsError, TreeOptions};
 use crate::presets::{TreePreset, TreeStand};
 
@@ -758,16 +758,18 @@ impl Scatter for TreeScatter {
     }
 
     fn draw_range(&self) -> f32 {
-        // The default detail levels' cull distance, for the tallest tree any
-        // species can grow at the largest scale.
-        let lod = default_lod();
+        // Where the default chain culls the largest tree any species can grow
+        // at the largest scale. Twice the height bounds the bounding diameter,
+        // since a crown spreads no further sideways than the tree is tall.
         let tallest = self
             .trees
             .iter()
             .map(|t| t.tree.height_bound())
             .fold(0.0, f32::max);
-        let size = tallest * self.largest_scale();
-        lod.cull_distance.unwrap_or(f32::INFINITY) * lod.factor(size, Quality::High)
+        let diameter = 2.0 * tallest * self.largest_scale();
+        let factor = DistanceChain::factor(diameter, ViewScale::DEFAULT);
+        let [.., impostor] = DistanceChain::DEFAULT.ranges(factor, Quality::High);
+        impostor.fade_out.end
     }
 
     fn slots(&self, _world_seed: u32) -> Vec<ScatterSlot> {

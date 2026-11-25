@@ -1,12 +1,14 @@
-//! Growing a cluster from an entity's settings and spawning its levels.
+//! Growing a cluster from an entity's settings and spawning its game-level
+//! and lower meshes.
 
 use std::sync::Arc;
 
 use bevy::camera::visibility::VisibilityRange;
 use bevy::prelude::*;
-use procgena_core::Quality;
+use procgena_core::chain::{DistanceChain, Step, ViewScale};
+use procgena_core::{LodRange, Quality};
 use procgena_core_bevy::{LodQuality, visibility_range};
-use procgena_fruit::{Fruit, FruitOptions, FruitPreset, OptionsError, default_lod};
+use procgena_fruit::{Fruit, FruitOptions, FruitPreset, OptionsError};
 
 use crate::{fruit_material, fruit_mesh};
 
@@ -31,26 +33,41 @@ impl FruitParams {
     }
 }
 
-/// One detail level's mesh of a drawn cluster, a child of the entity with
+/// One mesh step of a drawn cluster, a child of the entity with
 /// [`FruitParams`].
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FruitPart {
-    /// The detail level, from 0 for the nearest.
-    pub level: usize,
+    /// The step: [`Step::Game`] or [`Step::Lower`].
+    pub step: Step,
 }
 
 /// Triggered on an entity with [`FruitParams`] after its cluster was grown
-/// and its levels spawned, or with the settings' error.
+/// and its meshes spawned, or with the settings' error.
 #[derive(EntityEvent, Debug, Clone)]
 pub struct FruitFinished {
     /// The entity whose cluster was grown.
     pub entity: Entity,
-    /// The number of vertices and triangles at each level, nearest first,
-    /// or why the cluster couldn't be grown. On an error the old levels stay.
-    pub result: Result<Vec<(usize, usize)>, OptionsError>,
+    /// The number of vertices and triangles of the game-level mesh, then
+    /// of the lower mesh, or why the cluster couldn't be grown. On an error
+    /// the old meshes stay.
+    pub result: Result<[(usize, usize); 2], OptionsError>,
 }
 
-/// Grows the clusters whose settings changed, replacing their levels.
+/// The fade bands of a cluster's game-level and lower meshes, for a
+/// cluster `size` metres across seen through a [`ViewScale::DEFAULT`]
+/// camera at `quality`: the shared [`DistanceChain`]'s, with the lower mesh
+/// drawn until the cull, as a cluster on its own has no impostor.
+fn mesh_ranges(size: f32, quality: Quality) -> [LodRange; 2] {
+    let factor = DistanceChain::factor(size, ViewScale::DEFAULT);
+    let [game, lower, impostor] = DistanceChain::DEFAULT.ranges(factor, quality);
+    let lower = LodRange {
+        fade_in: lower.fade_in,
+        fade_out: impostor.fade_out,
+    };
+    [game, lower]
+}
+
+/// Grows the clusters whose settings changed, replacing their meshes.
 pub(crate) fn build_changed(
     changed: Query<(Entity, &FruitParams, Option<&Children>), Changed<FruitParams>>,
     parts: Query<(), With<FruitPart>>,
@@ -72,34 +89,36 @@ pub(crate) fn build_changed(
             }
         };
 
-        // Replace the old levels.
+        // Replace the old meshes.
         for child in children.into_iter().flatten() {
             if parts.contains(*child) {
                 commands.entity(*child).despawn();
             }
         }
 
-        // One child per level, fading by distance for this cluster's size.
-        let lod = default_lod();
-        let ranges = lod.ranges(fruit.lod_factor(&lod, 1.0, quality));
+        // One child per mesh step, fading by distance for this cluster's size.
+        let ranges = mesh_ranges(fruit.size(), quality);
         let material = materials.add(fruit_material(fruit.options()));
-        let mut sizes = Vec::new();
-        for (level, (_, mesh)) in fruit.lod_meshes(&lod).into_iter().enumerate() {
-            sizes.push((mesh.vertex_count(), mesh.triangle_count()));
+        let lod = fruit.meshes();
+        for (step, mesh) in lod.meshes() {
             if mesh.indices.is_empty() {
                 continue;
             }
             let mut part = commands.spawn((
-                FruitPart { level },
-                Mesh3d(meshes.add(fruit_mesh(&mesh))),
+                FruitPart { step },
+                Mesh3d(meshes.add(fruit_mesh(mesh))),
                 MeshMaterial3d(material.clone()),
                 ChildOf(entity),
             ));
-            if !ranges[level].is_always() {
-                let range: VisibilityRange = visibility_range(&ranges[level]);
+            let range = &ranges[step.index()];
+            if !range.is_always() {
+                let range: VisibilityRange = visibility_range(range);
                 part.insert(range);
             }
         }
+        let sizes = lod
+            .meshes()
+            .map(|(_, mesh)| (mesh.vertex_count(), mesh.triangle_count()));
         commands.trigger(FruitFinished {
             entity,
             result: Ok(sizes),
@@ -122,34 +141,49 @@ mod tests {
         app
     }
 
-    fn parts(app: &mut App) -> Vec<usize> {
-        let mut levels: Vec<usize> = app
+    /// The steps of every spawned part, game level first.
+    fn parts(app: &mut App) -> Vec<Step> {
+        let mut steps: Vec<Step> = app
             .world_mut()
             .query::<&FruitPart>()
             .iter(app.world())
-            .map(|p| p.level)
+            .map(|p| p.step)
             .collect();
-        levels.sort_unstable();
-        levels
+        steps.sort_unstable_by_key(|step| step.index());
+        steps
     }
 
     #[test]
-    fn every_level_spawns_once_and_is_replaced_on_change() {
+    fn both_mesh_steps_spawn_once_and_are_replaced_on_change() {
         let mut app = app();
         let entity = app
             .world_mut()
             .spawn(FruitParams::preset(FruitPreset::apple()))
             .id();
         app.update();
-        let levels = default_lod().levels.len();
-        assert_eq!(parts(&mut app), (0..levels).collect::<Vec<_>>());
+        let both = vec![Step::Game, Step::Lower];
+        assert_eq!(parts(&mut app), both);
 
         app.world_mut().entity_mut(entity).insert(FruitParams::new(
             procgena_fruit::FlowerPreset::dogwood_bloom().flower.clone(),
         ));
         app.update();
         app.update();
-        assert_eq!(parts(&mut app), (0..levels).collect::<Vec<_>>());
+        assert_eq!(parts(&mut app), both);
+    }
+
+    /// The lower mesh takes over where the shared chain switches for the
+    /// cluster's size, and is drawn until the cull.
+    #[test]
+    fn the_lower_mesh_is_drawn_from_the_chain_switch_to_the_cull() {
+        let size = 0.1;
+        let factor = DistanceChain::factor(size, ViewScale::DEFAULT);
+        let [game, lower] = mesh_ranges(size, Quality::High);
+        let [chain_game, chain_lower, impostor] =
+            DistanceChain::DEFAULT.ranges(factor, Quality::High);
+        assert_eq!(game, chain_game);
+        assert_eq!(lower.fade_in, chain_lower.fade_in);
+        assert_eq!(lower.fade_out, impostor.fade_out);
     }
 
     #[test]

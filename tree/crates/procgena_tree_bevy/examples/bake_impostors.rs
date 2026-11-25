@@ -19,7 +19,7 @@
 //! - `--tree <key>`: bake this tree preset. Repeat for more.
 //!
 //! Without `--scatter` or `--tree`, every tree Scatter preset is baked. The trees are
-//! generated with [`TreePlugin`]'s default detail levels and the
+//! generated with [`TreePlugin`]'s default bake settings and the
 //! repository's textures; impostors baked with other settings are different
 //! impostors, so bake with the settings your game uses.
 //!

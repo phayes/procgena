@@ -173,9 +173,9 @@ mod tests {
     fn every_detail_level_can_be_chosen() {
         let kinds = kinds();
         let levels = |id| kinds.get(id).unwrap().detail_levels.len();
-        assert_eq!(levels("tree"), crate::scene::lod_levels().len());
-        // Mushrooms and dead wood are drawn at every step of the shared
-        // drawing chain.
+        // Trees can be shown at each of their mesh steps; mushrooms and dead
+        // wood at every step of the shared drawing chain.
+        assert_eq!(levels("tree"), crate::scene::TREE_STEPS.len());
         assert_eq!(levels("mushroom"), procgena_core::chain::Step::ALL.len());
         assert_eq!(levels("deadwood"), procgena_core::chain::Step::ALL.len());
         // Grass and plants have three levels.

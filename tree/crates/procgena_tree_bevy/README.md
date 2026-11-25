@@ -168,8 +168,8 @@ only a handful of meshes. The grove entity gets:
 - `TreeScatterInstances`: every tree's species, shape variant, spot id and
   transform;
 - `TreeScatterAssets`: each variant's meshes, materials and tagged specimen;
-- `TreeScatterStats`: the tree count, and vertices and triangles per detail
-  level.
+- `TreeScatterStats`: the tree count, and vertices and triangles for the
+  game-level and lower meshes.
 
 Change the component to change the grove. Only the trees that appear,
 disappear or change are affected, so lowering the density leaves the
@@ -266,43 +266,32 @@ materials you create yourself.
 
 ## Choose mesh detail
 
-The plugin generates four mesh detail levels. Bevy fades to simpler meshes at
-camera distances of 10, 25 and 50 metres. With a texture folder configured,
-the nearest level uses 1k bark textures and the next two use 512 textures.
-At the farthest level (LOD3), thin branches are omitted and the remaining branches
-use flat strips. With textures configured, those strips use a single colour
-approximating the bark texture, and fewer, larger leaf cards show clumps of leaves.
-Fruit above the size threshold become flat hexagons without stalks. These flat
-shapes, called billboards, turn toward the camera to help preserve the tree’s
-outline as the view changes. For shadow rendering, they turn toward the light.
-To see shadows at this distance, extend the directional light’s shadow cascades
-far enough to cover the trees.
-Set `TreePlugin::lod` when adding the plugin to choose mesh detail,
-switching distances, bark appearance and leaf images. For a single full-detail
-mesh with 2k bark textures, no distance switching and no impostor:
+Each tree's `TreeOptions::game_level` sets its real shape: the branch,
+leaf and fruit detail drawn while the tree is large on screen. A coarser
+lower mesh is derived from it, with fewer bark sections and leaf cards
+and open branch ends, and an impostor is baked from it. Which one is
+drawn depends on how large the tree looks on screen, the same for every
+kind of object (see `procgena_core::chain`); Bevy fades between them, and
+stops drawing the tree once it is a few pixels tall. Fruit and flowers
+switch by their own size until their tree's impostor takes over.
+
+For a lighter tree that keeps every second leaf card, and every second
+bark section, even when it is close:
 
 ```rust
-use procgena_core::{Lod, LodLevel};
-use procgena_tree::{LOD_REFERENCE_SIZE, LodDetail, TextureSize};
-use procgena_tree_bevy::{BarkTexture, LeafTexture, TreeLevel, TreePlugin};
+use procgena_tree::TreePreset;
+use procgena_tree_bevy::TreeParams;
 
-let level = TreeLevel {
-    detail: LodDetail::default(),
-    bark: BarkTexture::Textured(TextureSize::Size2k),
-    leaves: LeafTexture::Leaf,
-};
-let plugin = TreePlugin {
-    lod: Lod::new(LOD_REFERENCE_SIZE, vec![LodLevel::new(0.0, 0.0, level)]),
-    impostor: None,
-    ..Default::default()
-};
+let mut options = TreePreset::oak_small().tree.clone();
+options.game_level.leaf_stride = 2;
+options.game_level.section_stride = 2;
+let tree = TreeParams::new(options);
 ```
 
-The 2k bark textures are downloaded only with `--sizes 512,1k,2k`.
-
-No levels at all produce no bark or leaf meshes. Generated children have a
-`TreePart` component identifying their detail level and whether they draw bark,
-leaves, or a trellis wire.
+With a texture folder configured, the game-level mesh uses 1k bark
+textures and the lower mesh 512 ones. Generated children have a
+`TreePart` component naming the step they draw and whether they draw
+bark, leaves, fruit and flowers, the impostor, or a trellis wire.
 
 ## Try the viewer
 
@@ -353,45 +342,3 @@ For direct control, convert a `procgena_tree::TreeMesh` with `bark_mesh` and `le
 create materials with `bark_material` and `leaf_material`, and attach the mesh
 handles and `MeshMaterial3d<TreeMaterial>` to your entities. Keep `TreePlugin`
 installed to register shaders and synchronize wind settings.
-
-## Load exported glTF trees
-
-Enable this crate's `gltf` feature to animate billboards in trees saved with
-`procgena_tree::export::gltf`. Billboards are flat shapes used for distant tree parts;
-this integration lets them turn toward the camera and move with the wind.
-Export with `GltfOptions::wind` enabled (the default).
-
-Register the tree's custom vertex attributes with Bevy's `GltfPlugin`, then add
-`TreePlugin` after Bevy's default plugins:
-
-```rust,ignore
-use bevy::gltf::GltfPlugin;
-use bevy::prelude::*;
-use procgena_tree_bevy::{TreePlugin, add_tree_gltf_attributes};
-
-App::new().add_plugins((
-    DefaultPlugins.set(add_tree_gltf_attributes(GltfPlugin::default())),
-    TreePlugin::default(),
-));
-```
-
-Load and spawn the file's scene with Bevy's glTF loader. Eligible meshes under
-nodes tagged as billboards use `TreeMaterial` for wind and camera-facing rotation.
-Their crossed fallback shapes are removed once all meshes under the billboard
-node are converted. Bounds are updated to keep the rotating shapes visible;
-these bounds do not include wind movement. Other meshes keep their original
-materials, and converted billboard materials do not retain normal maps.
-
-Meshes keep their original shapes and materials if wind or billboard attributes
-are missing or unregistered, or if they use animation joints. Their fallback
-partners remain in the scene. Missing or unregistered attributes produce a
-warning; check both the export's wind setting and the plugin setup above.
-
-Try the example, which exports and loads a distant Apple tree by default:
-
-```sh
-cargo run -p procgena_tree_bevy --example gltf_tree --features gltf
-```
-
-To load your own file, append `-- path/to/tree.glb`. Hold the left mouse button
-to look around, and use WASD and Q/E to fly.

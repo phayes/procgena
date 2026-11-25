@@ -1,4 +1,5 @@
-//! Generate trees in background tasks and display their parts as child entities.
+//! Generate trees in background tasks and display their game-level mesh,
+//! lower mesh and impostor as child entities.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -6,17 +7,18 @@ use std::sync::Arc;
 use bevy::asset::io::Reader;
 use bevy::asset::{AssetLoader, LoadContext};
 use bevy::camera::primitives::{Aabb, MeshAabb};
-use bevy::camera::visibility::{NoAutoAabb, VisibilityRange};
+use bevy::camera::visibility::VisibilityRange;
 use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use procgena_core::{Lod, LodLevel, LodRange, Quality, SpecimenId};
+use procgena_core::chain::{DistanceChain, Lod, Step, ViewScale};
+use procgena_core::{LodRange, Quality, SpecimenId};
 use procgena_core_bevy::{LodQuality, visibility_range};
-use procgena_impostor::ImpostorLevel;
+use procgena_impostor::BakeSettings;
 use procgena_specimen::{GeneratedSpecimen, Specimen};
 use procgena_tree::{
-    BranchShape, ClusterPart, LodDetail, MeshBuffers, OptionsError, Skeleton, TextureCompression,
-    TextureSize, TreeCacheKey, TreeMesh, TreeOptions, TreePreset, TrellisWire, default_lod,
+    ClusterPart, LodDetail, MeshBuffers, OptionsError, TextureCompression, TextureSize, Tree,
+    TreeCacheKey, TreeMesh, TreeOptions, TreePreset, TrellisWire,
 };
 
 use crate::clusters::{
@@ -24,19 +26,23 @@ use crate::clusters::{
 };
 use crate::impostor::{ImpostorShown, TreeImpostorAssets};
 use crate::material::{
-    BarkTextures, LeafTextures, TreeMaterial, average_bark_material, bark_material,
-    flower_material, fruit_material, leaf_material, trellis_material,
+    BarkTextures, LeafTextures, TreeMaterial, bark_material, flower_material, fruit_material,
+    leaf_material, trellis_material,
 };
 use crate::material_key::{BarkKey, LeafKey, TrellisKey};
-use crate::mesh::{bark_mesh, billboard_aabb, cluster_mesh, leaf_mesh};
+use crate::mesh::{bark_mesh, cluster_mesh, leaf_mesh};
 use crate::scatter::PreparedTrees;
 use crate::wind::Wind;
 
 /// A generated tree positioned by this entity's transform.
 ///
 /// Add this component to an entity after installing [`TreePlugin`](crate::TreePlugin).
-/// The tree appears when background generation finishes. Bark and leaf children
-/// provide each configured detail level; visible trellis wires get their own children.
+/// The tree appears when background generation finishes, as bark and leaf
+/// children for each drawing step: its game-level mesh, its lower mesh and,
+/// once baked, its impostor, each shown at the sizes on screen the shared
+/// [`DistanceChain`] gives it. Visible trellis wires get their own children.
+/// [`TreeOptions::game_level`] sets the game-level mesh's detail; the lower
+/// mesh is derived from it.
 /// Trees with identical options share meshes and materials. Once the parts
 /// spawn, the entity also gets a [`GeneratedSpecimen`] describing the tree's
 /// meshes, which other generators, such as clumps of snow or moss, grow on.
@@ -77,8 +83,9 @@ pub struct TreePresetAsset(pub TreePreset);
 /// Identifies a generated child entity that draws one part of a [`TreeParams`].
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TreePart {
-    /// Index in the detail levels sorted by distance, starting at 0. Trellis wires use 0.
-    pub lod: usize,
+    /// Which drawing step this part belongs to. Trellis wires and clusters
+    /// use [`Step::Game`].
+    pub step: Step,
     /// The geometry drawn by this child entity.
     pub kind: TreePartKind,
 }
@@ -90,16 +97,16 @@ pub enum TreePartKind {
     Bark,
     /// The tree's leaves, drawn together.
     Leaves,
-    /// The tree's fruit and flower clusters. One child draws them all, at
-    /// every detail level, through the shared instanced renderer of
-    /// `procgena_core_bevy` (an `InstancedScatter` with its
-    /// `InstancedAttached`): each cluster is drawn at the detail its own
-    /// distance gives, until the tree's impostor takes over. Its `lod` is 0.
+    /// The tree's fruit and flower clusters. One child draws them all
+    /// through the shared instanced renderer of `procgena_core_bevy` (an
+    /// `InstancedScatter` with its `InstancedAttached`): each cluster is
+    /// drawn at the step its own size on screen gives, until the tree's
+    /// impostor takes over. Its step is [`Step::Game`].
     Clusters,
     /// A single support wire for a trellis.
     Trellis,
     /// The tree's impostor: one quad showing a baked view of the tree,
-    /// drawn beyond every mesh level; see
+    /// drawn when the tree is small on screen; see
     /// [`TreePlugin::impostor`](crate::TreePlugin::impostor).
     Impostor,
 }
@@ -137,115 +144,52 @@ impl AssetLoader for TreePresetLoader {
     }
 }
 
-/// Mesh and material settings for one level of
-/// [`TreePlugin::lod`](crate::TreePlugin::lod).
-/// The plugin automatically renders [`BranchShape::Ribbons`] from both sides.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TreeLevel {
-    /// Mesh detail for this level, passed to [`Skeleton::mesh`].
-    pub detail: LodDetail,
-    /// Bark texture size or flat-colour shading for this level.
-    pub bark: BarkTexture,
-    /// Leaf image to use for this level's flat leaf cards.
-    pub leaves: LeafTexture,
+/// The bark image size each mesh step is drawn with when the plugin has a
+/// texture folder: 1k at the game level, 512 for the lower mesh.
+pub(crate) fn bark_texture_size(step: Step) -> TextureSize {
+    match step {
+        Step::Game => TextureSize::Size1k,
+        Step::Lower | Step::Impostor => TextureSize::Size512,
+    }
 }
 
-/// Bark appearance for a detail level. These choices apply when the plugin has
-/// a texture folder configured; without one, bark uses its tint alone.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BarkTexture {
-    /// Use colour, normal and roughness images at the given size. Smaller
-    /// images use less memory. Supply the files under the plugin's texture folder.
-    Textured(TextureSize),
-    /// Use one colour that approximates textured bark viewed from a distance.
-    /// Requires no bark images; see [`average_bark_material`] for tint handling
-    /// and the fallback for unknown bark kinds.
-    AverageColor,
-}
-
-/// Image used on each flat leaf card. Requires a configured plugin texture folder.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum LeafTexture {
-    /// Use the leaf kind's regular colour image ([`Color`](procgena_tree::LeafMap::Color))
-    /// and its normal map when available.
-    #[default]
-    Leaf,
-    /// Use the leaf kind's [`Clump`](procgena_tree::LeafMap::Clump) image to show several
-    /// leaves per card, without a normal map. For distant trees, increase
-    /// [`leaf_stride`](procgena_tree::LodDetail::leaf_stride) to draw fewer cards and
-    /// [`leaf_scale`](procgena_tree::LodDetail::leaf_scale) to make them larger.
-    Clump,
-}
-
-/// Returns [`default_lod`]'s four levels, at the same distances, with their
-/// materials. Bark uses 1k textures at the nearest level and 512 textures at
-/// the next two. The fourth level uses a flat average bark colour and images
-/// of several leaves per card. These material choices require a configured
-/// plugin texture folder.
-pub fn default_tree_lod() -> Lod<TreeLevel> {
-    let lod = default_lod();
-    let last = lod.levels.len() - 1;
-    let mut index = 0;
-    lod.map_detail(|detail| {
-        let textured = |size| (BarkTexture::Textured(size), LeafTexture::Leaf);
-        let (bark, leaves) = match index {
-            0 => textured(TextureSize::Size1k),
-            i if i < last => textured(TextureSize::Size512),
-            _ => (BarkTexture::AverageColor, LeafTexture::Clump),
-        };
-        index += 1;
-        TreeLevel {
-            detail,
-            bark,
-            leaves,
-        }
-    })
-}
-
-/// Texture location, format and detail levels copied from the plugin configuration.
+/// Texture location and format, and the impostors, copied from the plugin
+/// configuration.
 #[derive(Resource, Debug, Clone)]
 pub(crate) struct SpawnSettings {
     pub texture_root: Option<String>,
     pub texture_compression: TextureCompression,
-    /// The mesh and far-form levels, without the impostor.
-    pub lod: Lod<TreeLevel>,
-    pub impostor: Option<ImpostorLevel>,
-    /// The impostor of fruit and flower clusters, drawn beyond their fruit
-    /// levels once the tree's own impostor is baked; unused without it.
-    pub fruit_impostor: Option<ImpostorLevel>,
+    pub impostor: Option<BakeSettings>,
+    /// How fruit and flower clusters' impostors are baked. They are drawn
+    /// once the tree's own impostor is baked; unused without it.
+    pub fruit_impostor: Option<BakeSettings>,
 }
 
-impl SpawnSettings {
-    /// Every level a tree is drawn with: the mesh levels, then the impostor,
-    /// if any, as the last level (`None` as its detail).
-    pub(crate) fn draw_lod(&self) -> Lod<Option<TreeLevel>> {
-        let mut lod = self.lod.clone().map_detail(Some);
-        if let Some(impostor) = self.impostor {
-            lod.levels.push(impostor.level(None));
-        }
-        lod
-    }
-
-    /// Each mesh level's fade bands at `quality` for a tree `size` metres
-    /// tall, nearest first, as drawn before the tree's impostor is baked:
-    /// the farthest level is drawn out to the cull distance.
-    pub(crate) fn mesh_ranges(&self, quality: Quality, size: f32) -> Vec<LodRange> {
-        self.lod.ranges(self.lod.factor(size, quality))
-    }
-
-    /// Each level's fade bands at `quality` for a tree `size` metres tall
-    /// once the impostor is baked: the mesh levels, then the impostor.
-    /// `None` without an impostor.
-    pub(crate) fn impostor_ranges(&self, quality: Quality, size: f32) -> Option<Vec<LodRange>> {
-        self.impostor?;
-        Some(self.draw_lod().ranges(self.lod.factor(size, quality)))
-    }
+/// The fade bands of each step of the shared [`DistanceChain`], by
+/// [`Step::index`], for a copy `size` metres across (its bounding-sphere
+/// diameter) seen through a [`ViewScale::DEFAULT`] camera at `quality`.
+pub(crate) fn chain_ranges(size: f32, quality: Quality) -> [LodRange; 3] {
+    let factor = DistanceChain::factor(size, ViewScale::DEFAULT);
+    DistanceChain::DEFAULT.ranges(factor, quality)
 }
 
-/// The size a tree's detail distances are scaled by: its height as built,
-/// `height`, times the largest scale of `transform`.
-pub(crate) fn tree_size(height: f32, transform: &Transform) -> f32 {
-    height * transform.scale.abs().max_element()
+/// The fade bands of the game-level and lower meshes of a tree with no
+/// impostor: like [`chain_ranges`], but the lower mesh is drawn on until the
+/// cull, where the impostor would have ended.
+pub(crate) fn mesh_ranges(size: f32, quality: Quality) -> [LodRange; 2] {
+    let [game, lower, impostor] = chain_ranges(size, quality);
+    let lower = LodRange {
+        fade_in: lower.fade_in,
+        fade_out: impostor.fade_out,
+    };
+    [game, lower]
+}
+
+/// The size a tree copy's steps switch by: `diameter`, the tree's
+/// bounding-sphere diameter as built, times the largest scale of
+/// `transform`.
+pub(crate) fn copy_size(diameter: f32, transform: &Transform) -> f32 {
+    diameter * transform.scale.abs().max_element()
 }
 
 /// The wind phase, from 0 to 1, of a tree drawn on its own, so that it sways
@@ -268,6 +212,12 @@ impl TreeKey {
     /// each variant still gets its own id, but not its real World slot.
     pub(crate) fn interim_specimen_id(self) -> SpecimenId {
         SpecimenId::new(self.0.seed as u32, self.0.pool, 0)
+    }
+
+    /// The hash of the game levels of the tree and its attached fruit,
+    /// which fix its meshes but not its specimen id.
+    pub(crate) fn detail(self) -> u64 {
+        self.0.detail
     }
 }
 
@@ -299,62 +249,66 @@ pub struct TreeFinished {
     pub result: Result<(), OptionsError>,
 }
 
-/// A part’s Bevy mesh and optional bounds covering its camera-facing rotations.
+/// A part’s Bevy mesh and its bounds.
 pub(crate) struct PartMesh<M> {
     pub(crate) mesh: M,
-    /// Bounds covering every camera-facing rotation of a billboard part; `None`
-    /// for other parts, whose mesh bounds Bevy computes.
-    bounds: Option<Aabb>,
-    /// Bounds of the part as drawn, in tree coordinates: `bounds` for a
-    /// billboard part, the mesh's own bounds otherwise. Wind sway is not
-    /// included.
+    /// Bounds of the part, in tree coordinates. Wind sway is not included.
     pub(crate) extent: Aabb,
 }
 
-/// Meshes produced by a background task for one detail level; each is absent
-/// when the level has no triangles of that kind.
+/// Meshes produced by a background task for one mesh step; each is absent
+/// when the step has no triangles of that kind.
 struct LevelMeshes {
-    level: TreeLevel,
     bark: Option<PartMesh<Mesh>>,
     leaves: Option<PartMesh<Mesh>>,
 }
 
 /// What a background task generates for one tree.
 struct TaskMeshes {
-    levels: Vec<LevelMeshes>,
+    /// The game-level mesh, then the lower mesh.
+    levels: [LevelMeshes; 2],
+    /// The details the two meshes were built at.
+    lod: Lod<LodDetail>,
+    /// The game-level mesh's [`TreeMesh::bounding_diameter`].
+    diameter: f32,
     /// The tree as a tagged specimen.
     specimen: Arc<Specimen>,
     /// The cluster specimens and tables, drawn instanced.
     clusters: Vec<BuiltClusters>,
-    /// The impostor's baked level's fruit and flowers, each merged into one
-    /// mesh, for the impostor bake only.
+    /// The game-level mesh's fruit and flowers, each merged into one mesh,
+    /// for the impostor bake only; empty without an impostor.
     baked_clusters: Vec<(ClusterPart, Mesh)>,
 }
 
 /// A generated tree, or the validation error that prevented generation.
 type TaskOutput = Result<TaskMeshes, OptionsError>;
 
-/// Mesh handles and materials for one detail level.
+/// Mesh handles and materials for one mesh step.
 struct LevelAssets {
-    /// Bark mesh, absent when this level contains no bark triangles.
+    /// Bark mesh, absent when this step contains no bark triangles.
     bark: Option<PartMesh<Handle<Mesh>>>,
-    /// Leaf mesh, absent when this level contains no leaf triangles.
+    /// Leaf mesh, absent when this step contains no leaf triangles.
     leaves: Option<PartMesh<Handle<Mesh>>>,
-    /// Bark material, shared by levels with matching bark settings and sidedness.
+    /// Bark material for this step's image size, shared by trees with
+    /// matching bark settings.
     bark_material: Handle<TreeMaterial>,
-    /// Leaf material, shared by levels using the same leaf image selection.
+    /// Leaf material, shared by both steps and by trees with matching leaf
+    /// settings.
     leaf_material: Handle<TreeMaterial>,
 }
 
 /// Meshes and materials reused by trees with identical options.
 pub(crate) struct Generated {
-    /// Detail levels, nearest first.
-    levels: Vec<LevelAssets>,
-    /// How tall the tree is, in metres, from its nearest level's parts.
-    height: f32,
+    /// The game-level mesh, then the lower mesh.
+    levels: [LevelAssets; 2],
+    /// The details the two meshes were built at, which also choose the
+    /// clusters each one keeps.
+    pub(crate) lod: Lod<LodDetail>,
+    /// The game-level mesh's bounding-sphere diameter, in metres.
+    diameter: f32,
     /// The tree's fruit and flower cluster specimens and tables.
     pub(crate) clusters: Vec<TreeClusters>,
-    /// The impostor's baked level's fruit and flowers, merged, with their
+    /// The game-level mesh's fruit and flowers, merged, with their
     /// materials, for the impostor bake only.
     pub(crate) baked_clusters: Vec<(Handle<Mesh>, Handle<TreeMaterial>)>,
     /// One cylinder mesh and material shared by all wires, plus each wire's placement.
@@ -364,7 +318,7 @@ pub(crate) struct Generated {
 }
 
 impl Generated {
-    /// A sphere around every mesh part at every level, in the tree's own
+    /// A sphere around every mesh part at both steps, in the tree's own
     /// coordinates, enlarged by `allowance` for wind sway; a point at the
     /// origin for a tree with no parts.
     pub(crate) fn bounds(&self, allowance: f32) -> (Vec3, f32) {
@@ -379,56 +333,38 @@ impl Generated {
         (center, (max - center).length() * allowance)
     }
 
-    /// Every mesh part of every detail level, nearest level first, with its
+    /// Every mesh part of both mesh steps, game level first, with its
     /// material. Trellis wires and clusters are not included.
     pub(crate) fn parts(
         &self,
     ) -> impl Iterator<
         Item = (
-            usize,
+            Step,
             TreePartKind,
             &PartMesh<Handle<Mesh>>,
             &Handle<TreeMaterial>,
         ),
     > {
-        self.levels
-            .iter()
-            .enumerate()
-            .flat_map(move |(lod, level)| {
+        [Step::Game, Step::Lower]
+            .into_iter()
+            .zip(&self.levels)
+            .flat_map(move |(step, level)| {
                 [
                     (TreePartKind::Bark, &level.bark, &level.bark_material),
                     (TreePartKind::Leaves, &level.leaves, &level.leaf_material),
                 ]
                 .into_iter()
                 .filter_map(move |(kind, mesh, material)| {
-                    Some((lod, kind, mesh.as_ref()?, material))
+                    Some((step, kind, mesh.as_ref()?, material))
                 })
             })
     }
 
-    /// The number of detail levels.
-    pub(crate) fn level_count(&self) -> usize {
-        self.levels.len()
+    /// The tree's size before it is scaled, in metres: the bounding-sphere
+    /// diameter of its game-level mesh, which its steps switch by.
+    pub(crate) fn diameter(&self) -> f32 {
+        self.diameter
     }
-
-    /// How tall the tree is before it is scaled, in metres: the top of its
-    /// nearest level's bark and leaves above its base. A tree with no bark or
-    /// leaves counts as the levels' reference size.
-    pub(crate) fn height(&self) -> f32 {
-        self.height
-    }
-}
-
-/// The top of `level`'s bark and leaves above the tree's base, or `fallback`
-/// when it has neither.
-fn level_height(level: Option<&LevelAssets>, fallback: f32) -> f32 {
-    let top = level
-        .into_iter()
-        .flat_map(|level| [&level.bark, &level.leaves])
-        .flatten()
-        .map(|part| part.extent.max().y)
-        .fold(f32::NEG_INFINITY, f32::max);
-    if top > 0.0 { top } else { fallback }
 }
 
 enum Entry {
@@ -453,7 +389,8 @@ pub(crate) enum CacheState<'a> {
 pub(crate) struct TreeCache {
     trees: HashMap<TreeKey, Entry>,
     bark_textures: HashMap<(String, TextureSize), BarkTextures>,
-    leaf_textures: HashMap<(String, LeafTexture), LeafTextures>,
+    /// Leaf images by leaf kind.
+    leaf_textures: HashMap<String, LeafTextures>,
     bark_materials: HashMap<BarkKey, Handle<TreeMaterial>>,
     leaf_materials: HashMap<LeafKey, Handle<TreeMaterial>>,
     trellis_materials: HashMap<TrellisKey, Handle<StandardMaterial>>,
@@ -479,11 +416,10 @@ impl TreeCache {
     ) -> TreeKey {
         let key = TreeKey(options.cache_key());
         self.trees.entry(key).or_insert_with(|| {
-            let levels = settings.lod.levels.clone();
-            let baked = settings.impostor.map(|impostor| impostor.baked_level);
+            let bake = settings.impostor.is_some();
             let task_options = options.clone();
-            let task = AsyncComputeTaskPool::get()
-                .spawn(async move { generate(&task_options, &levels, baked) });
+            let task =
+                AsyncComputeTaskPool::get().spawn(async move { generate(&task_options, bake) });
             Entry::Pending(task, options.clone())
         });
         key
@@ -618,70 +554,47 @@ pub(crate) fn start_generation(
     }
 }
 
-/// Generates one skeleton and meshes for each detail level, sorted by
-/// distance, and the fruit and flower clusters. `baked` is the level an
-/// impostor bakes, whose clusters are also merged for the bake.
-/// Skips [`TreeMesh::billboard_cull`](procgena_tree::TreeMesh::billboard_cull) because
-/// the tree shaders rotate the main shapes toward each view.
-fn generate(
-    options: &TreeOptions,
-    levels: &[LodLevel<TreeLevel>],
-    baked: Option<usize>,
-) -> TaskOutput {
-    let skeleton = Skeleton::generate(options)?;
+/// Generates the tree's game-level and lower meshes from one skeleton, and
+/// its fruit and flower clusters. With `bake`, the game-level mesh's
+/// clusters are also merged for the impostor bake.
+fn generate(options: &TreeOptions, bake: bool) -> TaskOutput {
+    let tree = Tree::new(options.clone())?;
+    let lod = tree.lod();
+    let (options, skeleton, game) = tree.into_parts();
+    let lower = skeleton.mesh(&options, &lod.lower);
+    let meshes = Lod { game, lower };
+    let specimen = Arc::new(skeleton.specimen(&lod, &meshes));
+
     let part = |buffers: &MeshBuffers, convert: &dyn Fn(&MeshBuffers) -> Mesh| {
         (!buffers.indices.is_empty()).then(|| {
             let mesh = convert(buffers);
-            let bounds = billboard_aabb(buffers);
-            let extent = bounds.or_else(|| mesh.get_aabb()).unwrap_or_default();
-            PartMesh {
-                mesh,
-                bounds,
-                extent,
-            }
+            let extent = mesh.get_aabb().unwrap_or_default();
+            PartMesh { mesh, extent }
         })
     };
-    let lods: Vec<(LodLevel<LodDetail>, TreeMesh)> = levels
-        .iter()
-        .map(|level| {
-            let mesh = skeleton.mesh(options, &level.detail.detail);
-            let level = LodLevel {
-                distance: level.distance,
-                hysteresis: level.hysteresis,
-                form: level.form,
-                casts_shadows: level.casts_shadows,
-                detail: level.detail.detail,
-            };
-            (level, mesh)
-        })
-        .collect();
-    let specimen = Arc::new(skeleton.specimen(&lods));
-    let meshes: Vec<LevelMeshes> = levels
-        .iter()
-        .zip(&lods)
-        .map(|(level, (_, mesh))| LevelMeshes {
-            level: level.detail,
-            bark: part(&mesh.branches, &|b| bark_mesh(b, &options.bark)),
-            leaves: part(&mesh.leaves, &leaf_mesh),
-        })
-        .collect();
+    let levels = [&meshes.game, &meshes.lower].map(|mesh: &TreeMesh| LevelMeshes {
+        bark: part(&mesh.branches, &|b| bark_mesh(b, &options.bark)),
+        leaves: part(&mesh.leaves, &leaf_mesh),
+    });
 
-    // The baked level's clusters, merged as that level composes them.
-    let baked_clusters = baked
-        .and_then(|level| lods.get(level))
-        .map(|(_, mesh)| {
-            [
-                (ClusterPart::Fruit, &mesh.fruit),
-                (ClusterPart::Flowers, &mesh.flowers),
-            ]
-            .into_iter()
-            .filter(|(_, buffers)| !buffers.indices.is_empty())
-            .map(|(part, buffers)| (part, cluster_mesh(buffers)))
-            .collect()
-        })
-        .unwrap_or_default();
+    // The game level's clusters, merged as that mesh composes them.
+    let game = &meshes.game;
+    let baked_clusters = if bake {
+        [
+            (ClusterPart::Fruit, &game.fruit),
+            (ClusterPart::Flowers, &game.flowers),
+        ]
+        .into_iter()
+        .filter(|(_, buffers)| !buffers.indices.is_empty())
+        .map(|(part, buffers)| (part, cluster_mesh(buffers)))
+        .collect()
+    } else {
+        Vec::new()
+    };
     Ok(TaskMeshes {
-        levels: meshes,
+        levels,
+        lod,
+        diameter: game.bounding_diameter(),
         specimen,
         clusters: build_clusters(&skeleton),
         baked_clusters,
@@ -709,6 +622,8 @@ pub(crate) fn finish_generation(
         };
         let TaskMeshes {
             levels,
+            lod,
+            diameter,
             specimen,
             clusters,
             baked_clusters,
@@ -721,89 +636,64 @@ pub(crate) fn finish_generation(
             }
         };
 
-        // Share matching materials across trees and their distance-based detail
-        // levels. Bark visible from both sides needs a separate material.
+        // Share matching materials across trees and their two mesh steps:
+        // bark at the step's image size, and one leaf material for both.
         // Reuse texture images; without a texture folder, use plain colours.
         let compression = settings.texture_compression;
         let root = settings.texture_root.as_deref();
-        let mut level_assets = Vec::with_capacity(levels.len());
-        for l in levels {
-            // Render both faces of each ribbon strip.
-            let two_sided = l.level.detail.branch_shape == BranchShape::Ribbons;
-            let look = root.map(|_| l.level.bark);
-            let key = BarkKey::new(&options.bark, look, two_sided);
-            let bark = cache.bark_materials.entry(key).or_insert_with(|| {
-                let mut material = match (look, root) {
-                    (Some(BarkTexture::Textured(size)), Some(root)) => {
-                        let textures = cache
-                            .bark_textures
-                            .entry((options.bark.kind.clone(), size))
-                            .or_insert_with(|| {
-                                BarkTextures::load(
-                                    &asset_server,
-                                    root,
-                                    &options.bark.kind,
-                                    size,
-                                    compression,
-                                )
-                            });
-                        bark_material(&options.bark, Some(&*textures), wind.0)
-                    }
-                    (Some(BarkTexture::AverageColor), _) => {
-                        average_bark_material(&options.bark, wind.0)
-                    }
-                    _ => bark_material(&options.bark, None, wind.0),
-                };
-                // Ribbon billboards have no tangents to orient a normal map.
-                if two_sided {
-                    material.base.cull_mode = None;
-                    material.base.double_sided = true;
-                    material.base.normal_map_texture = None;
-                }
-                tree_materials.add(material)
-            });
-
-            // Omit normal maps for camera-facing leaves, which have no tangents.
-            let image = root.map(|_| l.level.leaves);
-            let billboard = l.level.detail.leaf_billboard.is_some();
-            let key = LeafKey::new(&options.leaves, image, billboard);
-            let leaves = cache.leaf_materials.entry(key).or_insert_with(|| {
-                let textures = image.zip(root).map(|(image, root)| {
+        let key = LeafKey::new(&options.leaves, root.is_some());
+        let leaves = cache
+            .leaf_materials
+            .entry(key)
+            .or_insert_with(|| {
+                let textures = root.map(|root| {
                     let kind = &options.leaves.kind;
-                    let textures = cache
+                    cache
                         .leaf_textures
-                        .entry((kind.clone(), image))
-                        .or_insert_with(|| match image {
-                            LeafTexture::Leaf => {
-                                LeafTextures::load(&asset_server, root, kind, compression)
-                            }
-                            LeafTexture::Clump => {
-                                LeafTextures::load_clump(&asset_server, root, kind, compression)
-                            }
+                        .entry(kind.clone())
+                        .or_insert_with(|| {
+                            LeafTextures::load(&asset_server, root, kind, compression)
                         })
-                        .clone();
-                    LeafTextures {
-                        normal: textures.normal.filter(|_| !billboard),
-                        ..textures
-                    }
+                        .clone()
                 });
                 tree_materials.add(leaf_material(&options.leaves, textures.as_ref(), wind.0))
+            })
+            .clone();
+        let [game, lower] = levels;
+        let level_assets = [(Step::Game, game), (Step::Lower, lower)].map(|(step, l)| {
+            let size = root.map(|_| bark_texture_size(step));
+            let key = BarkKey::new(&options.bark, size);
+            let bark = cache.bark_materials.entry(key).or_insert_with(|| {
+                let textures = size.zip(root).map(|(size, root)| {
+                    cache
+                        .bark_textures
+                        .entry((options.bark.kind.clone(), size))
+                        .or_insert_with(|| {
+                            BarkTextures::load(
+                                &asset_server,
+                                root,
+                                &options.bark.kind,
+                                size,
+                                compression,
+                            )
+                        })
+                        .clone()
+                });
+                tree_materials.add(bark_material(&options.bark, textures.as_ref(), wind.0))
             });
-
             let mut add = |part: Option<PartMesh<Mesh>>| {
                 part.map(|p| PartMesh {
                     mesh: meshes.add(p.mesh),
-                    bounds: p.bounds,
                     extent: p.extent,
                 })
             };
-            level_assets.push(LevelAssets {
+            LevelAssets {
                 bark: add(l.bark),
                 leaves: add(l.leaves),
                 bark_material: bark.clone(),
                 leaf_material: leaves.clone(),
-            });
-        }
+            }
+        });
 
         // All trees share one fruit material and one flower material because
         // these surface settings do not vary between trees.
@@ -837,10 +727,10 @@ pub(crate) fn finish_generation(
             .map(|(part, mesh)| (meshes.add(mesh), material(part)))
             .collect();
         let clusters = add_meshes(clusters, &mut meshes, material);
-        let height = level_height(level_assets.first(), settings.lod.reference_size);
         let generated = Generated {
             levels: level_assets,
-            height,
+            lod,
+            diameter,
             clusters,
             baked_clusters,
             trellis,
@@ -850,8 +740,8 @@ pub(crate) fn finish_generation(
     }
 }
 
-/// The visibility range a part with fade bands `range` is drawn with, or
-/// `None` when it is drawn at every distance and needs no range.
+/// Bevy's visibility range for a part drawn over `range`, or `None` for a
+/// part drawn at every distance.
 pub(crate) fn part_range(range: &LodRange) -> Option<VisibilityRange> {
     (!range.is_always()).then(|| visibility_range(range))
 }
@@ -886,7 +776,7 @@ pub(crate) fn spawn_parts(
                 // Drawn without the impostor until `show_impostors` adds it.
                 let specimen = cache.specimen_id(*key);
                 let copy = SingleTree::new(generated, transform, phase);
-                let ranges = settings.mesh_ranges(quality.0, copy.size);
+                let ranges = mesh_ranges(copy.size, quality.0);
                 spawn_tree_parts(&mut commands, entity, generated, &ranges, copy);
                 let clusters = SingleTreeClusters {
                     specimen,
@@ -910,11 +800,12 @@ pub(crate) fn spawn_parts(
 /// How much a single tree's bounding sphere is enlarged to cover wind sway.
 const SWAY_ALLOWANCE: f32 = 1.15;
 
-/// How a tree drawn on its own is drawn as a copy: the size its detail
-/// distances scale with, and its wind phase.
+/// How a tree drawn on its own is drawn as a copy: the size its steps
+/// switch by, and its wind phase.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct SingleTree {
-    /// The tree's height as built times its `Transform`'s largest scale.
+    /// The tree's bounding-sphere diameter as built times its `Transform`'s
+    /// largest scale.
     pub(crate) size: f32,
     /// From 0 to 1; see [`TreeWindPhase`].
     pub(crate) wind_phase: f32,
@@ -929,8 +820,8 @@ impl SingleTree {
         phase: Option<&TreeWindPhase>,
     ) -> Self {
         Self {
-            size: tree_size(
-                generated.height(),
+            size: copy_size(
+                generated.diameter(),
                 transform.unwrap_or(&Transform::IDENTITY),
             ),
             wind_phase: phase.map_or(0.0, |p| p.0),
@@ -943,9 +834,9 @@ impl SingleTree {
 pub(crate) struct SingleTreeClusters<'a> {
     /// The tree's specimen id.
     pub(crate) specimen: SpecimenId,
-    /// The tree's baked impostor, once it is shown: the tree's levels then
+    /// The tree's baked impostor, once it is shown: the tree's steps then
     /// end in it, so clusters stop where it fades in, and clusters with a
-    /// baked impostor of their own draw it beyond their fruit levels.
+    /// baked impostor of their own draw it when they are small on screen.
     pub(crate) impostor: Option<&'a TreeImpostorAssets>,
     /// The tree as a copy.
     pub(crate) copy: SingleTree,
@@ -961,17 +852,17 @@ pub(crate) fn spawn_clusters(
     clusters: SingleTreeClusters<'_>,
 ) {
     let impostors = clusters.impostor.and_then(|assets| {
+        settings.fruit_impostor?;
         Some(ClusterImpostors {
-            level: settings.fruit_impostor?,
             quad: &assets.quad,
             baked: &assets.clusters,
         })
     });
     let Some((scatter, attached)) = single_tree_clusters(
         &generated.clusters,
+        &generated.lod,
         clusters.specimen,
-        &settings.lod.levels,
-        tree_lod(settings, clusters.impostor.is_some()),
+        clusters.impostor.is_some(),
         generated.bounds(SWAY_ALLOWANCE),
         clusters.copy,
         impostors,
@@ -980,7 +871,7 @@ pub(crate) fn spawn_clusters(
     };
     commands.spawn((
         TreePart {
-            lod: 0,
+            step: Step::Game,
             kind: TreePartKind::Clusters,
         },
         scatter,
@@ -989,49 +880,34 @@ pub(crate) fn spawn_clusters(
     ));
 }
 
-/// A single tree's levels as its clusters see them: the mesh levels, then
-/// the impostor once it is shown.
-pub(crate) fn tree_lod(settings: &SpawnSettings, impostor: bool) -> Lod {
-    if impostor {
-        settings.draw_lod().map_detail(|_| ())
-    } else {
-        settings.lod.clone().map_detail(|_| ())
-    }
-}
-
-/// Spawns `tree`'s bark, leaf and trellis parts, each mesh level drawn over
+/// Spawns `tree`'s bark, leaf and trellis parts, each mesh step drawn over
 /// its fade bands in `ranges`, swaying as `copy`.
 fn spawn_tree_parts(
     commands: &mut Commands,
     tree: Entity,
     generated: &Generated,
-    ranges: &[LodRange],
+    ranges: &[LodRange; 2],
     copy: SingleTree,
 ) {
-    for (lod, kind, mesh, material) in generated.parts() {
+    for (step, kind, mesh, material) in generated.parts() {
         // The tree shaders read the wind phase from the mesh tag, as the
         // shared renderer writes it for a grove's copies.
         let mut part = commands.spawn((
-            TreePart { lod, kind },
+            TreePart { step, kind },
             Mesh3d(mesh.mesh.clone()),
             MeshMaterial3d(material.clone()),
             MeshTag::with_type::<TreeWindPhase>(copy.wind_phase.to_bits()),
             ChildOf(tree),
         ));
-        if let Some(range) = part_range(&ranges[lod]) {
+        if let Some(range) = part_range(&ranges[step.index()]) {
             part.insert(range);
-        }
-        // Use rotation-aware bounds so Bevy does not hide a billboard whose
-        // stored shape is outside the view but whose rotated shape is visible.
-        if let Some(bounds) = mesh.bounds {
-            part.insert((bounds, NoAutoAabb));
         }
     }
     if let Some((mesh, material, transforms)) = &generated.trellis {
         for transform in transforms {
             commands.spawn((
                 TreePart {
-                    lod: 0,
+                    step: Step::Game,
                     kind: TreePartKind::Trellis,
                 },
                 Mesh3d(mesh.clone()),
@@ -1108,32 +984,14 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
-    use procgena_tree::LOD_REFERENCE_SIZE;
 
     /// Results of every [`TreeFinished`] event, in order.
     #[derive(Resource, Default)]
     struct Finished(Vec<Result<(), OptionsError>>);
 
-    /// Creates a test app with one full-detail level and the spawn systems,
-    /// without rendering or loading textures.
+    /// Creates a test app with the spawn systems and no impostors, without
+    /// rendering or loading textures.
     fn spawn_app() -> App {
-        spawn_app_with(Lod::new(
-            LOD_REFERENCE_SIZE,
-            vec![LodLevel::new(
-                0.0,
-                0.0,
-                TreeLevel {
-                    detail: LodDetail::default(),
-                    bark: BarkTexture::Textured(TextureSize::Size1k),
-                    leaves: LeafTexture::Leaf,
-                },
-            )],
-        ))
-    }
-
-    /// Creates a test app with the supplied levels and the spawn systems,
-    /// without rendering or loading textures.
-    fn spawn_app_with(lod: Lod<TreeLevel>) -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
             .init_asset::<Mesh>()
@@ -1148,7 +1006,6 @@ mod tests {
             .insert_resource(SpawnSettings {
                 texture_root: None,
                 texture_compression: TextureCompression::Bc7,
-                lod,
                 impostor: None,
                 fruit_impostor: None,
             })
@@ -1195,11 +1052,20 @@ mod tests {
             .spawn(TreeParams::preset(TreePreset::oak_small()))
             .id();
 
-        app.update();
-        assert!(app.world().entity(tree).contains::<TreeGenerating>());
-        assert_eq!(part_count(&mut app, tree), 0);
-
-        update_until_finished(&mut app, tree);
+        // The marker is on the tree exactly while it has no parts. A small
+        // tree can finish within the frame that starts it, so this is
+        // checked after every frame until it finishes.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            app.update();
+            let generating = app.world().entity(tree).contains::<TreeGenerating>();
+            assert_eq!(generating, part_count(&mut app, tree) == 0);
+            if !generating {
+                break;
+            }
+            assert!(Instant::now() < deadline, "tree generation did not finish");
+            std::thread::sleep(Duration::from_millis(1));
+        }
         let parts = part_count(&mut app, tree);
         assert!(parts > 0);
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(())]);
@@ -1215,43 +1081,59 @@ mod tests {
         assert_eq!(part_count(&mut app, tree), parts);
         assert_eq!(app.world().resource::<Finished>().0, vec![Ok(()), Ok(())]);
 
-        // New options generate again.
+        // New options generate again, under a new key. A small tree can
+        // finish generating within the frame that starts it, so the
+        // generation is seen by its key and its finish, not by the marker.
+        let old_key = *app.world().get::<TreeKey>(tree).unwrap();
         let mut options = TreePreset::oak_small().tree.clone();
         options.default_seed += 1;
         *app.world_mut().get_mut::<TreeParams>(tree).unwrap() = TreeParams::new(options);
-        app.update();
-        assert!(app.world().entity(tree).contains::<TreeGenerating>());
         update_until_finished(&mut app, tree);
+        assert_ne!(*app.world().get::<TreeKey>(tree).unwrap(), old_key);
+        assert!(app.world().resource::<TreeCache>().trees.len() >= 2);
         assert_eq!(app.world().resource::<Finished>().0.len(), 3);
     }
 
     #[test]
     fn finished_trees_carry_their_specimen_until_they_change() {
         let mut app = spawn_app();
+        // A tree carries a specimen exactly when it isn't generating. A small
+        // tree can finish within the frame that starts it, so this is checked
+        // after every frame rather than at a set one.
+        let specimen_matches_state = |app: &App, tree: Entity| {
+            let entity = app.world().entity(tree);
+            assert_eq!(
+                entity.contains::<GeneratedSpecimen>(),
+                !entity.contains::<TreeGenerating>()
+            );
+        };
         let tree = app
             .world_mut()
             .spawn(TreeParams::preset(TreePreset::oak_small()))
             .id();
         app.update();
-        assert!(!app.world().entity(tree).contains::<GeneratedSpecimen>());
+        specimen_matches_state(&app, tree);
 
-        // The specimen arrives with the parts and matches the configured level.
+        // The specimen arrives with the parts and is the tree's own.
         update_until_finished(&mut app, tree);
-        let expected = {
-            let tree = procgena_tree::Tree::from_preset(TreePreset::oak_small()).unwrap();
-            tree.specimen(&tree.lod_meshes(&[LodLevel::new(0.0, 0.0, LodDetail::default())]))
-        };
+        let expected = Tree::from_preset(TreePreset::oak_small())
+            .unwrap()
+            .specimen();
         let specimen = app.world().get::<GeneratedSpecimen>(tree).unwrap();
         assert_eq!(*specimen.0, expected);
 
-        // Changing the options removes the stale specimen until the rebuild ends.
+        // Changing the options replaces the stale specimen with the new
+        // tree's once the rebuild ends.
         let mut options = TreePreset::oak_small().tree.clone();
         options.default_seed += 1;
+        let reseeded = Tree::new(options.clone()).unwrap().specimen();
+        assert_ne!(reseeded, expected);
         *app.world_mut().get_mut::<TreeParams>(tree).unwrap() = TreeParams::new(options);
         app.update();
-        assert!(!app.world().entity(tree).contains::<GeneratedSpecimen>());
+        specimen_matches_state(&app, tree);
         update_until_finished(&mut app, tree);
-        assert!(app.world().entity(tree).contains::<GeneratedSpecimen>());
+        let specimen = app.world().get::<GeneratedSpecimen>(tree).unwrap();
+        assert_eq!(*specimen.0, reseeded);
 
         // Removing the request removes the specimen.
         app.world_mut().entity_mut(tree).remove::<TreeParams>();
@@ -1259,80 +1141,63 @@ mod tests {
         assert!(!app.world().entity(tree).contains::<GeneratedSpecimen>());
     }
 
-    /// Checks that all four default levels have bark and leaves, and that bark
-    /// is two-sided only at the fourth level, which uses ribbons.
+    /// Checks that a tree without an impostor draws bark and leaves at both
+    /// mesh steps, single-sided bark included, each over its step's bands
+    /// for the tree's size: the lower mesh until the cull.
     #[test]
-    fn ribbon_bark_is_drawn_two_sided() {
-        let mut app = spawn_app_with(default_tree_lod());
+    fn both_mesh_steps_are_drawn_over_their_bands() {
+        let mut app = spawn_app();
+        let scale = 1.5;
         let tree = app
             .world_mut()
-            .spawn(TreeParams::preset(TreePreset::oak_small()))
+            .spawn((
+                TreeParams::preset(TreePreset::oak_small()),
+                Transform::from_scale(Vec3::splat(scale)),
+            ))
             .id();
         update_until_finished(&mut app, tree);
 
-        let mut parts = app
-            .world_mut()
-            .query::<(&TreePart, &MeshMaterial3d<TreeMaterial>)>();
+        let diameter = Tree::from_preset(TreePreset::oak_small())
+            .unwrap()
+            .mesh()
+            .bounding_diameter();
+        let ranges = mesh_ranges(diameter * scale, Quality::High);
+        let mut parts = app.world_mut().query::<(
+            &TreePart,
+            &MeshMaterial3d<TreeMaterial>,
+            Option<&VisibilityRange>,
+        )>();
         let materials = app.world().resource::<Assets<TreeMaterial>>();
         let mut seen = Vec::new();
-        for (part, material) in parts.iter(app.world()) {
-            seen.push((part.lod, part.kind));
+        for (part, material, range) in parts.iter(app.world()) {
+            seen.push((part.step, part.kind));
+            let expected = part_range(&ranges[part.step.index()]).unwrap();
+            assert!(range == Some(&expected), "{part:?} has the wrong range");
             if part.kind == TreePartKind::Bark {
                 let base = &materials.get(&material.0).unwrap().base;
-                let ribbons = part.lod == 3;
-                assert_eq!(base.cull_mode.is_none(), ribbons, "lod {}", part.lod);
-                assert_eq!(base.double_sided, ribbons, "lod {}", part.lod);
+                assert!(base.cull_mode.is_some() && !base.double_sided, "{part:?}");
             }
         }
-        for lod in 0..4 {
-            assert!(seen.contains(&(lod, TreePartKind::Bark)), "lod {lod}");
-            assert!(seen.contains(&(lod, TreePartKind::Leaves)), "lod {lod}");
-        }
-    }
-
-    /// Checks that LOD3 spawns only the main parts, with rotation data and bounds
-    /// for the camera-facing bark and leaves. Fruit is not a per-level part
-    /// (see `clusters_are_drawn_by_one_instanced_child`). Crossed fallback
-    /// shapes must not be spawned.
-    #[test]
-    fn farthest_level_parts_turn_toward_the_camera() {
-        let mut app = spawn_app_with(default_tree_lod());
-        let tree = app
-            .world_mut()
-            .spawn(TreeParams::preset(TreePreset::apple()))
-            .id();
-        update_until_finished(&mut app, tree);
-
-        let mut parts = app
-            .world_mut()
-            .query::<(&TreePart, &Mesh3d, Option<&Aabb>, Has<NoAutoAabb>)>();
-        let meshes = app.world().resource::<Assets<Mesh>>();
-        let mut far_kinds = Vec::new();
-        for (part, mesh, bounds, fixed) in parts.iter(app.world()) {
-            let mesh = meshes.get(&mesh.0).unwrap();
-            let billboard = mesh.contains_attribute(crate::ATTRIBUTE_BILLBOARD_PIVOT)
-                && mesh.contains_attribute(crate::ATTRIBUTE_BILLBOARD_AXIS);
-            let far =
-                part.lod == 3 && matches!(part.kind, TreePartKind::Bark | TreePartKind::Leaves);
-            assert_eq!(billboard, far, "{part:?}");
-            assert_eq!(fixed, far, "{part:?}");
-            assert_eq!(bounds.is_some(), far, "{part:?}");
-            if part.lod == 3 {
-                far_kinds.push(part.kind);
-            }
-        }
-        far_kinds.sort_by_key(|k| *k as u8);
-        assert_eq!(far_kinds, [TreePartKind::Bark, TreePartKind::Leaves]);
+        seen.sort_by_key(|(step, kind)| (step.index(), *kind as u8));
+        assert_eq!(
+            seen,
+            [
+                (Step::Game, TreePartKind::Bark),
+                (Step::Game, TreePartKind::Leaves),
+                (Step::Lower, TreePartKind::Bark),
+                (Step::Lower, TreePartKind::Leaves),
+            ]
+        );
     }
 
     /// Checks that a fruiting tree draws its clusters through one instanced
-    /// child: the tree's levels as slot 0, one slot per fruit specimen with
-    /// a part per fruit level, and one row per cluster for the levels that
-    /// keep it, plus an enlarged row for the farthest level, which keeps
-    /// every second cluster. A tree without fruit gets no such child.
+    /// child: the tree's steps as slot 0, one slot per fruit specimen with
+    /// its game-level and lower meshes, and one row per cluster for the
+    /// tree's game-level mesh, plus an enlarged row for every cluster its
+    /// lower mesh keeps. A tree without fruit gets no such child.
     #[test]
     fn clusters_are_drawn_by_one_instanced_child() {
-        let mut app = spawn_app_with(default_tree_lod());
+        let mut app = spawn_app();
         let apple = app
             .world_mut()
             .spawn(TreeParams::preset(TreePreset::apple()))
@@ -1356,28 +1221,37 @@ mod tests {
         assert_eq!(part.kind, TreePartKind::Clusters);
         assert_eq!(parent.parent(), apple);
 
-        // The tree's levels, then the fruit specimens.
-        let skeleton = Skeleton::generate(&TreePreset::apple().tree).unwrap();
-        let (placed, fruit) = skeleton.clusters(ClusterPart::Fruit);
+        // The tree's steps, then the fruit specimens, neither with an
+        // impostor yet.
+        let tree = Tree::from_preset(TreePreset::apple()).unwrap();
+        let (_, fruit) = tree.skeleton().clusters(ClusterPart::Fruit);
         assert_eq!(scatter.slots.len(), 1 + fruit.len());
         assert!(scatter.slots[0].parts.is_empty());
-        assert_eq!(scatter.slots[0].lod.levels.len(), 4);
+        assert_eq!(scatter.slots[0].lod.levels.len(), 2);
         for slot in &scatter.slots[1..] {
-            assert_eq!(slot.lod.levels.len(), 3, "fruit levels");
+            assert_eq!(slot.lod.levels.len(), 2, "fruit steps");
+            assert_eq!(slot.lod.cull_distance, None, "the tree decides");
             assert!(!slot.parts.is_empty());
         }
         assert_eq!(scatter.copies.len(), 1);
 
-        // Every cluster at levels 0 to 2, every second one enlarged at 3.
-        let rows = &attached.tables[0];
-        let near = rows.iter().filter(|row| row.host_levels == 0b0111).count();
-        let far: Vec<_> = rows
+        // Every cluster on the game-level mesh, the ones the lower mesh
+        // keeps enlarged on it.
+        let lod = tree.lod();
+        assert_eq!(lod.game.cluster_stride, 1);
+        assert_ne!(lod.game.cluster_scale, lod.lower.cluster_scale);
+        let table = tree.skeleton().cluster_table(ClusterPart::Fruit);
+        let kept = table
             .iter()
-            .filter(|row| row.host_levels == 0b1000)
-            .collect();
-        assert_eq!(near, placed.len());
-        assert_eq!(far.len(), placed.len().div_ceil(2));
-        assert_eq!(rows.len(), near + far.len(), "no other masks");
+            .filter(|row| row.index % lod.lower.cluster_stride == 0)
+            .count();
+        assert!(kept < table.len());
+        let rows = &attached.tables[0];
+        let game = rows.iter().filter(|row| row.host_levels == 0b01).count();
+        let lower = rows.iter().filter(|row| row.host_levels == 0b10).count();
+        assert_eq!(game, table.len());
+        assert_eq!(lower, kept);
+        assert_eq!(rows.len(), game + lower, "no other masks");
         assert!(
             rows.iter()
                 .all(|row| (row.slot as usize) < scatter.slots.len())
@@ -1385,60 +1259,50 @@ mod tests {
         assert!(rows.iter().all(|row| row.slot >= 1));
     }
 
-    /// Checks that camera-facing leaves omit normal maps even when their leaf
-    /// texture set provides one.
-    #[test]
-    fn billboard_leaves_leave_out_the_normal_map() {
-        let levels = default_lod().levels;
-        let leaf_image = |level: &LodLevel<LodDetail>| LodLevel {
-            distance: level.distance,
-            hysteresis: level.hysteresis,
-            form: level.form,
-            casts_shadows: level.casts_shadows,
-            detail: TreeLevel {
-                detail: level.detail,
-                bark: BarkTexture::AverageColor,
-                leaves: LeafTexture::Leaf,
-            },
-        };
-        let near_and_farthest = vec![leaf_image(&levels[0]), leaf_image(&levels[3])];
-        let mut app = spawn_app_with(Lod::new(LOD_REFERENCE_SIZE, near_and_farthest));
-        app.world_mut().resource_mut::<SpawnSettings>().texture_root = Some("textures".into());
-        let mut options = TreePreset::oak_small().tree.clone();
-        options.leaves.kind = "white_oak".to_owned();
-        assert!(procgena_tree::leaf_has_normal_map(&options.leaves.kind));
-        let tree = app.world_mut().spawn(TreeParams::new(options)).id();
-        update_until_finished(&mut app, tree);
-
-        let mut parts = app
-            .world_mut()
-            .query::<(&TreePart, &MeshMaterial3d<TreeMaterial>)>();
-        let materials = app.world().resource::<Assets<TreeMaterial>>();
-        let mut seen = 0;
-        for (part, material) in parts.iter(app.world()) {
-            if part.kind == TreePartKind::Leaves {
-                let base = &materials.get(&material.0).unwrap().base;
-                assert_eq!(base.normal_map_texture.is_some(), part.lod == 0, "{part:?}");
-                seen += 1;
-            }
-        }
-        assert_eq!(seen, 2);
-    }
-
-    /// Returns the distinct material identifiers for one kind of part on a tree.
+    /// Returns the distinct material identifiers for one kind of part on a
+    /// tree at `step`, or at both mesh steps without one.
     fn part_materials(
         app: &mut App,
         tree: Entity,
         kind: TreePartKind,
+        step: Option<Step>,
     ) -> HashSet<AssetId<TreeMaterial>> {
         let mut parts = app
             .world_mut()
             .query::<(&TreePart, &MeshMaterial3d<TreeMaterial>, &ChildOf)>();
         parts
             .iter(app.world())
-            .filter(|(part, _, parent)| part.kind == kind && parent.parent() == tree)
+            .filter(|(part, _, parent)| {
+                part.kind == kind && parent.parent() == tree && step.is_none_or(|s| s == part.step)
+            })
             .map(|(_, material, _)| material.0.id())
             .collect()
+    }
+
+    /// With textures, the lower mesh draws smaller bark images than the
+    /// game-level mesh, so the steps' bark materials differ, while both
+    /// steps share one leaf material.
+    #[test]
+    fn textured_bark_is_sized_by_step_and_leaves_are_shared() {
+        let mut app = spawn_app();
+        app.world_mut().resource_mut::<SpawnSettings>().texture_root = Some("textures".into());
+        let options = TreePreset::oak_small().tree.clone();
+        assert!(options.bark.textured);
+        let tree = app.world_mut().spawn(TreeParams::new(options)).id();
+        update_until_finished(&mut app, tree);
+
+        let bark = |app: &mut App, step| part_materials(app, tree, TreePartKind::Bark, Some(step));
+        let game = bark(&mut app, Step::Game);
+        let lower = bark(&mut app, Step::Lower);
+        assert_eq!(game.len(), 1);
+        assert_eq!(lower.len(), 1);
+        assert!(game.is_disjoint(&lower));
+        assert_eq!(
+            part_materials(&mut app, tree, TreePartKind::Leaves, None).len(),
+            1
+        );
+        assert_eq!(bark_texture_size(Step::Game), TextureSize::Size1k);
+        assert_eq!(bark_texture_size(Step::Lower), TextureSize::Size512);
     }
 
     #[test]
@@ -1464,9 +1328,13 @@ mod tests {
         };
         let second = spawn(&mut app, reseeded);
         for kind in [TreePartKind::Bark, TreePartKind::Leaves] {
-            let shared = part_materials(&mut app, first, kind);
+            let shared = part_materials(&mut app, first, kind, None);
             assert_eq!(shared.len(), 1, "{kind:?}");
-            assert_eq!(part_materials(&mut app, second, kind), shared, "{kind:?}");
+            assert_eq!(
+                part_materials(&mut app, second, kind, None),
+                shared,
+                "{kind:?}"
+            );
         }
 
         // Changing bark colour creates a separate bark material; leaves still
@@ -1475,15 +1343,16 @@ mod tests {
         tinted.bark.tint ^= 0x10;
         let third = spawn(&mut app, tinted);
         assert!(
-            part_materials(&mut app, third, TreePartKind::Bark).is_disjoint(&part_materials(
+            part_materials(&mut app, third, TreePartKind::Bark, None).is_disjoint(&part_materials(
                 &mut app,
                 first,
-                TreePartKind::Bark
+                TreePartKind::Bark,
+                None
             ))
         );
         assert_eq!(
-            part_materials(&mut app, third, TreePartKind::Leaves),
-            part_materials(&mut app, first, TreePartKind::Leaves)
+            part_materials(&mut app, third, TreePartKind::Leaves, None),
+            part_materials(&mut app, first, TreePartKind::Leaves, None)
         );
         assert_eq!(app.world().resource::<TreeCache>().bark_materials.len(), 2);
 
@@ -1559,47 +1428,52 @@ mod tests {
         );
     }
 
+    /// The steps switch where the shared chain does for the tree's size on
+    /// screen. Without an impostor the lower mesh is drawn until the cull;
+    /// with one, the lower mesh hands over to it.
     #[test]
-    fn detail_levels_hand_over_at_their_distances() {
-        let settings = |lod| SpawnSettings {
-            texture_root: None,
-            texture_compression: TextureCompression::Bc7,
-            lod,
-            impostor: None,
-            fruit_impostor: None,
-        };
-        let default = settings(default_tree_lod());
-        let ranges: Vec<VisibilityRange> = default
-            .mesh_ranges(Quality::High, 10.0)
-            .iter()
-            .map(|r| part_range(r).unwrap())
-            .collect();
-        assert_eq!(ranges[0].start_margin, 0.0..0.0);
-        assert_eq!(ranges[0].end_margin, 9.5..10.5);
-        assert_eq!(ranges[1].start_margin, 9.5..10.5);
-        assert_eq!(ranges[1].end_margin, 23.75..26.25);
-        assert_eq!(ranges[2].start_margin, 23.75..26.25);
-        assert_eq!(ranges[2].end_margin, 47.5..52.5);
-        assert_eq!(ranges[3].start_margin, 47.5..52.5);
-        assert_eq!(ranges[3].end_margin, 1425.0..1575.0);
+    fn mesh_steps_hand_over_where_the_chain_switches() {
+        let chain = DistanceChain::DEFAULT;
+        let centre = |band: &std::ops::Range<f32>| (band.start + band.end) / 2.0;
+        let close = |a: f32, b: f32| (a - b).abs() <= b * 1e-5;
 
-        // A lower quality setting switches every level sooner.
-        let low = default.mesh_ranges(Quality::Low, 10.0);
-        let fade_in = &low[1].fade_in;
-        assert!((fade_in.start - 3.8).abs() < 1e-5 && (fade_in.end - 4.2).abs() < 1e-5);
+        let size = 10.0;
+        let factor = DistanceChain::factor(size, ViewScale::DEFAULT);
+        let [game, lower] = mesh_ranges(size, Quality::High);
+        assert_eq!(game.fade_in, 0.0..0.0);
+        assert!(close(centre(&game.fade_out), factor / chain.lower_below));
+        assert_eq!(lower.fade_in, game.fade_out);
+        assert!(close(centre(&lower.fade_out), factor / chain.cull_below));
 
-        // So does a shorter tree.
-        let short = default.mesh_ranges(Quality::High, 4.0);
-        let fade_in = &short[1].fade_in;
-        assert!((fade_in.start - 3.8).abs() < 1e-5 && (fade_in.end - 4.2).abs() < 1e-5);
+        // With the impostor, the lower mesh ends where it starts, and it
+        // ends at the cull.
+        let [chain_game, chain_lower, impostor] = chain_ranges(size, Quality::High);
+        assert_eq!(chain_game, game);
+        assert_eq!(chain_lower.fade_in, lower.fade_in);
+        assert!(close(
+            centre(&chain_lower.fade_out),
+            factor / chain.impostor_below
+        ));
+        assert_eq!(impostor.fade_in, chain_lower.fade_out);
+        assert_eq!(impostor.fade_out, lower.fade_out);
 
-        // A lone detail level with no cull distance must remain visible at
-        // every camera distance.
-        let mut one = default_tree_lod();
-        one.levels.truncate(1);
-        one.cull_distance = None;
-        let single = settings(one).mesh_ranges(Quality::High, 10.0);
-        assert!(part_range(&single[0]).is_none());
+        // A lower quality setting, and a smaller tree, switch sooner.
+        let low = mesh_ranges(size, Quality::Low);
+        assert!(centre(&low[1].fade_in) < centre(&lower.fade_in));
+        let half = mesh_ranges(size / 2.0, Quality::High);
+        assert!(close(
+            centre(&half[1].fade_in),
+            centre(&lower.fade_in) / 2.0
+        ));
+    }
+
+    /// A copy switches by its built diameter times its largest scale, in
+    /// any axis or direction.
+    #[test]
+    fn copies_switch_by_their_scaled_diameter() {
+        let transform = Transform::from_scale(Vec3::new(1.0, 2.0, -3.0));
+        assert_eq!(copy_size(4.0, &transform), 12.0);
+        assert_eq!(copy_size(4.0, &Transform::IDENTITY), 4.0);
     }
 
     #[test]

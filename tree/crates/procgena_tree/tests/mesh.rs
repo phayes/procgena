@@ -1,15 +1,15 @@
 //! Check mesh layout, detail levels, texture and lighting data, and closed bark.
 
 use glam::{Quat, Vec3};
-use procgena_core::{FarForm, LevelForm, LodLevel};
+use procgena_core::chain::LowerDetail;
 use procgena_tree::{
-    BarkUvMode, Billboard, BillboardMode, BranchShape, LOD_CULL_DISTANCE, LOD_REFERENCE_SIZE,
-    LodDetail, MeshBuffers, Section, Skeleton, TreeMesh, TreeOptions, TreePreset, default_lod,
+    BarkUvMode, Billboard, LodDetail, MeshBuffers, Section, Skeleton, TreeOptions, TreePreset,
 };
 
-/// The four levels of [`default_lod`], nearest first.
-fn default_lod_levels() -> [LodLevel<LodDetail>; 4] {
-    default_lod().levels.try_into().unwrap()
+/// The default game-level detail and its lower detail.
+fn details() -> [LodDetail; 2] {
+    let game = LodDetail::default();
+    [game, game.lower()]
 }
 
 /// No preset's nearest-level branches or leaves reach above its
@@ -36,51 +36,35 @@ fn presets_stay_below_their_height_bound() {
     }
 }
 
-/// Checks the default switching distances and branch and leaf settings.
-/// Fruit and flower defaults are covered in `tests/cluster_mesh.rs`.
+/// Checks the documented lower rule, applied to full detail and to a game
+/// level that is already coarser. Fruit and flower cluster settings are
+/// covered in `tests/clusters.rs`.
 #[test]
-fn default_lod_levels_have_the_documented_settings() {
-    let lod = default_lod();
-    lod.validate().unwrap();
-    assert_eq!(lod.reference_size, LOD_REFERENCE_SIZE);
-    assert_eq!(lod.cull_distance, Some(LOD_CULL_DISTANCE));
-    let levels = default_lod_levels();
-    assert_eq!(levels.map(|l| l.distance), [0.0, 10.0, 25.0, 50.0]);
-    assert_eq!(levels.map(|l| l.hysteresis), [0.0, 0.05, 0.05, 0.05]);
-    assert_eq!(
-        levels.map(|l| l.form),
-        [
-            LevelForm::Mesh,
-            LevelForm::Mesh,
-            LevelForm::Mesh,
-            LevelForm::Far(FarForm::BillboardLeaves)
-        ]
-    );
-    assert!(levels.iter().all(|l| l.casts_shadows));
-    assert_eq!(levels[0].detail, LodDetail::default());
+fn the_lower_detail_follows_the_documented_rule() {
+    let [game, lower] = details();
+    assert!(game.closed);
+    assert_eq!(game.billboard, None);
+    assert!(!game.lower_clusters);
 
-    let [_, near, far, farthest] = levels.map(|l| l.detail);
-    let bark = |d: LodDetail| (d.section_stride, d.segment_factor, d.branch_shape);
-    assert_eq!(bark(near), (3, 0.75, BranchShape::Tube));
-    assert_eq!(bark(far), (6, 0.4, BranchShape::Tube));
-    assert_eq!(bark(farthest), (8, 1.0, BranchShape::Ribbons));
-    // Only the gameplay levels, LOD0 and LOD1, close their bark.
-    assert_eq!(levels.map(|l| l.detail.closed), [true, true, false, false]);
-    assert_eq!(
-        levels.map(|l| l.detail.min_branch_radius),
-        [0.0, 0.0, 0.0, 0.015]
-    );
-
+    let bark = |d: LodDetail| (d.section_stride, d.segment_factor, d.closed);
+    assert_eq!(bark(lower), (3, 0.5, false));
+    assert_eq!(lower.min_branch_radius, game.min_branch_radius);
     let leaves = |d: LodDetail| (d.leaf_stride, d.leaf_scale, d.billboard);
-    assert_eq!(leaves(near), (2, 1.25, None));
-    assert_eq!(leaves(far), (2, 1.3, Some(Billboard::Single)));
-    assert_eq!(leaves(farthest), (4, 1.8, Some(Billboard::Single)));
-    // Camera-facing leaf rotation is enabled only for LOD3.
-    for detail in [near, far] {
-        assert_eq!(detail.leaf_billboard, None);
-    }
-    assert_eq!(farthest.leaf_billboard, Some(BillboardMode::Camera));
-    assert_eq!(farthest.leaf_billboard_scale, 1.25);
+    assert_eq!(leaves(lower), (2, 1.3, Some(Billboard::Single)));
+    let clusters = |d: LodDetail| (d.cluster_stride, d.cluster_scale, d.lower_clusters);
+    assert_eq!(clusters(lower), (2, 1.12, true));
+
+    // The rule multiplies a coarser game level's own settings.
+    let coarse = LodDetail {
+        section_stride: 2,
+        segment_factor: 0.8,
+        leaf_stride: 3,
+        leaf_scale: 1.2,
+        ..LodDetail::default()
+    };
+    let lower = coarse.lower();
+    assert_eq!(bark(lower), (6, 0.4, false));
+    assert_eq!((lower.leaf_stride, lower.leaf_scale), (6, 1.2 * 1.3));
 }
 
 /// Checks that spans cover every buffer entry exactly once and identify the source geometry.
@@ -88,19 +72,13 @@ fn default_lod_levels_have_the_documented_settings() {
 fn spans_cover_the_buffers() {
     let options = TreeOptions::default();
     let skeleton = Skeleton::generate(&options).unwrap();
-    let levels = default_lod_levels().into_iter().flat_map(|level| {
-        [true, false].map(|closed| LodLevel {
-            detail: LodDetail {
-                closed,
-                ..level.detail
-            },
-            ..level
-        })
-    });
-    for level in levels {
-        let mesh = skeleton.mesh(&options, &level.detail);
-        let stride = level.detail.leaf_stride as usize;
-        let capped = level.detail.closed && level.detail.branch_shape == BranchShape::Tube;
+    let levels = details()
+        .into_iter()
+        .flat_map(|detail| [true, false].map(|closed| LodDetail { closed, ..detail }));
+    for detail in levels {
+        let mesh = skeleton.mesh(&options, &detail);
+        let stride = detail.leaf_stride as usize;
+        let capped = detail.closed;
 
         // Branch spans must cover the vertex and index buffers in order, without gaps or overlap.
         assert_eq!(mesh.branch_spans.len(), skeleton.branches.len());
@@ -109,11 +87,10 @@ fn spans_cover_the_buffers() {
             assert_eq!(span.branch, i);
             assert_eq!(span.level, skeleton.branches[i].level);
             assert_eq!((span.vertices.start, span.indices.start), (vertex, index));
-            assert_eq!(span.shape, level.detail.branch_shape);
 
             // Omitted thin branches keep empty spans; the trunk is never omitted.
             let branch = &skeleton.branches[i];
-            if branch.level > 0 && branch.base_radius < level.detail.min_branch_radius {
+            if branch.level > 0 && branch.base_radius < detail.min_branch_radius {
                 assert!(span.sections.is_empty());
                 assert!(span.vertices.is_empty() && span.indices.is_empty());
                 continue;
@@ -289,9 +266,9 @@ fn default_tree(uv_mode: BarkUvMode) -> (TreeOptions, Skeleton) {
 fn continuous_uvs_change_only_v() {
     let (mirrored_options, skeleton) = default_tree(BarkUvMode::Mirrored);
     let (continuous_options, _) = default_tree(BarkUvMode::Continuous);
-    for level in default_lod_levels() {
-        let mirrored = skeleton.mesh(&mirrored_options, &level.detail);
-        let continuous = skeleton.mesh(&continuous_options, &level.detail);
+    for detail in details() {
+        let mirrored = skeleton.mesh(&mirrored_options, &detail);
+        let continuous = skeleton.mesh(&continuous_options, &detail);
         assert_eq!(continuous.leaves, mirrored.leaves);
         assert_eq!(continuous.branch_spans, mirrored.branch_spans);
         let (a, b) = (&continuous.branches, &mirrored.branches);
@@ -337,25 +314,17 @@ fn rounded_leaf_normals_are_unit_at_size_two() {
 
 /// Checks the lighting directions used by bark and leaf normal maps: tangents
 /// are unit length and perpendicular to normals, with handedness +1 or -1.
-/// Camera-facing buffers must omit both normals and tangents.
+/// Checks this on both meshes of every preset.
 #[test]
 fn bark_and_leaf_tangents_are_unit_and_perpendicular() {
     for preset in TreePreset::all() {
         let mut options = preset.tree.clone();
         options.bark.uv_mode = BarkUvMode::Continuous;
         let skeleton = Skeleton::generate(&options).unwrap();
-        for level in default_lod_levels() {
-            let mesh = skeleton.mesh(&options, &level.detail);
+        for detail in details() {
+            let mesh = skeleton.mesh(&options, &detail);
             for buffers in [&mesh.branches, &mesh.leaves] {
-                if !buffers.billboard.is_empty() {
-                    // Billboard bark has no normals; billboard leaves keep one per card.
-                    assert_eq!(buffers.billboard.len(), buffers.vertex_count());
-                    assert!(buffers.tangents.is_empty());
-                    let leaves = std::ptr::eq(buffers, &mesh.leaves);
-                    let expected = if leaves { buffers.vertex_count() } else { 0 };
-                    assert_eq!(buffers.normals.len(), expected);
-                    continue;
-                }
+                assert_eq!(buffers.normals.len(), buffers.vertex_count());
                 assert_eq!(buffers.tangents.len(), buffers.vertex_count());
                 for (t, n) in buffers.tangents.iter().zip(&buffers.normals) {
                     let xyz = Vec3::new(t[0], t[1], t[2]);
@@ -435,22 +404,23 @@ fn bark_tangents_follow_the_texture_coordinates() {
     }
 }
 
-/// Checks every preset at the farthest level: thin branches are omitted, the
-/// trunk and every fourth leaf remain, the crossed fallback shapes match the
-/// shapes they stand in for, and the triangles drawn fall by more than half.
+/// Checks every preset's lower mesh: thin branches are omitted, the trunk and
+/// every second leaf remain, and it has less than half the game level's
+/// triangles.
 #[test]
-fn farthest_level_culls_thin_branches_and_keeps_leaves() {
-    let [.., far, farthest] = default_lod_levels();
+fn the_lower_mesh_keeps_the_trunk_and_halves_the_triangles() {
     for preset in TreePreset::all() {
         let options = preset.tree.clone();
         let skeleton = Skeleton::generate(&options).unwrap();
-        let mesh = skeleton.mesh(&options, &farthest.detail);
+        let game = options.game_level;
+        let lower = game.lower();
+        let mesh = skeleton.mesh(&options, &lower);
         let name = &preset.name;
 
         // Keep the trunk and omit exactly those other branches below the radius threshold.
         assert!(!mesh.branch_spans[0].indices.is_empty(), "{name}");
         for (span, branch) in mesh.branch_spans.iter().zip(&skeleton.branches) {
-            let thin = branch.level > 0 && branch.base_radius < farthest.detail.min_branch_radius;
+            let thin = branch.level > 0 && branch.base_radius < lower.min_branch_radius;
             assert_eq!(
                 span.indices.is_empty(),
                 thin,
@@ -460,27 +430,11 @@ fn farthest_level_culls_thin_branches_and_keeps_leaves() {
         }
 
         // Branch removal must not reduce the number of leaves selected by leaf_stride.
-        let kept = kept_leaves(&skeleton, farthest.detail.leaf_stride as usize);
+        let kept = kept_leaves(&skeleton, lower.leaf_stride as usize);
         assert_eq!(mesh.leaf_spans.len(), kept.len(), "{name}");
 
-        // The crossed fallback shapes pair each bark ribbon one to one. Single
-        // leaf cards need none.
-        let cull = &mesh.billboard_cull;
-        let triangles = |buffers: &MeshBuffers| buffers.triangle_count();
-        assert_eq!(
-            triangles(&cull.branches),
-            triangles(&mesh.branches),
-            "{name}"
-        );
-        assert_eq!(triangles(&cull.leaves), 0, "{name}");
-
-        // Compare what a renderer that turns billboards toward the camera,
-        // such as procgena_tree_bevy, draws. It never draws the crossed
-        // fallback shapes, which only renderers without camera-facing
-        // billboards add.
-        let drawn = |mesh: &TreeMesh| mesh.triangle_count() - mesh.billboard_cull.triangle_count();
-        let before = drawn(&skeleton.mesh(&options, &far.detail));
-        let after = drawn(&mesh);
+        let before = skeleton.mesh(&options, &game).triangle_count();
+        let after = mesh.triangle_count();
         assert!(after * 2 < before, "{name}: {after} vs {before} triangles");
     }
 }
@@ -570,11 +524,16 @@ fn shell_volumes(bark: &MeshBuffers, triangles: &[[u32; 3]]) -> Vec<f64> {
 }
 
 /// Checks that closed bark is watertight and outward-facing for every preset
-/// at the gameplay levels (LOD0, LOD1, and a similar level with thin branches
-/// omitted).
+/// at full detail, at a coarser game level, and at a similar level with thin
+/// branches omitted.
 #[test]
 fn closed_bark_is_watertight_and_faces_outward() {
-    let [full, near, ..] = default_lod_levels().map(|l| l.detail);
+    let full = LodDetail::default();
+    let near = LodDetail {
+        section_stride: 3,
+        segment_factor: 0.75,
+        ..LodDetail::default()
+    };
     let thinned = LodDetail {
         section_stride: 2,
         segment_factor: 0.6,

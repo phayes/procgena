@@ -5,7 +5,7 @@
 use glam::Vec3;
 use procgena_tree::export::obj::{ObjOptions, to_obj};
 use procgena_tree::export::{TextureMap, TextureRef};
-use procgena_tree::{BranchGrouping, LodDetail, MeshPart, Tree, TreePreset, default_lod};
+use procgena_tree::{BranchGrouping, LodDetail, MeshPart, Tree, TreePreset};
 
 /// Counts lines whose first space-separated field equals `prefix`.
 fn count(text: &str, prefix: &str) -> usize {
@@ -48,46 +48,20 @@ fn obj_contains_every_vertex_and_triangle() {
     }
 }
 
-/// Checks that OBJ writes fixed billboard bark without normals, keeps the leaf
-/// cards' normals, and names crossed fallback objects with the `_billboard_cull`
-/// suffix.
+/// Checks that the lower mesh exports as the same objects as the game level,
+/// with every vertex, normal and triangle written once.
 #[test]
-fn billboard_parts_keep_their_stored_shapes() {
+fn the_lower_mesh_exports_the_same_objects() {
     let tree = Tree::from_preset(TreePreset::oak_small()).unwrap();
-    let mesh = tree.mesh_with_detail(&default_lod().levels[3].detail);
+    let mesh = tree.lower_mesh();
     let obj = to_obj(&mesh, tree.options(), &ObjOptions::default()).obj;
 
-    // Include fallback ribbon vertices in the export count; only leaves have normals.
     assert_eq!(count(&obj, "v"), mesh.vertex_count());
-    assert_eq!(count(&obj, "vn"), mesh.leaves.normals.len());
+    let normals = mesh.branches.normals.len() + mesh.leaves.normals.len();
+    assert_eq!(count(&obj, "vn"), normals);
     assert_eq!(count(&obj, "f"), mesh.triangle_count());
     let objects: Vec<&str> = obj.lines().filter_map(|l| l.strip_prefix("o ")).collect();
-    assert_eq!(
-        objects,
-        [
-            "trunk",
-            "trunk_billboard_cull",
-            "branches",
-            "branches_billboard_cull",
-            "leaves"
-        ]
-    );
-    // Bark faces have no normal index; leaf faces do.
-    let mut object = "";
-    for line in obj.lines() {
-        if let Some(name) = line.strip_prefix("o ") {
-            object = name;
-        }
-        let Some(corners) = line.strip_prefix("f ") else {
-            continue;
-        };
-        for corner in corners.split(' ') {
-            let parts: Vec<usize> = corner.split('/').map(|p| p.parse().unwrap()).collect();
-            let expected = if object == "leaves" { 3 } else { 2 };
-            assert_eq!(parts.len(), expected, "{object} {corner}");
-            assert_eq!(parts[0], parts[1], "{corner}");
-        }
-    }
+    assert_eq!(objects, ["trunk", "branches", "leaves"]);
 }
 
 #[test]

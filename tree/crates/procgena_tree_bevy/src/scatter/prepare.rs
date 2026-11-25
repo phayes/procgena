@@ -204,20 +204,18 @@ pub(crate) fn track_preparing(
 }
 
 /// How many of a tree's preparation steps are done: generating it, and
-/// baking its impostor when impostors are on. A rejected tree, or one
-/// without the level impostors are baked from, has nothing left to do.
+/// baking its impostor when impostors are on. A rejected tree has nothing
+/// left to do.
 fn steps_done(key: TreeKey, settings: &SpawnSettings, cache: &TreeCache) -> usize {
-    let generated = match cache.state(key) {
+    let ready = match cache.state(key) {
         CacheState::Pending => return 0,
-        CacheState::Failed => None,
-        CacheState::Ready(generated) => Some(generated),
+        CacheState::Failed => false,
+        CacheState::Ready(_) => true,
     };
-    let Some(impostor) = settings.impostor else {
+    if settings.impostor.is_none() {
         return 1;
-    };
-    let baked = generated.is_none_or(|generated| {
-        impostor.baked_level >= generated.level_count() || cache.impostor(key).is_some()
-    });
+    }
+    let baked = !ready || cache.impostor(key).is_some();
     1 + usize::from(baked)
 }
 

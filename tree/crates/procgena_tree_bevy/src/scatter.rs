@@ -23,10 +23,11 @@ use bevy::camera::primitives::Aabb;
 use bevy::math::DVec2;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
+use procgena_core::chain::{Lod, Step};
 use procgena_specimen::{GeneratedSpecimen, Specimen, TagFilter};
 use procgena_tree::{
-    CopyAddress, FlatGround, Ground, HeightGrid, ScatterArea, ScatterInput, TreeCopy, TreeOptions,
-    TreeScatter, TreeScatterError, TreeScatterPlacement, TreeScatterPreset,
+    CopyAddress, FlatGround, Ground, HeightGrid, LodDetail, ScatterArea, ScatterInput, TreeCopy,
+    TreeOptions, TreeScatter, TreeScatterError, TreeScatterPlacement, TreeScatterPreset,
 };
 
 use crate::clusters::TreeClusters;
@@ -243,7 +244,7 @@ pub struct TreeScatterVariant {
     key: TreeKey,
     generated: Option<Arc<Generated>>,
     failed: bool,
-    /// The impostor drawn beyond the farthest level, once baked.
+    /// The impostor drawn when the tree is small on screen, once baked.
     impostor: Option<TreeImpostorAssets>,
 }
 
@@ -269,10 +270,12 @@ impl TreeScatterVariant {
         self.generated.is_some()
     }
 
-    /// How tall the variant's tree is before it is scaled, in metres, once
-    /// generated: the top of its nearest level's bark and leaves.
-    pub(crate) fn height(&self) -> Option<f32> {
-        self.generated.as_ref().map(|g| g.height())
+    /// The variant's tree's size before it is scaled, in metres, once
+    /// generated: the bounding-sphere diameter of its game-level mesh. Each
+    /// tree's drawing steps switch by this times its largest scale (see
+    /// [`procgena_core::chain`]).
+    pub fn diameter(&self) -> Option<f32> {
+        self.generated.as_ref().map(|g| g.diameter())
     }
 
     /// The variant's tree as a tagged specimen, in the tree's own coordinates,
@@ -281,14 +284,14 @@ impl TreeScatterVariant {
         self.generated.as_ref().map(|g| &g.specimen)
     }
 
-    /// The parts each detail level draws, nearest level first; empty until
-    /// the variant is ready.
+    /// The parts of the variant's game-level mesh, then of its lower mesh;
+    /// empty until the variant is ready.
     pub fn parts(&self) -> impl Iterator<Item = TreeScatterPart<'_>> {
         self.generated.iter().flat_map(|generated| {
             generated
                 .parts()
-                .map(|(lod, kind, mesh, material)| TreeScatterPart {
-                    lod,
+                .map(|(step, kind, mesh, material)| TreeScatterPart {
+                    step,
                     kind,
                     mesh: &mesh.mesh,
                     material,
@@ -297,15 +300,17 @@ impl TreeScatterVariant {
         })
     }
 
-    /// The variant's fruit and flower clusters; empty until the variant is
-    /// ready.
-    pub(crate) fn clusters(&self) -> &[TreeClusters] {
-        self.generated.as_ref().map_or(&[], |g| &g.clusters)
+    /// The variant's fruit and flower clusters, with the details its two
+    /// meshes are built at, which choose the clusters each one shows;
+    /// `None` until the variant is ready.
+    pub(crate) fn clusters(&self) -> Option<(&[TreeClusters], &Lod<LodDetail>)> {
+        self.generated
+            .as_ref()
+            .map(|g| (g.clusters.as_slice(), &g.lod))
     }
 
-    /// Whether the variant is drawn as an impostor far away. Until its
-    /// impostor is baked, its farthest level is drawn at every distance
-    /// beyond.
+    /// Whether the variant is drawn as an impostor when small on screen.
+    /// Until its impostor is baked, its lower mesh is drawn until the cull.
     pub fn has_impostor(&self) -> bool {
         self.impostor.is_some()
     }
@@ -356,39 +361,40 @@ impl fmt::Debug for TreeScatterVariant {
     }
 }
 
-/// One mesh a grove variant draws at one detail level.
+/// One mesh a grove variant draws at one mesh step.
 #[derive(Debug, Clone, Copy)]
 pub struct TreeScatterPart<'a> {
-    /// The detail level, from 0 for the nearest.
-    pub lod: usize,
+    /// The step: [`Step::Game`] or [`Step::Lower`].
+    pub step: Step,
     /// What the mesh is.
     pub kind: TreePartKind,
     /// The mesh, in the tree's own coordinates.
     pub mesh: &'a Handle<Mesh>,
     /// Its material.
     pub material: &'a Handle<TreeMaterial>,
-    /// Bounds of the mesh as drawn, in the tree's own coordinates, including
-    /// every way a camera-facing shape can turn. Wind sway is not included.
+    /// Bounds of the mesh, in the tree's own coordinates. Wind sway is not
+    /// included.
     pub bounds: Aabb,
 }
 
 /// How much a grove draws: its tree count, and the vertices and triangles
-/// of all its trees at each detail level. The plugin adds it when the grove
+/// of all its trees at each mesh step. The plugin adds it when the grove
 /// finishes building, before [`TreeScatterFinished`].
 #[derive(Component, Debug, Clone, Default, PartialEq)]
 pub struct TreeScatterStats {
     /// Trees in the grove, including any whose variant failed to generate.
     pub trees: usize,
-    /// Sizes of every drawable tree at each detail level, nearest first.
-    pub levels: Vec<TreeScatterLevelSize>,
+    /// Sizes of every drawable tree's game-level mesh, then of its lower
+    /// mesh, by [`Step::index`].
+    pub levels: [TreeScatterLevelSize; 2],
 }
 
-/// The size of a grove's trees at one detail level.
+/// The size of a grove's trees at one mesh step.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TreeScatterLevelSize {
-    /// Vertices of every tree at this level.
+    /// Vertices of every tree at this step.
     pub vertices: usize,
-    /// Triangles of every tree at this level.
+    /// Triangles of every tree at this step.
     pub triangles: usize,
 }
 
@@ -909,7 +915,7 @@ pub(crate) fn finish_groves(
 }
 
 /// Counts the trees of a grove and the vertices and triangles they draw at
-/// each detail level.
+/// each mesh step.
 fn grove_stats(
     instances: &TreeScatterInstances,
     assets: &TreeScatterAssets,
@@ -919,16 +925,13 @@ fn grove_stats(
     for tree in instances.trees() {
         counts[tree.slot as usize] += 1;
     }
-    let mut levels: Vec<TreeScatterLevelSize> = Vec::new();
+    let mut levels = [TreeScatterLevelSize::default(); 2];
     for (variant, count) in assets.variants.iter().zip(counts) {
         for part in variant.parts() {
             let Some(mesh) = meshes.get(part.mesh) else {
                 continue;
             };
-            if levels.len() <= part.lod {
-                levels.resize(part.lod + 1, TreeScatterLevelSize::default());
-            }
-            let level = &mut levels[part.lod];
+            let level = &mut levels[part.step.index()];
             level.vertices += count * mesh.count_vertices();
             level.triangles += count * mesh.indices().map_or(0, |i| i.len() / 3);
         }
@@ -971,23 +974,19 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use procgena_core::CellId;
-    use procgena_core::{Lod, LodLevel};
     use procgena_core_bevy::LodQuality;
     use procgena_core_bevy::instanced::{InstancedAttached, InstancedScatter, SpecimenCache};
     use procgena_specimen::{Part, SurfaceMesh, tags};
-    use procgena_tree::{
-        AddressPrefix, LOD_REFERENCE_SIZE, LodDetail, ScatterTree, TextureCompression, TextureSize,
-        TreePreset,
-    };
+    use procgena_tree::{AddressPrefix, ScatterTree, TextureCompression, TreePreset};
 
     use super::*;
     use bevy::camera::visibility::VisibilityRange;
     use bevy::mesh::MeshTag;
 
     use crate::spawn::{
-        BarkTexture, LeafTexture, SpawnSettings, TreeGenerating, TreeLevel, TreeParams, TreePart,
-        TreePartKind, TreePresetAsset, finish_generation, part_range, prune_cache,
-        reset_changed_trees, spawn_parts, start_generation,
+        SpawnSettings, TreeGenerating, TreeParams, TreePart, TreePartKind, TreePresetAsset,
+        finish_generation, mesh_ranges, part_range, prune_cache, reset_changed_trees, spawn_parts,
+        start_generation,
     };
     use crate::wind::Wind;
 
@@ -995,8 +994,8 @@ mod tests {
     #[derive(Resource, Default)]
     struct Finished(Vec<Result<(), TreeScatterBuildError>>);
 
-    /// An app with one full-detail level and the grove and tree systems in
-    /// the plugin's order, without rendering or loading textures.
+    /// An app with the grove and tree systems in the plugin's order and no
+    /// impostors, without rendering or loading textures.
     fn grove_app() -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, AssetPlugin::default()))
@@ -1013,18 +1012,6 @@ mod tests {
             .insert_resource(SpawnSettings {
                 texture_root: None,
                 texture_compression: TextureCompression::Bc7,
-                lod: Lod::new(
-                    LOD_REFERENCE_SIZE,
-                    vec![LodLevel::new(
-                        0.0,
-                        0.0,
-                        TreeLevel {
-                            detail: LodDetail::default(),
-                            bark: BarkTexture::Textured(TextureSize::Size1k),
-                            leaves: LeafTexture::Leaf,
-                        },
-                    )],
-                ),
                 impostor: None,
                 fruit_impostor: None,
             })
@@ -1180,20 +1167,25 @@ mod tests {
             );
         }
 
-        // The stats count every tree's vertices at the single detail level.
+        // The stats count every tree's vertices at each mesh step, fewer
+        // for the lower mesh.
         let stats = app.world().get::<TreeScatterStats>(entity).unwrap();
         assert_eq!(stats.trees, drawn.len());
-        assert_eq!(stats.levels.len(), 1);
         let meshes = app.world().resource::<Assets<Mesh>>();
         let instances = app.world().get::<TreeScatterInstances>(entity).unwrap();
-        let vertices: usize = instances
-            .trees()
-            .iter()
-            .flat_map(|tree| assets.of(tree).parts())
-            .map(|part| meshes.get(part.mesh).unwrap().count_vertices())
-            .sum();
-        assert_eq!(stats.levels[0].vertices, vertices);
-        assert!(stats.levels[0].triangles > 0);
+        for step in [Step::Game, Step::Lower] {
+            let vertices: usize = instances
+                .trees()
+                .iter()
+                .flat_map(|tree| assets.of(tree).parts())
+                .filter(|part| part.step == step)
+                .map(|part| meshes.get(part.mesh).unwrap().count_vertices())
+                .sum();
+            let level = &stats.levels[step.index()];
+            assert_eq!(level.vertices, vertices, "{step:?}");
+            assert!(level.triangles > 0, "{step:?}");
+        }
+        assert!(stats.levels[1].triangles < stats.levels[0].triangles);
     }
 
     #[test]
@@ -1658,10 +1650,14 @@ mod tests {
             .unwrap()
             .default_slots as usize;
         assert_eq!(drawn.slots.len(), variants + fruit_slots);
+        // Each row is drawn on the tree's game-level mesh or its lower
+        // mesh, never on its impostor.
         for table in rows.tables.iter() {
             assert!(!table.is_empty(), "every variant bears fruit");
+            assert!(table.iter().any(|row| row.host_levels == 0b01));
             assert!(table.iter().all(|row| {
-                (variants..drawn.slots.len()).contains(&(row.slot as usize)) && row.host_levels == 1
+                (variants..drawn.slots.len()).contains(&(row.slot as usize))
+                    && matches!(row.host_levels, 0b01 | 0b10)
             }));
         }
         for slot in &drawn.slots[variants..] {
@@ -1693,12 +1689,6 @@ mod tests {
         assert!(Arc::ptr_eq(&before.copies, &idle.copies));
         assert!(Arc::ptr_eq(&before.slots, &idle.slots));
 
-        // A cull distance gives the promoted tree's single level a range,
-        // which depends on the tree's size.
-        app.world_mut()
-            .resource_mut::<SpawnSettings>()
-            .lod
-            .cull_distance = Some(100.0);
         let promoted = app
             .world_mut()
             .spawn((PromotedTree::new(grove, tree.address), Collider))
@@ -1719,19 +1709,18 @@ mod tests {
         assert!(!entity.contains::<TreeGenerating>());
         assert!(has_parts(&app, promoted));
 
-        // The grove copy's size is its variant's height times its scale.
+        // The grove copy's size is its variant's diameter times its scale.
         let instances = app.world().get::<TreeScatterInstances>(grove).unwrap();
         let copy = before.copies[instances.index_of(&tree.address).unwrap() as usize];
-        let height = assets.of(&tree).height().unwrap();
+        let diameter = assets.of(&tree).diameter().unwrap();
         let scale = tree.transform.scale.max_element();
-        assert!((copy.size - height * scale).abs() < 1e-5);
+        assert!((copy.size - diameter * scale).abs() < 1e-5);
         assert!(copy.wind_phase > 0.0);
 
-        // Its parts sway with the copy's wind phase and end at the copy's
-        // cull distance, so promotion changes nothing on screen.
-        let settings = app.world().resource::<SpawnSettings>();
+        // Its parts sway with the copy's wind phase and switch where the
+        // copy's do, so promotion changes nothing on screen.
         let quality = app.world().resource::<LodQuality>().0;
-        let nearest = part_range(&settings.mesh_ranges(quality, copy.size)[0]).unwrap();
+        let nearest = part_range(&mesh_ranges(copy.size, quality)[0]).unwrap();
         let mut checked = 0;
         for child in app.world().get::<Children>(promoted).unwrap() {
             let child = app.world().entity(*child);
@@ -1743,7 +1732,7 @@ mod tests {
             }
             let tag = child.get::<MeshTag>().unwrap();
             assert_eq!(tag.value, copy.wind_phase.to_bits());
-            if part.lod == 0 {
+            if part.step == Step::Game {
                 let range = child.get::<VisibilityRange>().unwrap();
                 assert_eq!(range.end_margin, nearest.end_margin);
             }

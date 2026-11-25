@@ -9,7 +9,7 @@ use procgena_tree::export::gltf::{
 use procgena_tree::export::obj::ObjOptions;
 use procgena_tree::export::{TextureMap, TextureRef};
 use procgena_tree::{
-    BarkMaterial, OptionsError, RigError, RigOptions, TextureSize, Tree, TreeOptions, default_lod,
+    BarkMaterial, OptionsError, RigError, RigOptions, TextureSize, Tree, TreeOptions,
     leaf_has_normal_map,
 };
 
@@ -19,8 +19,8 @@ pub struct ModelSettings {
     /// Bark image resolution, or `None` to export colours without texture images.
     /// Leaf images use the fixed resolution available for each leaf type.
     pub textures: Option<TextureSize>,
-    /// GLB only: include two simpler versions alongside the full-detail tree.
-    /// These can be used at a distance; the receiving tool must configure switching.
+    /// GLB only: include the lower mesh alongside the game-level mesh, for
+    /// use at a distance; the receiving tool must configure switching.
     pub detail_levels: bool,
     /// GLB only: include a rig (joints used to animate bark and leaves).
     /// No animation clips are included; fruit and flowers remain fixed.
@@ -28,7 +28,7 @@ pub struct ModelSettings {
 }
 
 impl Default for ModelSettings {
-    /// Uses 1k bark images and includes all detail levels and animation joints.
+    /// Uses 1k bark images and includes the lower mesh and animation joints.
     fn default() -> Self {
         Self {
             textures: Some(TextureSize::Size1k),
@@ -105,12 +105,9 @@ pub fn glb(
 ) -> Result<Vec<u8>, ExportError> {
     let tree = Tree::new(options.clone()).map_err(ExportError::Tree)?;
 
-    // Include the full-detail tree first, followed by simpler versions if requested.
+    // Include the game-level mesh first, followed by the lower mesh if requested.
     let meshes = if settings.detail_levels {
-        tree.lod_meshes(&default_lod().levels)
-            .into_iter()
-            .map(|(_, mesh)| mesh)
-            .collect()
+        vec![tree.mesh().clone(), tree.lower_mesh()]
     } else {
         vec![tree.mesh().clone()]
     };

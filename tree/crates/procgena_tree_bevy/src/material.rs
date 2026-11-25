@@ -17,12 +17,10 @@ use procgena_tree::procgena_fruit::FruitMaterial;
 use procgena_tree::{
     BarkMap, BarkMaterial, BarkOptions, BarkUvMode, LeafMap, LeafMaterial, LeafOptions,
     TextureCompression, TextureSize, TrellisMaterial, TrellisOptions, WindParams,
-    bark_average_color, bark_texture_path, leaf_has_normal_map, leaf_texture_path,
+    bark_texture_path, leaf_has_normal_map, leaf_texture_path,
 };
 
-use crate::mesh::{
-    ATTRIBUTE_BILLBOARD_AXIS, ATTRIBUTE_BILLBOARD_NORMAL, ATTRIBUTE_BILLBOARD_PIVOT, ATTRIBUTE_WIND,
-};
+use crate::mesh::ATTRIBUTE_WIND;
 
 /// Vertex shader for drawing wind-animated trees in the main render pass.
 pub(crate) const TREE_SHADER: &str = "embedded://procgena_tree_bevy/shaders/tree.wesl";
@@ -32,20 +30,12 @@ pub(crate) const TREE_PREPASS_SHADER: &str =
 
 /// Input slot for [`ATTRIBUTE_WIND`], after Bevy's vertex attribute slots 0–7.
 const WIND_LOCATION: u32 = 8;
-/// Shader input location for the billboard pivot and horizontal offset.
-const BILLBOARD_PIVOT_LOCATION: u32 = 9;
-/// Shader input location for the billboard axis and vertical offset.
-const BILLBOARD_AXIS_LOCATION: u32 = 10;
-/// Shader input location for the optional billboard lighting normal.
-const BILLBOARD_NORMAL_LOCATION: u32 = 11;
 
-/// A [`StandardMaterial`] with tree wind animation and optional billboard rotation.
+/// A [`StandardMaterial`] with tree wind animation.
 ///
 /// Use meshes from [`bark_mesh`](crate::bark_mesh), [`leaf_mesh`](crate::leaf_mesh)
 /// or [`cluster_mesh`](crate::cluster_mesh), or supply [`ATTRIBUTE_WIND`] yourself.
-/// Meshes with both [`ATTRIBUTE_BILLBOARD_PIVOT`] and [`ATTRIBUTE_BILLBOARD_AXIS`]
-/// face the current render view: the camera for visible geometry and the light
-/// for shadows. Skinning (joint animation) and morph targets are not supported.
+/// Skinning (joint animation) and morph targets are not supported.
 pub type TreeMaterial = ExtendedMaterial<StandardMaterial, WindExtension>;
 
 /// Adds wind animation to a [`TreeMaterial`].
@@ -176,34 +166,6 @@ impl MaterialExtension for WindExtension {
         descriptor.vertex.buffers[0]
             .attributes
             .extend(wind.attributes);
-
-        // Enable billboard rotation for mesh layouts containing the rotation attributes.
-        let layout = &layout.0;
-        if layout.contains(ATTRIBUTE_BILLBOARD_PIVOT) && layout.contains(ATTRIBUTE_BILLBOARD_AXIS) {
-            let billboard = layout.get_layout(&[
-                ATTRIBUTE_BILLBOARD_PIVOT.at_shader_location(BILLBOARD_PIVOT_LOCATION),
-                ATTRIBUTE_BILLBOARD_AXIS.at_shader_location(BILLBOARD_AXIS_LOCATION),
-            ])?;
-            descriptor.vertex.buffers[0]
-                .attributes
-                .extend(billboard.attributes);
-            descriptor.vertex.shader_defs.push("BILLBOARD".into());
-
-            // Light shapes that carry their own normal with it.
-            if layout.contains(ATTRIBUTE_BILLBOARD_NORMAL) {
-                let normal =
-                    layout
-                        .get_layout(&[ATTRIBUTE_BILLBOARD_NORMAL
-                            .at_shader_location(BILLBOARD_NORMAL_LOCATION)])?;
-                descriptor.vertex.buffers[0]
-                    .attributes
-                    .extend(normal.attributes);
-                descriptor
-                    .vertex
-                    .shader_defs
-                    .push("BILLBOARD_NORMAL".into());
-            }
-        }
         Ok(())
     }
 }
@@ -282,26 +244,10 @@ impl LeafTextures {
             normal: leaf_has_normal_map(kind).then(|| load(LeafMap::Normal)),
         }
     }
-
-    /// Starts loading [`LeafMap::Clump`], an image of several leaves for a single
-    /// flat leaf card. Use it with fewer, larger cards for distant trees.
-    /// Returns a colour handle with no normal map. Pass the same texture root,
-    /// leaf kind and compression format as for [`Self::load`]; loading is asynchronous.
-    pub fn load_clump(
-        asset_server: &AssetServer,
-        root: &str,
-        kind: &str,
-        compression: TextureCompression,
-    ) -> Self {
-        Self {
-            color: load_leaf_map(asset_server, root, kind, LeafMap::Clump, compression),
-            normal: None,
-        }
-    }
 }
 
-/// Starts loading one leaf image under `root`, using sRGB for colour and clump
-/// images and linear data for normal maps.
+/// Starts loading one leaf image under `root`, using sRGB for colour images
+/// and linear data for normal maps.
 fn load_leaf_map(
     asset_server: &AssetServer,
     root: &str,
@@ -373,45 +319,12 @@ pub fn bark_material(
     }
 }
 
-/// Creates a bark material with a single colour and the supplied initial wind settings.
-/// No texture files are needed.
-///
-/// If [`BarkOptions::textured`] is enabled and the bark kind is in
-/// [`procgena_tree::BARK_KINDS`], the colour combines the bark tint with
-/// [`bark_average_color`], approximating textured bark viewed from a distance.
-/// Otherwise, the material uses the tint alone.
-/// [`TreePlugin`](crate::TreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).
-pub fn average_bark_material(bark: &BarkOptions, wind: WindParams) -> TreeMaterial {
-    let settings = BarkMaterial::new(bark);
-    let average = bark_average_color(&bark.kind).filter(|_| settings.textured);
-    let [r, g, b] = match average {
-        Some(average) => std::array::from_fn(|i| settings.base_color[i] * average[i]),
-        None => settings.base_color,
-    };
-    let base = StandardMaterial {
-        base_color: Color::linear_rgb(r, g, b),
-        metallic: settings.metallic,
-        perceptual_roughness: settings.roughness,
-        ..default()
-    };
-    TreeMaterial {
-        base,
-        extension: WindExtension {
-            wind: wind.into(),
-            bake: BakeOutput::None,
-        },
-    }
-}
-
 /// Creates a two-sided leaf material with the supplied appearance and initial wind.
 ///
 /// Pass textures matching [`LeafOptions::kind`]. The colour image’s alpha and
 /// [`LeafOptions::alpha_test`] define the cutout outline; without an image, cards
 /// are solid rectangles. For a normal map, use [`leaf_mesh`](crate::leaf_mesh)
 /// to supply the tangents that orient its lighting detail.
-///
-/// For camera-facing leaves ([`LodDetail::leaf_billboard`](procgena_tree::LodDetail::leaf_billboard)),
-/// pass textures with no normal map: these meshes have no tangents.
 /// With [`LeafOptions::rounded_normals`], back faces keep the front’s lighting
 /// direction for a softer canopy appearance.
 /// [`TreePlugin`](crate::TreePlugin) replaces `wind` with the global [`Wind`](crate::Wind).

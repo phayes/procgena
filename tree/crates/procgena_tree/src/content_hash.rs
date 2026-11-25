@@ -13,7 +13,8 @@ use procgena_core::{ContentHash, ContentHasher, GeneratorKind, OptionsHash, Pool
 
 use crate::{
     AttachedFruit, BarkOptions, BarkUvMode, Billboard, BranchOptions, ClusterPlacement,
-    GrowthForce, LeafOptions, PerLevel, Tree, TreeOptions, TreeType, TrellisForce, TrellisOptions,
+    GrowthForce, LeafOptions, LodDetail, PerLevel, Tree, TreeOptions, TreeType, TrellisForce,
+    TrellisOptions,
 };
 
 /// The generator kind of every tree: the first half of every tree
@@ -39,6 +40,11 @@ pub struct TreeCacheKey {
     /// its settings: each cluster settings' own seed and the number of
     /// slots ([`AttachedFruit::default_slots`](crate::AttachedFruit::default_slots)).
     pub attached: u64,
+    /// A hash of the detail the tree is built at: its
+    /// [`game_level`](TreeOptions::game_level) and its fruit's and flowers'
+    /// own game levels. Two keys that differ only here grow the same shape
+    /// at different detail.
+    pub detail: u64,
 }
 
 impl TreeCacheKey {
@@ -55,10 +61,12 @@ impl ContentHash for TreeCacheKey {
             pool,
             seed,
             attached,
+            detail,
         } = self;
         hasher.write(pool);
         hasher.write_i32(*seed);
         hasher.write_u64(*attached);
+        hasher.write_u64(*detail);
     }
 }
 
@@ -99,8 +107,9 @@ impl TreeOptions {
         SpecimenId::new(world_seed, self.pool_id(), slot)
     }
 
-    /// The key of the shape these settings grow: their pool and their
-    /// [`default_seed`](Self::default_seed).
+    /// The key of the shape these settings grow, and the detail it is built
+    /// at: their pool, their [`default_seed`](Self::default_seed) and their
+    /// [`game_level`](Self::game_level).
     ///
     /// ```
     /// use procgena_tree::TreePreset;
@@ -113,17 +122,22 @@ impl TreeOptions {
     /// ```
     pub fn cache_key(&self) -> TreeCacheKey {
         let mut attached = ContentHasher::new();
+        let mut detail = ContentHasher::new();
+        detail.write(&self.game_level);
         for part in [&self.fruit, &self.flowers] {
             attached.write_bool(part.is_some());
+            detail.write_bool(part.is_some());
             if let Some(part) = part {
                 attached.write_u32(part.fruit.default_seed);
                 attached.write_u32(part.default_slots);
+                detail.write(&part.fruit.game_level);
             }
         }
         TreeCacheKey {
             pool: self.pool_id(),
             seed: self.default_seed,
             attached: attached.finish(),
+            detail: detail.finish(),
         }
     }
 }
@@ -170,7 +184,8 @@ impl<T: ContentHash> ContentHash for PerLevel<T> {
     }
 }
 
-/// Every setting except the seed.
+/// Every setting except the seed and the game level, which say how a tree
+/// is built rather than what shape it grows.
 impl ContentHash for TreeOptions {
     fn content_hash(&self, hasher: &mut ContentHasher) {
         let Self {
@@ -182,6 +197,7 @@ impl ContentHash for TreeOptions {
             trellis,
             fruit,
             flowers,
+            game_level: _,
         } = self;
         hasher.write_u32(tree_type_number(*tree_type));
         hasher.write(bark);
@@ -361,5 +377,37 @@ impl ContentHash for ClusterPlacement {
         hasher.write_f32(*facing_jitter);
         hasher.write_f32(*scale);
         hasher.write_f32(*scale_variance);
+    }
+}
+
+/// Every setting. Not part of a tree's name; [`TreeOptions::cache_key`]
+/// hashes it separately.
+impl ContentHash for LodDetail {
+    fn content_hash(&self, hasher: &mut ContentHasher) {
+        let Self {
+            section_stride,
+            segment_factor,
+            closed,
+            min_branch_radius,
+            leaf_stride,
+            leaf_scale,
+            billboard,
+            cluster_stride,
+            cluster_scale,
+            lower_clusters,
+        } = self;
+        hasher.write_u32(*section_stride);
+        hasher.write_f32(*segment_factor);
+        hasher.write_bool(*closed);
+        hasher.write_f32(*min_branch_radius);
+        hasher.write_u32(*leaf_stride);
+        hasher.write_f32(*leaf_scale);
+        hasher.write_bool(billboard.is_some());
+        if let Some(billboard) = billboard {
+            hasher.write_u32(billboard_number(*billboard));
+        }
+        hasher.write_u32(*cluster_stride);
+        hasher.write_f32(*cluster_scale);
+        hasher.write_bool(*lower_clusters);
     }
 }
