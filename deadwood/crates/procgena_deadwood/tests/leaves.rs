@@ -105,12 +105,11 @@ fn farther_details_keep_fewer_of_the_same_cards() {
         assert!(low.vertex_count() <= high.vertex_count());
         assert!(low.positions.iter().all(|p| high.positions.contains(p)));
     }
-    assert!(
-        piece
-            .mesh_with_detail(&DeadwoodDetail::STRIP)
-            .leaves
-            .is_none()
-    );
+    let none = DeadwoodDetail {
+        leaf_share: 0.0,
+        ..DeadwoodDetail::LOW
+    };
+    assert!(piece.mesh_with_detail(&none).leaves.is_none());
 }
 
 #[test]

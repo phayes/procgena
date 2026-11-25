@@ -10,20 +10,31 @@ const HALF_PI: f32 = 1.5707963;
 /// the object towards the viewer). Directions below `lowest` use the views
 /// at `lowest`.
 fn view_cell(direction: vec3<f32>, frames: u32, lowest: f32) -> vec2<u32> {
+    let f = f32(frames);
+    let cell = min(floor((atlas_square(direction, lowest) + 1.0) * 0.5 * f), vec2<f32>(f - 1.0));
+    return vec2<u32>(cell);
+}
+
+/// Where looking from `direction` (from the object towards the viewer)
+/// falls among the atlas cells, with each cell's own view at whole numbers:
+/// `(1.5, 0.0)` is halfway between the views of cells `(1, 0)` and `(2, 0)`.
+/// The result runs from -0.5 to `frames - 0.5` on each axis.
+fn view_grid(direction: vec3<f32>, frames: u32, lowest: f32) -> vec2<f32> {
+    return (atlas_square(direction, lowest) + 1.0) * 0.5 * f32(frames) - 0.5;
+}
+
+/// Where looking from `direction` lies on the folded octahedron's square,
+/// -1 to 1 on each axis. Directions below `lowest` land at `lowest`.
+fn atlas_square(direction: vec3<f32>, lowest: f32) -> vec2<f32> {
     var d = direction;
     if dot(d, d) < 1e-12 {
         d = vec3<f32>(0.0, 1.0, 0.0);
     }
     d = normalize(d);
-    var uv: vec2<f32>;
     if lowest <= -90.0 {
-        uv = octahedron_uv(d);
-    } else {
-        uv = hemi_octahedron_uv(warp(d, lowest));
+        return octahedron_uv(d);
     }
-    let f = f32(frames);
-    let cell = min(floor((uv + 1.0) * 0.5 * f), vec2<f32>(f - 1.0));
-    return vec2<u32>(cell);
+    return hemi_octahedron_uv(warp(d, lowest));
 }
 
 /// The direction from the object towards the viewer of atlas cell `cell`.

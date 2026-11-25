@@ -8,12 +8,12 @@ use std::ops::Range;
 use glam::{Affine3A, Quat, Vec2, Vec3};
 use procgena_core::hash::{derive_seed, seed_for};
 use procgena_core::scatter::{Disc, Placement};
-use procgena_core::{CopyAddress, Quality, Rng, SpecimenId};
+use procgena_core::chain::Step;
+use procgena_core::{CopyAddress, Rng, SpecimenId};
 use procgena_specimen::{Specimen, Surface, SurfaceError, TagFilter};
 use serde::{Deserialize, Serialize};
 
 use crate::cluster::{MushroomInstance, arrange, make_bodies};
-use crate::detail::MushroomLod;
 use crate::mesh::{MushroomMesh, combine};
 use crate::mushroom::MushroomBody;
 use crate::options::{MushroomOptions, OptionsError, int_range, non_negative, positive, within};
@@ -461,41 +461,36 @@ impl MushroomScatter {
         &self.copies
     }
 
-    /// Combines every instance into one [`Specimen`], with one detail level
-    /// for each level of `lod` and parts of the same kind merged. This can
-    /// be a large mesh; drawing [`instances`](Self::instances) is usually
-    /// cheaper.
+    /// Combines every instance into one [`Specimen`], with the game-level
+    /// meshes and the lower meshes as its two levels, and parts of the same
+    /// kind merged. This can be a large mesh; drawing
+    /// [`instances`](Self::instances) is usually cheaper.
     ///
-    /// Each level starts at its distance in `lod` scaled to the species'
-    /// size at [`Quality::High`], as for [`crate::Mushroom::specimen`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `lod` is invalid; see [`crate::validate_lod`].
-    pub fn specimen(&self, lod: &MushroomLod) -> Result<Specimen, OptionsError> {
-        let size = self.bodies[0].options().size;
-        let meshes: Vec<_> = self
+    /// The lower level starts where the default chain switches the largest
+    /// instance to its lower mesh, as for [`crate::Mushroom::specimen`].
+    pub fn specimen(&self) -> Specimen {
+        let meshes: Vec<[(Step, MushroomMesh); 2]> = self
             .bodies
             .iter()
-            .map(|b| b.lod_meshes(lod))
-            .collect::<Result<_, _>>()?;
-        let levels: Vec<_> = lod
-            .levels
-            .iter()
-            .enumerate()
-            .map(|(l, level)| {
-                let placed: Vec<(&MushroomMesh, Affine3A)> = self
-                    .instances
-                    .iter()
-                    .map(|i| (&meshes[i.variant as usize][l].1, i.transform()))
-                    .collect();
-                (*level, combine(&placed))
+            .map(|body| {
+                let lod = body.options().game_level.lod();
+                lod.meshes().map(|(step, detail)| (step, body.build(detail)))
             })
             .collect();
-        Ok(specimen_from_meshes(
-            &levels,
-            lod.factor(size, Quality::High),
-        ))
+        let levels = [0, 1].map(|l| {
+            let placed: Vec<(&MushroomMesh, Affine3A)> = self
+                .instances
+                .iter()
+                .map(|i| (&meshes[i.variant as usize][l].1, i.transform()))
+                .collect();
+            (Step::ALL[l], combine(&placed))
+        });
+        let largest = self
+            .instances
+            .iter()
+            .map(|i| self.bodies[i.variant as usize].bounding_diameter() * i.scale)
+            .fold(0.0, f32::max);
+        specimen_from_meshes(&levels, largest)
     }
 }
 

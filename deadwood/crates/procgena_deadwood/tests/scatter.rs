@@ -2,9 +2,7 @@
 
 use glam::{DVec2, Vec2, Vec3};
 use procgena_core::scatter::{Scatter, ScatterArea, ScatterInput};
-use procgena_deadwood::{
-    FlatGround, Ground, ScatterError, ScatterOptions, StickScatter, default_lod,
-};
+use procgena_deadwood::{FlatGround, Ground, ScatterError, ScatterOptions, StickScatter};
 use procgena_specimen::{Part, Specimen, SurfaceMesh, TagFilter, tags};
 
 /// Kindling, to scatter over [`small_area`].
@@ -191,7 +189,7 @@ fn fallen_logs_are_logs() {
 #[test]
 fn baked_specimen_is_valid() {
     let s = scatter(&small(), &FlatGround);
-    let specimen = s.specimen(&default_lod()).unwrap();
+    let specimen = s.specimen();
     specimen.validate().unwrap();
     let part = &specimen.levels[0].parts[0];
     assert!(part.closed);

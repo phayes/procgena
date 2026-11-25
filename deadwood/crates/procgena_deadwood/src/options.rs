@@ -8,7 +8,6 @@
 
 use std::fmt;
 
-use procgena_core::LodError;
 use serde::{Deserialize, Serialize};
 
 use crate::colour::parse_hex;
@@ -126,9 +125,14 @@ pub struct DeadwoodOptions {
     pub material: MaterialOptions,
     /// How the piece comes to rest on the ground.
     pub settle: SettleOptions,
-    /// Mesh detail that [`crate::Piece::mesh`] uses. Other methods take
-    /// their detail as an argument.
-    pub detail: DeadwoodDetail,
+    /// The piece's game level: how finely its real shape is meshed. This is
+    /// the mesh drawn near the camera and the shape a game uses for
+    /// collisions, picking and the piece's impostor. Renderers derive a
+    /// coarser mesh from it for when the piece is small on screen (see
+    /// [`DeadwoodDetail::lod`]). Defaults to [`DeadwoodDetail::HIGH`]; use
+    /// [`DeadwoodDetail::FULL`] for close-up work.
+    #[serde(default)]
+    pub game_level: DeadwoodDetail,
 }
 
 /// Bends, bumps and flattening of the main stem.
@@ -500,7 +504,7 @@ impl Default for DeadwoodOptions {
             leaves: LeafOptions::default(),
             material: MaterialOptions::default(),
             settle: SettleOptions::default(),
-            detail: DeadwoodDetail::FULL,
+            game_level: DeadwoodDetail::default(),
         }
     }
 }
@@ -708,9 +712,6 @@ pub enum OptionsError {
         /// The name given.
         value: String,
     },
-    /// The levels of a [`crate::DeadwoodLod`] break one of the shared
-    /// level-of-detail rules, such as distances that don't increase.
-    Lod(LodError),
 }
 
 impl fmt::Display for OptionsError {
@@ -761,22 +762,14 @@ impl fmt::Display for OptionsError {
                 "leaves.texture is {value:?}, but must be one of the names in \
                  LEAF_TEXTURE_SETS"
             ),
-            OptionsError::Lod(e) => write!(f, "invalid levels of detail: {e}"),
         }
     }
 }
 
-impl std::error::Error for OptionsError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            OptionsError::Lod(e) => Some(e),
-            _ => None,
-        }
-    }
-}
+impl std::error::Error for OptionsError {}
 
 impl DeadwoodOptions {
-    /// Checks every setting, including [`detail`](Self::detail), and reports
+    /// Checks every setting, including [`game_level`](Self::game_level), and reports
     /// the first problem found.
     ///
     /// # Errors
@@ -896,7 +889,7 @@ impl DeadwoodOptions {
         optional_within("settle.sag", se.sag, 0.0, 1.0)?;
         optional_within("settle.burial", se.burial, 0.0, 0.5)?;
 
-        self.detail.validate()
+        self.game_level.validate()
     }
 
     /// Radius at the base of the main stem, in metres.
@@ -1181,7 +1174,8 @@ mod tests {
             "deadwood:\n  bark:\n    note: 1\n",
             "deadwood:\n  ends:\n    tip: { kind: saw, bogus: 1 }\n",
             "deadwood:\n  ends:\n    tip: { kind: taper, bogus: 1 }\n",
-            "deadwood:\n  detail:\n    bogus: 1\n",
+            "deadwood:\n  game_level:\n    bogus: 1\n",
+            "deadwood:\n  detail:\n    sides: 8\n",
             "tags: [a]\n",
         ] {
             assert!(read(text).is_err(), "accepted {text}");

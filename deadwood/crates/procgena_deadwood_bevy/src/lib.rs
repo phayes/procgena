@@ -1,6 +1,6 @@
 //! Bevy plugin for [`procgena_deadwood`]: draws fallen logs, branches,
-//! stumps and scattered sticks, switching to simpler meshes as the camera
-//! moves away.
+//! stumps and scattered sticks, switching to a simpler mesh and then an
+//! impostor as they get small on screen.
 //!
 //! Add [`DeadwoodPlugin`], then spawn entities with one of these
 //! components:
@@ -55,35 +55,46 @@
 //! }
 //! ```
 //!
-//! Each single piece is drawn by [`DeadwoodPart`] child entities, one or two
-//! per detail level. Bevy's `VisibilityRange` shows each level only within
-//! its distance band, blending between neighbouring levels. A scatter's
-//! sticks are drawn instead by the shared instanced renderer of
-//! `procgena_core_bevy`, which fades them the same way, with no entity per
-//! stick. The bands come from [`DeadwoodPlugin::lod`], scaled by each
-//! piece's size, and the farthest level fades out at the cull distance.
-//! Thin twigs and branches become flat strips that [`DeadwoodMaterial`]
-//! keeps turned toward the camera.
+//! Every piece is drawn through the shared drawing chain
+//! ([`DistanceChain`](procgena_core::chain::DistanceChain)): its game-level
+//! mesh ([`DeadwoodOptions::game_level`](procgena_deadwood::DeadwoodOptions::game_level))
+//! near the camera, a coarser mesh once it is small on screen, then its
+//! impostor, a baked picture drawn as one quad (see
+//! [`DeadwoodPlugin::impostor`]). Each step's distance band follows the
+//! piece's size on screen, its bounding-sphere diameter, and the
+//! [`LodQuality`] in use when it is built. A single piece is drawn by
+//! [`DeadwoodPart`] child entities, whose `VisibilityRange` blends
+//! neighbouring steps. A scatter's sticks are drawn instead by the shared
+//! instanced renderer of `procgena_core_bevy`, which fades them the same
+//! way, with no entity per stick. Thin twigs and branches become flat
+//! strips that [`DeadwoodMaterial`] keeps turned toward the camera.
 //!
 //! To build your own entities, convert meshes with [`deadwood_mesh`] and
 //! [`ribbon_mesh`] and create materials with [`deadwood_material`]. Keep
 //! the plugin installed, because it provides the shaders.
 
+mod impostor;
 mod material;
 mod mesh;
 mod spawn;
 
 use bevy::asset::embedded_asset;
-use bevy::pbr::MaterialPlugin;
+use bevy::pbr::{MaterialPlugin, StandardMaterialKey};
 use bevy::prelude::*;
+use bevy::render::combined_bind_group::CombinedBindGroupData;
 use bevy::shader::load_shader_library;
 use procgena_core_bevy::instanced::{InstancedMaterialPlugin, SpecimenCache};
 use procgena_core_bevy::{LodPlugin, LodQuality};
-use procgena_deadwood::{DeadwoodLod, TextureCompression, TextureSize, default_lod, validate_lod};
+use procgena_deadwood::{TextureCompression, TextureSize};
+use procgena_impostor::{BakeSettings, ImpostorMaterial, ImpostorPipelineKey, ImpostorPlugin};
 
+/// The pipeline key of [`ImpostorMaterial`].
+type ImpostorMaterialKey = CombinedBindGroupData<StandardMaterialKey, ImpostorPipelineKey>;
+
+pub use impostor::default_deadwood_impostor;
 pub use material::{
     BarkTextures, DeadwoodExtension, DeadwoodKey, DeadwoodMaterial, DeadwoodSurface, EndTextures,
-    LeafTextures, deadwood_material, leaf_material,
+    LeafTextures, bake_copy, deadwood_material, leaf_material,
 };
 
 use material::DeadwoodMaterialKey;
@@ -100,22 +111,14 @@ use spawn::{DeadwoodCache, DeadwoodPresetLoader, SpawnSettings, TextureSettings}
 
 /// Adds dead wood building and drawing, and loading of `.deadwood.yml`
 /// preset files, to a Bevy app. It also adds the shared [`LodPlugin`], whose
-/// [`LodQuality`] resource scales every piece's switch distances.
-///
-/// # Panics
-///
-/// Adding the plugin panics if [`lod`](Self::lod) is invalid; see
-/// [`validate_lod`].
+/// [`LodQuality`] resource scales every piece's switch distances, and
+/// [`ImpostorPlugin`] when impostors are on and the app has not added it.
 #[derive(Debug, Clone)]
 pub struct DeadwoodPlugin {
-    /// Detail levels for a piece [`reference_size`](DeadwoodLod) across,
-    /// 45 cm by default. Each piece multiplies the distances by its size
-    /// relative to that (see [`procgena_deadwood::lod_size`]) and by the
-    /// [`LodQuality`] in use when it is spawned. Every piece uses these
-    /// levels; [`DeadwoodOptions::detail`] is not used by the plugin.
-    ///
-    /// [`DeadwoodOptions::detail`]: procgena_deadwood::DeadwoodOptions::detail
-    pub lod: DeadwoodLod,
+    /// How pieces' impostors are baked; pieces are drawn as their impostor
+    /// when small on screen. Defaults to [`default_deadwood_impostor`].
+    /// `None` draws each piece's lower mesh until it is culled instead.
+    pub impostor: Option<BakeSettings>,
     /// Folder holding the `bark/` and `end/` texture folders, relative to
     /// Bevy's asset folder, for pieces whose options name a
     /// [`bark_texture`](procgena_deadwood::MaterialOptions::bark_texture) or
@@ -138,7 +141,7 @@ pub struct DeadwoodPlugin {
 impl Default for DeadwoodPlugin {
     fn default() -> Self {
         Self {
-            lod: default_lod(),
+            impostor: Some(default_deadwood_impostor()),
             texture_root: Some("procgena_deadwood/textures".to_owned()),
             texture_size: TextureSize::Size1k,
             texture_compression: TextureCompression::Bc7,
@@ -154,38 +157,63 @@ impl Plugin for DeadwoodPlugin {
         embedded_asset!(app, "shaders/deadwood_prepass.wesl");
         embedded_asset!(app, "shaders/deadwood_fragment.wesl");
 
-        if let Err(error) = validate_lod(&self.lod) {
-            panic!("DeadwoodPlugin::lod is invalid: {error}");
-        }
         app.add_plugins((
             MaterialPlugin::<DeadwoodMaterial>::default(),
             InstancedMaterialPlugin::<DeadwoodMaterial, DeadwoodMaterialKey>::new(|key| {
                 key.extension.instanced = true;
             }),
         ));
-        add_systems(app, self.lod.clone());
-        app.world_mut().resource_mut::<SpawnSettings>().textures =
-            self.texture_root.clone().map(|root| TextureSettings {
-                root,
-                size: self.texture_size,
-                compression: self.texture_compression,
-            });
+        // Impostors, unless the app added the plugin itself with settings of
+        // its own.
+        if self.impostor.is_some() {
+            if !app.is_plugin_added::<ImpostorPlugin>() {
+                app.add_plugins(ImpostorPlugin::default());
+            }
+            // A scatter's sticks draw their impostors through the shared
+            // instanced renderer.
+            app.add_plugins(InstancedMaterialPlugin::<
+                ImpostorMaterial,
+                ImpostorMaterialKey,
+            >::new(|key| {
+                key.extension.instanced = true;
+            }));
+        }
+        add_systems(app);
+        let textures = self.texture_root.clone().map(|root| TextureSettings {
+            root,
+            size: self.texture_size,
+            compression: self.texture_compression,
+        });
+        app.insert_resource(SpawnSettings {
+            textures,
+            impostor: self.impostor,
+        });
+        if self.impostor.is_some() {
+            app.add_systems(
+                Update,
+                (
+                    impostor::request_impostors,
+                    impostor::show_impostors,
+                    impostor::show_scatter_impostors,
+                )
+                    .chain()
+                    .after(spawn::finish_generation)
+                    .before(spawn::prune_cache),
+            );
+        }
     }
 }
 
 /// Registers the preset file loader, the shared cache and the build
-/// systems, using detail levels `lod`, but nothing for drawing. The plugin
-/// and the tests (which run without a renderer) both use it.
-pub(crate) fn add_systems(app: &mut App, lod: DeadwoodLod) {
+/// systems, without textures or impostors, and nothing for drawing. The
+/// plugin and the tests (which run without a renderer) both use it.
+pub(crate) fn add_systems(app: &mut App) {
     app.init_asset::<DeadwoodPresetAsset>()
         .register_asset_loader(DeadwoodPresetLoader)
         .init_resource::<DeadwoodCache>()
         .init_resource::<SpecimenCache>()
         .init_resource::<LodQuality>()
-        .insert_resource(SpawnSettings {
-            lod,
-            textures: None,
-        })
+        .init_resource::<SpawnSettings>()
         .add_systems(
             Update,
             (

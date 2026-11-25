@@ -2,17 +2,11 @@
 #![cfg(all(feature = "export-obj", feature = "export-gltf"))]
 
 use procgena_mushroom::export::{gltf, obj};
-use procgena_mushroom::{Mushroom, MushroomMesh, MushroomPreset, default_lod};
+use procgena_mushroom::{Mushroom, MushroomMesh, MushroomPreset};
 
 fn meshes() -> (Mushroom, Vec<MushroomMesh>) {
     let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
-    let lod = default_lod();
-    let meshes = mushroom
-        .lod_meshes(&lod)
-        .unwrap()
-        .into_iter()
-        .map(|(_, m)| m)
-        .collect();
+    let meshes = mushroom.lod_meshes().map(|(_, m)| m).to_vec();
     (mushroom, meshes)
 }
 
@@ -42,7 +36,7 @@ fn glb_loads_with_every_level_and_the_options() {
         .collect();
     assert_eq!(names.len(), meshes.len());
 
-    // The flat level carries both stem strips.
+    // The lower mesh is open, so it is drawn two-sided.
     let last = document.meshes().last().unwrap();
     let primitive = last.primitives().next().unwrap();
     assert!(primitive.material().double_sided());

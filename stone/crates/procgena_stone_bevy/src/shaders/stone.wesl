@@ -25,6 +25,9 @@ import bevy_pbr::render::{
 @if(VISIBILITY_RANGE_DITHER)
 import bevy_pbr::render::pbr_functions::visibility_range_dither;
 
+@if(BAKE_NORMAL)
+import procgena_impostor::shaders::bake_output::baked_normal;
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     // Fade between detail levels by discarding a dither pattern.
@@ -51,9 +54,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         pbr_input.material.base_color,
     );
 
-    // Impostor bake copies draw the textured base colour or normal, fully
-    // opaque, instead of lit colour (the normal is in the bake view's
-    // camera space, which is world space for bake copies).
+    // Impostor bake copies draw the textured base colour, or the normal
+    // and depth the impostor crate's atlases store, instead of lit colour.
 @if(BAKE_ALBEDO) {
     var baked: FragmentOutput;
     baked.color = vec4<f32>(pbr_input.material.base_color.rgb, 1.0);
@@ -61,7 +63,7 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 }
 @if(BAKE_NORMAL) {
     var baked: FragmentOutput;
-    baked.color = vec4<f32>(normalize(pbr_input.N) * 0.5 + 0.5, 1.0);
+    baked.color = baked_normal(pbr_input.N, in.position.z, in.instance_index);
     return baked;
 }
     apply_decals(&pbr_input);

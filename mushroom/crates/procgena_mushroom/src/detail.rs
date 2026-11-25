@@ -1,32 +1,10 @@
-//! Mesh quality settings and levels of detail.
-//!
-//! A "level of detail" (LOD) is a simpler version of a mesh drawn when the
-//! object is far from the camera, where fine detail can't be seen anyway.
-//! [`MushroomDetail`] says how detailed one mesh is, and a
-//! [`MushroomLod`] says which detail to draw at which camera distance.
+//! How finely a mushroom is meshed: its game-level detail, and the coarser
+//! detail a renderer draws when the mushroom is small on screen.
 
-use procgena_core::{FarForm, LevelForm, Lod, LodLevel};
+use procgena_core::chain::{Lod, LowerDetail};
 use serde::{Deserialize, Serialize};
 
 use crate::options::{MAX_SEGMENTS, OptionsError, int_range};
-
-/// The cap diameter, in metres, that the distances in [`default_lod`] are
-/// chosen for (8 cm): its [`Lod::reference_size`].
-pub const DEFAULT_LOD_SIZE: f32 = 0.08;
-
-/// A mushroom's levels of detail: which [`MushroomDetail`] to draw at which
-/// camera distance, written for a cap of
-/// [`reference_size`](Lod::reference_size) metres. Start from
-/// [`default_lod`], and check your own with [`validate_lod`].
-///
-/// Use [`Lod::factor`] with a mushroom's cap diameter to scale the
-/// distances to its size, so a mushroom twice as big keeps its detail twice
-/// as far away.
-pub type MushroomLod = Lod<MushroomDetail>;
-
-/// One level of a [`MushroomLod`]: the detail to draw from its distance
-/// onward, until the next level starts.
-pub type MushroomLodLevel = LodLevel<MushroomDetail>;
 
 /// How the cap and stem surfaces are built.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -44,28 +22,34 @@ pub enum BodyShape {
     /// bottom but no top. Draw it two-sided, because its inside can be seen
     /// through the openings.
     Shell,
-    /// For distant or very numerous mushrooms: an open cap like
-    /// [`Shell`](Self::Shell) and a flat strip for the stem. The renderer
-    /// keeps the strip turned toward the camera, so it looks like a stem
-    /// from every side, as distant trees do with their branches. See
-    /// [`crate::BillboardMesh`].
-    Flat,
-    /// The cheapest form, for the farthest distances: one triangle for the
-    /// stem and one for the cap, both turned toward the camera like the
-    /// stem of [`Flat`](Self::Flat). Renderers draw it with vertex colours
-    /// only, without textures, patterns, gills or warts. See
-    /// [`crate::BillboardMesh`].
-    Billboard,
 }
 
 /// How detailed one mushroom mesh is.
 ///
+/// A preset's [`MushroomOptions::game_level`](crate::MushroomOptions::game_level)
+/// is one of these: the mushroom's real shape, which the game uses for
+/// picking, for growing other things on it, and for its impostor. Renderers
+/// also draw a coarser mesh when the mushroom is small on screen;
+/// [`lod`](Self::lod) gives both.
+///
 /// "Sides" count segments around a circle and must be from 3 through
 /// [`MAX_SEGMENTS`]; "segments" count steps along a length and must be from
 /// 1 through [`MAX_SEGMENTS`]. More of either gives a smoother mesh with more
-/// triangles. Start from one of the named levels, such as
-/// [`FULL`](Self::FULL).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// triangles. Start from one of the named details, such as
+/// [`HIGH`](Self::HIGH), the default.
+///
+/// ```
+/// use procgena_core::chain::Step;
+/// use procgena_mushroom::{BodyShape, MushroomDetail};
+///
+/// let lod = MushroomDetail::HIGH.lod();
+/// assert_eq!(lod.game, MushroomDetail::HIGH);
+/// // The coarser mesh is open, with half the sides and segments.
+/// let lower = lod.detail(Step::Lower).unwrap();
+/// assert_eq!(lower.shape, BodyShape::Shell);
+/// assert_eq!(lower.cap_sides, 12);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MushroomDetail {
     /// How the surfaces are built.
@@ -75,10 +59,9 @@ pub struct MushroomDetail {
     /// Segments along the cap's outline, from rim to top. The underside
     /// gets half as many, and at least one.
     pub cap_segments: u32,
-    /// Segments around the stem. Not used by [`BodyShape::Flat`] or
-    /// [`BodyShape::Billboard`].
+    /// Segments around the stem.
     pub stem_sides: u32,
-    /// Segments along the stem. Not used by [`BodyShape::Billboard`].
+    /// Segments along the stem.
     pub stem_segments: u32,
     /// Whether to build the annulus, if the mushroom has one.
     pub annulus: bool,
@@ -87,7 +70,7 @@ pub struct MushroomDetail {
     /// Leave it on for renderers that don't draw warts themselves, such as
     /// 3D tools reading exported files. Turn it off when the renderer draws
     /// them, as `procgena_mushroom_bevy` does, or they show twice. Painted
-    /// warts are only as sharp as the mesh, so coarse levels show soft
+    /// warts are only as sharp as the mesh, so coarse details show soft
     /// blotches.
     pub paint_warts: bool,
 }
@@ -103,7 +86,8 @@ impl MushroomDetail {
         annulus: true,
         paint_warts: true,
     };
-    /// Solid surfaces at about a quarter of [`FULL`](Self::FULL)'s triangles.
+    /// Solid surfaces at about a quarter of [`FULL`](Self::FULL)'s
+    /// triangles. The default.
     pub const HIGH: Self = Self {
         shape: BodyShape::Solid,
         cap_sides: 24,
@@ -133,40 +117,30 @@ impl MushroomDetail {
         annulus: false,
         paint_warts: true,
     };
-    /// An open six-sided cap and a stem strip that turns toward the camera.
-    /// About 40 triangles; suited to far distances and large crowds.
-    pub const FLAT: Self = Self {
-        shape: BodyShape::Flat,
-        cap_sides: 6,
-        cap_segments: 2,
-        stem_sides: 3,
-        stem_segments: 3,
-        annulus: false,
-        paint_warts: true,
-    };
-    /// The cheapest form: two triangles, one for the stem and one for the
-    /// cap, turned toward the camera and drawn with vertex colours only.
-    /// For the farthest distances.
-    pub const BILLBOARD: Self = Self {
-        shape: BodyShape::Billboard,
-        cap_sides: 3,
-        cap_segments: 1,
-        stem_sides: 3,
-        stem_segments: 1,
-        annulus: false,
-        paint_warts: false,
-    };
 
-    /// Every named level with a display name, most detailed first, for
+    /// Every named detail with a display name, most detailed first, for
     /// menus.
-    pub const PRESETS: [(&'static str, Self); 6] = [
+    pub const PRESETS: [(&'static str, Self); 4] = [
         ("Full", Self::FULL),
         ("High", Self::HIGH),
         ("Medium", Self::MEDIUM),
         ("Low", Self::LOW),
-        ("Flat", Self::FLAT),
-        ("Billboard", Self::BILLBOARD),
     ];
+
+    /// The display name of the named detail equal to this one, or `None`
+    /// for a detail of your own.
+    pub fn preset_name(&self) -> Option<&'static str> {
+        Self::PRESETS
+            .iter()
+            .find(|(_, detail)| detail == self)
+            .map(|(name, _)| *name)
+    }
+
+    /// This detail as the game level, and the coarser mesh after it (see
+    /// [`LowerDetail`]).
+    pub fn lod(&self) -> Lod<Self> {
+        Lod::from_game(*self)
+    }
 
     /// Checks every count against the limits described on
     /// [`MushroomDetail`].
@@ -175,53 +149,87 @@ impl MushroomDetail {
     ///
     /// Returns the first count out of range.
     pub fn validate(&self) -> Result<(), OptionsError> {
-        int_range("detail.cap_sides", self.cap_sides, 3, MAX_SEGMENTS)?;
-        int_range("detail.cap_segments", self.cap_segments, 1, MAX_SEGMENTS)?;
-        int_range("detail.stem_sides", self.stem_sides, 3, MAX_SEGMENTS)?;
-        int_range("detail.stem_segments", self.stem_segments, 1, MAX_SEGMENTS)
+        int_range("game_level.cap_sides", self.cap_sides, 3, MAX_SEGMENTS)?;
+        int_range(
+            "game_level.cap_segments",
+            self.cap_segments,
+            1,
+            MAX_SEGMENTS,
+        )?;
+        int_range("game_level.stem_sides", self.stem_sides, 3, MAX_SEGMENTS)?;
+        int_range(
+            "game_level.stem_segments",
+            self.stem_segments,
+            1,
+            MAX_SEGMENTS,
+        )
+    }
+}
+
+/// Open surfaces ([`BodyShape::Shell`]) with half of each count (at least 3
+/// sides and 1 segment) and no annulus. Warts are painted as in the game
+/// level.
+impl LowerDetail for MushroomDetail {
+    fn lower(&self) -> Self {
+        Self {
+            shape: BodyShape::Shell,
+            cap_sides: (self.cap_sides / 2).max(3),
+            cap_segments: (self.cap_segments / 2).max(1),
+            stem_sides: (self.stem_sides / 2).max(3),
+            stem_segments: (self.stem_segments / 2).max(1),
+            annulus: false,
+            paint_warts: self.paint_warts,
+        }
     }
 }
 
 impl Default for MushroomDetail {
     fn default() -> Self {
-        Self::FULL
+        Self::HIGH
     }
 }
 
-/// Returns the default levels for an 8 cm cap ([`DEFAULT_LOD_SIZE`]):
-/// [`FULL`](MushroomDetail::FULL) up to 1.5 m,
-/// [`HIGH`](MushroomDetail::HIGH) to 4 m,
-/// [`MEDIUM`](MushroomDetail::MEDIUM) to 10 m,
-/// [`FLAT`](MushroomDetail::FLAT) to 18 m and
-/// [`BILLBOARD`](MushroomDetail::BILLBOARD), a camera-facing
-/// [`FarForm::Card`] that casts no shadow, to 40 m, with nothing drawn
-/// beyond. Each switch blends over 10% of its distance either side.
-pub fn default_lod() -> MushroomLod {
-    Lod::new(
-        DEFAULT_LOD_SIZE,
-        vec![
-            LodLevel::new(0.0, 0.1, MushroomDetail::FULL),
-            LodLevel::new(1.5, 0.1, MushroomDetail::HIGH),
-            LodLevel::new(4.0, 0.1, MushroomDetail::MEDIUM),
-            LodLevel::new(10.0, 0.1, MushroomDetail::FLAT),
-            LodLevel::new(18.0, 0.1, MushroomDetail::BILLBOARD)
-                .with_form(LevelForm::Far(FarForm::Card))
-                .without_shadows(),
-        ],
-    )
-    .with_cull(40.0)
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Checks `lod`'s levels, their order and every level's detail.
-///
-/// # Errors
-///
-/// Returns [`OptionsError::Lod`] if the levels themselves are invalid (see
-/// [`Lod::validate`]), or the first count out of range in a level's
-/// [`MushroomDetail`].
-pub fn validate_lod(lod: &MushroomLod) -> Result<(), OptionsError> {
-    lod.validate().map_err(OptionsError::Lod)?;
-    lod.levels
-        .iter()
-        .try_for_each(|level| level.detail.validate())
+    #[test]
+    fn the_lower_mesh_is_open_with_half_the_counts() {
+        let lower = MushroomDetail::FULL.lod().lower;
+        assert_eq!(
+            lower,
+            MushroomDetail {
+                shape: BodyShape::Shell,
+                cap_sides: 24,
+                cap_segments: 8,
+                stem_sides: 12,
+                stem_segments: 6,
+                annulus: false,
+                paint_warts: true,
+            }
+        );
+    }
+
+    #[test]
+    fn the_lower_mesh_keeps_the_smallest_valid_counts() {
+        let smallest = MushroomDetail {
+            shape: BodyShape::Shell,
+            cap_sides: 3,
+            cap_segments: 1,
+            stem_sides: 3,
+            stem_segments: 1,
+            annulus: false,
+            paint_warts: false,
+        };
+        assert_eq!(smallest.lod().lower, smallest);
+        for (_, detail) in MushroomDetail::PRESETS {
+            detail.lod().lower.validate().unwrap();
+        }
+    }
+
+    #[test]
+    fn named_details_are_named_and_others_are_not() {
+        assert_eq!(MushroomDetail::HIGH.preset_name(), Some("High"));
+        assert_eq!(MushroomDetail::HIGH.lod().lower.preset_name(), None);
+    }
 }

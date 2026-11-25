@@ -2,13 +2,11 @@
 //! generators use to hand meshes to each other, so that, for example, moss
 //! can grow on a mushroom.
 
-use procgena_core::Quality;
+use procgena_core::chain::{DistanceChain, Step, ViewScale};
 use procgena_specimen::{Level, Part, Specimen, SurfaceMesh, Tag, TagSet, tags};
 
-use crate::detail::{MushroomLod, MushroomLodLevel};
 use crate::mesh::{MeshBuffers, MushroomMesh, PartKind, PartRange};
 use crate::mushroom::Mushroom;
-use crate::options::OptionsError;
 
 impl PartKind {
     /// Returns the tag that names this kind of part. Parts also carry
@@ -25,10 +23,6 @@ impl PartKind {
 impl MushroomMesh {
     /// Returns each part of the mesh as a standalone, tagged [`Part`], with
     /// its closed pieces recorded.
-    ///
-    /// Camera-facing shapes ([`MushroomMesh::billboard`]) are left out,
-    /// because they turn with the camera and so have no fixed surface to
-    /// grow on.
     pub fn specimen_parts(&self) -> Vec<Part> {
         self.parts
             .iter()
@@ -38,33 +32,37 @@ impl MushroomMesh {
 }
 
 impl Mushroom {
-    /// Builds a [`Specimen`] with one detail level for each level of `lod`.
-    /// Every member of a cluster is included, and parts of the same kind
-    /// are merged, so the specimen has one cap part, one stem part, and so on.
+    /// Builds a [`Specimen`] with two levels: the game-level mesh, then the
+    /// lower mesh. Every member of a cluster is included, and parts of the
+    /// same kind are merged, so each level has one cap part, one stem part,
+    /// and so on.
     ///
-    /// Each level starts at its distance in `lod` scaled to this mushroom's
-    /// [`size`](crate::MushroomOptions::size) at
-    /// [`Quality::High`], the quality every [`MushroomLod`] is written for.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `lod` is invalid; see [`crate::validate_lod`].
-    pub fn specimen(&self, lod: &MushroomLod) -> Result<Specimen, OptionsError> {
-        let factor = lod.factor(self.options().size, Quality::High);
-        Ok(specimen_from_meshes(&self.lod_meshes(lod)?, factor))
+    /// The lower level starts where the default [`DistanceChain`] switches
+    /// to it for this mushroom (by its
+    /// [`bounding_diameter`](Mushroom::bounding_diameter)), seen through a
+    /// [`ViewScale::DEFAULT`] camera at High quality.
+    pub fn specimen(&self) -> Specimen {
+        specimen_from_meshes(&self.lod_meshes(), self.bounding_diameter())
     }
 }
 
 /// Builds a [`Specimen`] from meshes you already made with
-/// [`Mushroom::lod_meshes`], without meshing again. Each level starts at its
-/// distance times `factor`, such as the [`Lod::factor`](procgena_core::Lod::factor)
-/// for the mushroom's size.
-pub fn specimen_from_meshes(meshes: &[(MushroomLodLevel, MushroomMesh)], factor: f32) -> Specimen {
+/// [`Mushroom::lod_meshes`], without meshing again, for something
+/// `diameter` metres across (such as the mushroom's
+/// [`bounding_diameter`](Mushroom::bounding_diameter)). The lower level
+/// starts where the default [`DistanceChain`] switches to it, seen through
+/// a [`ViewScale::DEFAULT`] camera at High quality.
+pub fn specimen_from_meshes(meshes: &[(Step, MushroomMesh); 2], diameter: f32) -> Specimen {
+    let factor = DistanceChain::factor(diameter, ViewScale::DEFAULT);
+    let lower_start = factor / DistanceChain::DEFAULT.lower_below;
     Specimen {
         levels: meshes
             .iter()
-            .map(|(level, mesh)| Level {
-                start: level.distance * factor,
+            .map(|(step, mesh)| Level {
+                start: match step {
+                    Step::Game => 0.0,
+                    _ => lower_start,
+                },
                 parts: mesh.specimen_parts(),
             })
             .collect(),

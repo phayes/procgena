@@ -13,14 +13,9 @@ use crate::studio::documents::DocumentEdited;
 use crate::studio::documents::panels::settings_panel;
 use crate::studio::status;
 
-/// The mushroom detail levels, most detailed first.
-pub const LEVELS: &[&str] = &[
-    "0 · Full",
-    "1 · High",
-    "2 · Medium",
-    "3 · Flat",
-    "4 · Billboard",
-];
+/// The steps of the drawing chain a mushroom is drawn at, most detailed
+/// first, in [`Step::index`](procgena_core::chain::Step::index) order.
+pub const LEVELS: &[&str] = &["0 · Game level", "1 · Lower", "2 · Impostor"];
 
 /// Registers mushrooms.
 pub fn register(app: &mut App) {

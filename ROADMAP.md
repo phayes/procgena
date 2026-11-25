@@ -1221,13 +1221,21 @@ go to the few copies near the camera.
     by size on screen, clusters until their tree's impostor takes over
     (no cull of their own). See Step 3's "As built (tree and fruit)" in
     the plan.
-  - **Step 3, rest:** dead wood (coordinate with the ED worker first: it
-    is making dead wood build once per copy), mushroom, tree (presets
-    default to level 0 as `game_level`; gains a `game_level` on
-    `TreeOptions`, which touches ST2's presets), fruit; each drops its
-    ribbon far forms. The last kind deletes the old `Lod`, `LodLevel`,
-    `LevelForm`, the ribbon `FarForm` variants and
-    `procgena_specimen::Level::start`, and terrain's chunk table moves
+  - **Step 3, mushroom built** on branch `claude/project-thread-pe82qg`:
+    `MushroomOptions::game_level` (default `HIGH`), a shell lower mesh,
+    single mushrooms and clusters switched and baked as one specimen,
+    scatters through the shared renderer with one impostor per body
+    (`chain_lod`); the billboard and flat-cap forms are gone. See the
+    plan's "As built (mushroom)". Left: a headless screenshot check
+    across the chain, and cluster specimens inside scatters.
+  - **Step 3, dead wood built** on branch `claude/project-thread-4vtiyy`:
+    `DeadwoodOptions::game_level` (default `HIGH`), game level → lower
+    mesh → impostor for single pieces and stick scatters, sized by each
+    game-level mesh's real bounding sphere; `STRIP` and `strip_all` are
+    gone. See the plan's "As built (Step 3, dead wood)".
+  - **Step 3, next:** with every kind moved, delete the old `Lod`,
+    `LodLevel`, `LevelForm`, the ribbon `FarForm` variants and
+    `procgena_specimen::Level::start`, and move terrain's chunk table
     into `procgena_terrain` (coordinated with its owner).
   - **Step 4:** the instanced renderer takes the chain with per-view
     bands (deleting the stone bridge); the disk cache keyed by the bake

@@ -1,9 +1,11 @@
 //! [`Piece`]: one generated piece of dead wood, resting on the ground.
 
+use procgena_core::chain::Step;
+
 use crate::build::{build, visible_span};
 use crate::colour::Palette;
 use crate::decay::Decay;
-use crate::detail::{DeadwoodDetail, DeadwoodLod, LodLevel, sized_levels, validate_lod};
+use crate::detail::{DeadwoodDetail, DeadwoodLod};
 use crate::leaves::{Card, mesh_cards, place};
 use crate::limb::Limb;
 use crate::mesh::{DeadwoodMesh, Shade, build_mesh};
@@ -79,13 +81,15 @@ impl Piece {
         self.limbs.len()
     }
 
-    /// Builds the mesh at the options' own [`DeadwoodOptions::detail`].
+    /// Builds the game-level mesh: the options' own
+    /// [`game_level`](DeadwoodOptions::game_level), sized for this piece (see
+    /// [`DeadwoodDetail::sized_for`]). This is the piece's real shape.
     ///
     /// # Panics
     ///
     /// Panics if the mesh needs more vertices than fit in a 32-bit index.
     pub fn mesh(&self) -> DeadwoodMesh {
-        self.mesh_with_detail(&self.options.detail)
+        self.mesh_with_detail(&self.options.game_level.sized_for(&self.options))
     }
 
     /// Builds the mesh at `detail`.
@@ -110,32 +114,29 @@ impl Piece {
         mesh
     }
 
-    /// Builds one mesh per level of `lod`, from nearest to furthest, each
-    /// paired with its level scaled for this piece's size.
-    ///
-    /// `lod` is written for a piece [`reference_size`](crate::DeadwoodLod)
-    /// across, such as [`crate::default_lod`]. Each returned level's
-    /// distance and stem radii are multiplied by this piece's size factor
-    /// at [`Quality::High`](procgena_core::Quality::High), so a larger
-    /// piece keeps thicker stems at each level. The quality setting only
-    /// changes when levels are drawn, never the meshes.
-    ///
-    /// # Errors
-    ///
-    /// Returns the first problem with `lod`; see [`crate::validate_lod`].
+    /// The details of the two meshes a renderer draws: the options'
+    /// [`game_level`](DeadwoodOptions::game_level) and the coarser mesh
+    /// after it, both sized for this piece (see
+    /// [`DeadwoodDetail::sized_for`]).
+    pub fn lod(&self) -> DeadwoodLod {
+        self.options
+            .game_level
+            .lod()
+            .map(|detail| detail.sized_for(&self.options))
+    }
+
+    /// Builds the two meshes a renderer draws, nearest first: the
+    /// game-level mesh (the same as [`Self::mesh`]) and the coarser mesh
+    /// drawn when the piece is small on screen. A renderer draws the
+    /// piece's impostor after them.
     ///
     /// # Panics
     ///
     /// Panics if a mesh needs more vertices than fit in a 32-bit index.
-    pub fn lod_meshes(
-        &self,
-        lod: &DeadwoodLod,
-    ) -> Result<Vec<(LodLevel, DeadwoodMesh)>, OptionsError> {
-        validate_lod(lod)?;
-        Ok(sized_levels(lod, &self.options)
-            .into_iter()
-            .map(|level| (level, self.mesh_with_detail(&level.detail)))
-            .collect())
+    pub fn lod_meshes(&self) -> [(Step, DeadwoodMesh); 2] {
+        self.lod()
+            .meshes()
+            .map(|(step, detail)| (step, self.mesh_with_detail(detail)))
     }
 
     /// Returns the stems, for other modules of this crate.
