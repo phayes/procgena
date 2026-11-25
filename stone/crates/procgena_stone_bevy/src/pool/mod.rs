@@ -7,12 +7,13 @@ mod render;
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bevy::camera::visibility::VisibilitySystems;
 use bevy::math::Affine3A;
 use bevy::pbr::StandardMaterialKey;
 use bevy::prelude::*;
+use bevy::render::RenderApp;
 use bevy::render::combined_bind_group::CombinedBindGroupData;
 use bevy::transform::TransformSystems;
 use procgena_core::chain::DistanceChain;
@@ -214,6 +215,84 @@ pub(crate) struct PoolDefinition {
     pub slots: Arc<[InstancedSlot]>,
 }
 
+/// Each pool variant's size as the GPU measured it: its game-level mesh's
+/// bounding diameter in metres, which sets where it switches to its lower
+/// mesh and impostor. The render world posts sizes as it reads them back;
+/// [`receive_pool_sizes`] takes them into the main world.
+#[derive(Resource, Debug, Clone, Default)]
+pub(crate) struct MeasuredPoolSizes(Arc<Mutex<Vec<PostedSizes>>>);
+
+/// One pool's sizes, as posted by the render world.
+#[derive(Debug)]
+struct PostedSizes {
+    pool: AssetId<StonePool>,
+    /// The [`PoolDefinition::version`] the sizes were measured for.
+    version: u64,
+    /// One size per variant, or `None` where it was not measured.
+    sizes: Vec<Option<f32>>,
+}
+
+impl MeasuredPoolSizes {
+    /// Posts the sizes measured for `pool` defined at `version`.
+    pub(crate) fn post(&self, pool: AssetId<StonePool>, version: u64, sizes: Vec<Option<f32>>) {
+        if let Ok(mut posted) = self.0.lock() {
+            posted.push(PostedSizes {
+                pool,
+                version,
+                sizes,
+            });
+        }
+    }
+}
+
+/// The measured size of each variant of each pool, in the main world.
+#[derive(Resource, Debug, Default)]
+struct PoolSizes(HashMap<AssetId<StonePool>, (u64, Vec<Option<f32>>)>);
+
+impl PoolSizes {
+    /// The measured size of `variant` of the pool `id` defined at
+    /// `version`, if the GPU has measured it.
+    fn get(&self, id: AssetId<StonePool>, version: u64, variant: u32) -> Option<f32> {
+        let (measured_version, sizes) = self.0.get(&id)?;
+        if *measured_version != version {
+            return None;
+        }
+        sizes.get(variant as usize).copied().flatten()
+    }
+}
+
+/// Takes the sizes the render world measured into [`PoolSizes`], keeping
+/// only those of pools still defined as they were measured.
+fn receive_pool_sizes(
+    posted: Res<MeasuredPoolSizes>,
+    definitions: Res<PoolDefinitions>,
+    mut sizes: ResMut<PoolSizes>,
+) {
+    let Ok(mut posted) = posted.0.lock() else {
+        return;
+    };
+    if posted.is_empty() {
+        return;
+    }
+    for measured in posted.drain(..) {
+        let current = definitions
+            .pools
+            .get(&measured.pool)
+            .is_some_and(|definition| definition.version == measured.version);
+        if current {
+            sizes
+                .0
+                .insert(measured.pool, (measured.version, measured.sizes));
+        }
+    }
+    sizes.0.retain(|id, (version, _)| {
+        definitions
+            .pools
+            .get(id)
+            .is_some_and(|d| d.version == *version)
+    });
+}
+
 /// The id under which the render world lists mesh `mesh` (variant-major:
 /// `variant * levels + level`) of the pool defined at `version`.
 pub(crate) fn external_mesh_id(version: u64, mesh: u32) -> ExternalMeshId {
@@ -250,10 +329,12 @@ impl Plugin for StonePoolPlugin {
         .init_resource::<PoolDefinitions>()
         .init_resource::<PoolDrawers>()
         .init_resource::<impostor::PoolImpostors>()
+        .init_resource::<PoolSizes>()
         .add_systems(
             PostUpdate,
             (
                 update_definitions,
+                receive_pool_sizes,
                 impostor::bake_pool_impostors,
                 collect_instances,
             )
@@ -262,6 +343,14 @@ impl Plugin for StonePoolPlugin {
                 .after(VisibilitySystems::VisibilityPropagate),
         )
         .add_plugins(PoolRenderPlugin);
+
+        // The render world posts measured sizes where the main world reads
+        // them.
+        let measured = MeasuredPoolSizes::default();
+        app.insert_resource(measured.clone());
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            render_app.insert_resource(measured);
+        }
     }
 }
 
@@ -392,18 +481,21 @@ fn pool_slots(
 
 /// Rebuilds each pool's copies when any pooled rock is added, changed,
 /// hidden or removed, or when a pool changes: one drawer entity per pool
-/// with rocks, holding an [`InstancedScatter`] of its visible rocks.
+/// with rocks, holding an [`InstancedScatter`] of its visible rocks. Also
+/// rebuilds them when the GPU has measured a pool's variants.
+#[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 fn collect_instances(
     mut commands: Commands,
     stones: Query<(&PooledStone, &GlobalTransform, &InheritedVisibility)>,
     changed: Query<(), ChangedStones>,
     mut removed: RemovedComponents<PooledStone>,
     definitions: Res<PoolDefinitions>,
+    sizes: Res<PoolSizes>,
     mut drawers: ResMut<PoolDrawers>,
     mut warned: Local<bool>,
 ) {
     let removed = removed.read().count() > 0;
-    if changed.is_empty() && !removed && !definitions.is_changed() {
+    if changed.is_empty() && !removed && !definitions.is_changed() && !sizes.is_changed() {
         return;
     }
 
@@ -429,10 +521,15 @@ fn collect_instances(
         }
         let options = &definition.pool.options;
         let scale = options.scale;
+        // Until the GPU has measured the variant, the bound of any rock from
+        // the pool's settings stands in for its size.
+        let size = sizes
+            .get(id, definition.version, stone.variant)
+            .unwrap_or_else(|| options.bounding_diameter());
         pools.entry(id).or_default().push(InstancedCopy {
             slot: stone.variant,
             transform: transform.affine() * Affine3A::from_scale(Vec3::splat(scale)),
-            size: options.bounding_diameter(),
+            size,
             wind_phase: 0.0,
         });
     }

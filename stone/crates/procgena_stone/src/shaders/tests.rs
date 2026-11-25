@@ -190,6 +190,8 @@ fn buffer_layouts_match_rust_packing() {
             ("rotation", 16),
             ("translation", 64),
             ("embed_depth", 76),
+            ("bounding_diameter", 80),
+            ("padding", 84),
         ]
     );
 }
@@ -799,7 +801,7 @@ const SLOTS: RequestSlots = RequestSlots {
 /// Words per `Vertex`, `DrawArgs`, and `Status`.
 const VERTEX_WORDS: usize = 6;
 const DRAW_WORDS: usize = 5;
-const STATUS_WORDS: usize = 20;
+const STATUS_WORDS: usize = (STATUS_SIZE / 4) as usize;
 
 /// Creates `count` status entries with no rotation, offset, or burial depth.
 /// This leaves generated meshes in their original stone-space coordinates.
@@ -903,10 +905,11 @@ fn assert_matches_cpu(out: &KernelOutput, cpu: &StoneMesh, mesher: Mesher) {
         out.status[request * STATUS_WORDS..][..4],
         [0, vertex_count as u32, index_count as u32, crossings]
     );
-    // Mesh output must retain the placement supplied in its source status entry.
+    // Mesh output must retain the placement supplied in its source status
+    // entry: the padded rotation, the offset and the burial depth.
     assert_eq!(
-        out.status[request * STATUS_WORDS..][4..STATUS_WORDS],
-        identity_status(1)[4..]
+        out.status[request * STATUS_WORDS..][4..20],
+        identity_status(1)[4..20]
     );
     assert_eq!(
         out.draw_args[request * DRAW_WORDS..][..DRAW_WORDS],

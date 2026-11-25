@@ -151,9 +151,9 @@ pub struct GpuMeshRange {
     pub status_offset: u64,
     /// Multiplier from unscaled mesh coordinates to metres, equal to
     /// [`StoneOptions::scale`]. Apply when drawing and when converting embed
-    /// depth or bounding radius to metres. The placed mesh can extend
+    /// depth or bounding diameter to metres. The placed mesh can extend
     /// beyond the original unit cube; see
-    /// [`GpuStoneStatus::bounding_radius`].
+    /// [`GpuStoneStatus::bounding_diameter`].
     pub scale: f32,
     /// Meshing method used.
     pub mesher: Mesher,
@@ -184,7 +184,7 @@ pub struct GpuStoneBatch {
     pub ranges: Vec<GpuMeshRange>,
 }
 
-/// A generated mesh's required capacity, suggested burial depth, and enclosing radius.
+/// A generated mesh's required capacity, suggested burial depth, and bounding diameter.
 /// Read these values from [`GpuStoneBatch::status`] with [`Self::decode`].
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct GpuStoneStatus {
@@ -201,10 +201,12 @@ pub struct GpuStoneStatus {
     /// to apply it; the generated mesh is not buried automatically. See
     /// [`StonePlacement::embed_depth`](crate::StonePlacement::embed_depth).
     pub embed_depth: f32,
-    /// Conservative radius enclosing the placed mesh around its origin.
-    /// Multiply by [`GpuMeshRange::scale`] for metres. Useful for checking
-    /// whether the rock might be visible without inspecting every vertex.
-    pub bounding_radius: f32,
+    /// Diagonal of the placed mesh's axis-aligned bounding box, in
+    /// unscaled units: the diameter of a sphere holding the mesh, the same
+    /// measure as [`Stone::bounding_diameter`](crate::Stone::bounding_diameter).
+    /// Multiply by [`GpuMeshRange::scale`] for metres. Zero for a mesh that
+    /// did not fit or has no vertices.
+    pub bounding_diameter: f32,
 }
 
 impl GpuStoneStatus {
@@ -224,16 +226,15 @@ impl GpuStoneStatus {
                 let word = |i: usize| u32::from_le_bytes(entry.as_chunks::<4>().0[i]);
                 let float = |i: usize| f32::from_bits(word(i));
                 let overflow = word(0);
-                // The padded rotation occupies words 4–15; offset is 16–18 and depth is 19.
-                let translation = [float(16), float(17), float(18)];
-                let distance = translation.iter().map(|t| t * t).sum::<f32>().sqrt();
+                // The padded rotation occupies words 4–15; offset is 16–18,
+                // depth is 19 and the bounding diameter 20.
                 Self {
                     vertex_overflow: overflow & OVERFLOW_VERTICES != 0,
                     index_overflow: overflow & (OVERFLOW_INDICES | OVERFLOW_CROSSINGS) != 0,
                     vertex_count: word(1),
                     index_count: word(2),
                     embed_depth: float(19),
-                    bounding_radius: distance + 0.75f32.sqrt(),
+                    bounding_diameter: float(20),
                 }
             })
             .collect()
@@ -328,11 +329,13 @@ struct Pipelines {
     emit_mc_vertices: wgpu::ComputePipeline,
     emit_mc_indices: wgpu::ComputePipeline,
     finish_mc: wgpu::ComputePipeline,
+    measure_mc: wgpu::ComputePipeline,
     count_dc: wgpu::ComputePipeline,
     emit_dc_crossings: wgpu::ComputePipeline,
     emit_dc_vertices: wgpu::ComputePipeline,
     emit_dc_indices: wgpu::ComputePipeline,
     finish_dc: wgpu::ComputePipeline,
+    measure_dc: wgpu::ComputePipeline,
     scan_blocks: wgpu::ComputePipeline,
     add_block_offsets: wgpu::ComputePipeline,
     place_com_slices: wgpu::ComputePipeline,
@@ -402,11 +405,13 @@ impl GpuStoneGenerator {
             emit_mc_vertices: pipeline(&mc, &mc_layout, "emit_mc_vertices"),
             emit_mc_indices: pipeline(&mc, &mc_layout, "emit_mc_indices"),
             finish_mc: pipeline(&mc, &mc_layout, "finish_mc"),
+            measure_mc: pipeline(&mc, &mc_layout, "measure_mc"),
             count_dc: pipeline(&dc, &dc_layout, "count_dc"),
             emit_dc_crossings: pipeline(&dc, &dc_layout, "emit_dc_crossings"),
             emit_dc_vertices: pipeline(&dc, &dc_layout, "emit_dc_vertices"),
             emit_dc_indices: pipeline(&dc, &dc_layout, "emit_dc_indices"),
             finish_dc: pipeline(&dc, &dc_layout, "finish_dc"),
+            measure_dc: pipeline(&dc, &dc_layout, "measure_dc"),
             scan_blocks: pipeline(&scan, &scan_layout, "scan_blocks"),
             add_block_offsets: pipeline(&scan, &scan_layout, "add_block_offsets"),
             place_com_slices: pipeline(&place, &place_layout, "place_com_slices"),
@@ -673,24 +678,27 @@ impl GpuStoneGenerator {
                 pass.set_bind_group(0, &generate_group, &offset);
                 dispatch_items(&mut pass, n, max_groups);
 
-                let (group, count, emits, finish): (_, _, &[_], _) = match request.mesher {
-                    Mesher::MarchingCubes => (
-                        &mc_group,
-                        &p.count_mc,
-                        &[&p.emit_mc_vertices, &p.emit_mc_indices],
-                        &p.finish_mc,
-                    ),
-                    Mesher::DualContouring => (
-                        &dc_group,
-                        &p.count_dc,
-                        &[
-                            &p.emit_dc_crossings,
-                            &p.emit_dc_vertices,
-                            &p.emit_dc_indices,
-                        ],
-                        &p.finish_dc,
-                    ),
-                };
+                let (group, count, emits, finish, measure): (_, _, &[_], _, _) =
+                    match request.mesher {
+                        Mesher::MarchingCubes => (
+                            &mc_group,
+                            &p.count_mc,
+                            &[&p.emit_mc_vertices, &p.emit_mc_indices],
+                            &p.finish_mc,
+                            &p.measure_mc,
+                        ),
+                        Mesher::DualContouring => (
+                            &dc_group,
+                            &p.count_dc,
+                            &[
+                                &p.emit_dc_crossings,
+                                &p.emit_dc_vertices,
+                                &p.emit_dc_indices,
+                            ],
+                            &p.finish_dc,
+                            &p.measure_dc,
+                        ),
+                    };
                 pass.set_pipeline(count);
                 pass.set_bind_group(0, group, &offset);
                 dispatch_items(&mut pass, n + 1, max_groups);
@@ -709,6 +717,8 @@ impl GpuStoneGenerator {
                     dispatch_items(&mut pass, n, max_groups);
                 }
                 pass.set_pipeline(finish);
+                pass.dispatch_workgroups(1, 1, 1);
+                pass.set_pipeline(measure);
                 pass.dispatch_workgroups(1, 1, 1);
             }
         }
