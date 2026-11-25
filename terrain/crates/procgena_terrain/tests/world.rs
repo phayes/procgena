@@ -8,6 +8,7 @@ use procgena_terrain::{
     BorderWarp, Convergence, Elevation, ElevationOptions, HeightBump, HeightField, HeightTile,
     NoiseLayer, OptionsError, RegionCorner, RegionId, RegionKey, RegionSpec, StitchedWorld,
     Terrain, TerrainOptions, TerrainPreset, WorldError, WorldTerrain, WorldTerrainOptions,
+    fixtures,
 };
 
 /// The world seed of every test world.
@@ -30,7 +31,7 @@ impl Land {
     fn elevation(self) -> ElevationOptions {
         let flat = NoiseLayer {
             height: 0.0,
-            ..ElevationOptions::default().uplift
+            ..fixtures::elevation_medium().uplift
         };
         match self {
             Land::Flat => ElevationOptions {
@@ -54,15 +55,16 @@ impl Land {
                     radius: 3000.0,
                     height: 40.0,
                 }],
-                ..ElevationOptions::default()
+                ..fixtures::elevation_medium()
             },
         }
     }
 }
 
-/// Every built-in preset, picked for a region by a hash of its id.
+/// Every medium-scale fixture preset, picked for a region by a hash of its
+/// id.
 fn preset_for(region: RegionId) -> TerrainOptions {
-    let presets: Vec<&TerrainPreset> = TerrainPreset::all().collect();
+    let presets: Vec<&TerrainPreset> = fixtures::all().collect();
     let hash = region.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 40;
     presets[hash as usize % presets.len()].terrain.clone()
 }
@@ -79,7 +81,7 @@ fn options(land: Land, cache: usize) -> WorldTerrainOptions {
         seed: SEED,
         elevation: land.elevation(),
         cache,
-        ..WorldTerrainOptions::default()
+        ..fixtures::world_medium()
     }
 }
 

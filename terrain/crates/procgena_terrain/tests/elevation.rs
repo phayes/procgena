@@ -5,8 +5,8 @@ mod common;
 use common::{DEFAULT, TILT, TILTED, preset, two_terrains};
 use glam::DVec2;
 use procgena_terrain::{
-    BorderTarget, EdgeTarget, Elevation, ElevationOptions, HeightField, RegionId, TerrainGenerator,
-    TerrainPreset, sample_count,
+    BorderTarget, EdgeTarget, Elevation, HeightField, RegionId, TerrainGenerator, fixtures,
+    sample_count,
 };
 
 /// Where the samples of an edge agreement lie: `count` evenly spaced points
@@ -75,8 +75,8 @@ fn elevation_and_edge_targets_may_be_set_in_either_order() {
     let world = two_terrains(DVec2::ZERO, DEFAULT);
     let region = world.terrains()[0].region().clone();
     let (plains, mountains) = (
-        preset(TerrainPreset::plains(), 1),
-        preset(TerrainPreset::mountains(), 1),
+        preset(fixtures::plains_medium(), 1),
+        preset(fixtures::mountains_medium(), 1),
     );
     let target = BorderTarget {
         amplitude: 30.0,
@@ -95,7 +95,7 @@ fn elevation_and_edge_targets_may_be_set_in_either_order() {
         })
         .collect();
     let neighbours = [(RegionId(2), mountains)];
-    let elevation = Elevation::new(ElevationOptions::default(), 1).unwrap();
+    let elevation = Elevation::new(fixtures::elevation_medium(), 1).unwrap();
 
     let first = TerrainGenerator::new(plains.clone())
         .unwrap()
@@ -117,7 +117,7 @@ fn elevation_and_edge_targets_may_be_set_in_either_order() {
 /// Settings with no relief, no rivers or roads and no border
 /// irregularities: ground that is E alone.
 fn bare() -> procgena_terrain::TerrainOptions {
-    let mut options = preset(TerrainPreset::plains(), 1);
+    let mut options = preset(fixtures::plains_medium(), 1);
     options.edges.roughness = 0.0;
     let base = &mut options.base;
     base.elevation = 0.0;

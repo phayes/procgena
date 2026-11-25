@@ -94,6 +94,7 @@ mod converge;
 mod drainage;
 mod elevation;
 mod feature;
+pub mod fixtures;
 mod graph;
 mod grid;
 pub mod ground;
