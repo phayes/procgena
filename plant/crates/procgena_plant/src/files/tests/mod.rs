@@ -689,3 +689,57 @@ fn the_default_seed_is_a_setting_like_any_other() {
         PlantScatterOptions::from_yaml("base: lawn\nplant_scatter:\n  default_seed: 3\n").unwrap();
     assert_eq!(scatter.default_seed, 3);
 }
+
+/// A registry of plants and plant Scatters.
+fn registry() -> Registry {
+    let mut registry = Registry::new();
+    registry
+        .register::<PlantPreset>()
+        .register::<PlantScatterPreset>();
+    registry
+}
+
+#[test]
+fn shipped_files_read_the_same_through_a_registry() {
+    let registry = registry();
+    for (key, text) in shipped("plants", "plant.yml") {
+        let read: PlantPreset = registry.read(&key, &text).unwrap();
+        assert_eq!(read, PlantPreset::from_yaml(&key, &text).unwrap(), "{key}");
+    }
+    for (key, text) in shipped("scatters", "plant_scatter.yml") {
+        let read: PlantScatterPreset = registry.read(&key, &text).unwrap();
+        assert_eq!(
+            read,
+            PlantScatterPreset::from_yaml(&key, &text).unwrap(),
+            "{key}"
+        );
+    }
+}
+
+#[test]
+fn a_project_scatter_uses_a_project_plant() {
+    let mut registry = registry();
+    registry
+        .add(
+            "plant",
+            "tall_fern",
+            "base: fern\nplant:\n  default_seed: 77\n",
+            None,
+        )
+        .unwrap();
+    registry
+        .add(
+            "plant_scatter",
+            "fern_bank",
+            "base: meadow\nplant_scatter:\n  plants:\n    - plant: tall_fern\n      density_scale: 0.5\n",
+            None,
+        )
+        .unwrap();
+    let fern = registry.resolve::<PlantPreset>("tall_fern").unwrap();
+    assert_eq!(fern.plant.default_seed, 77);
+    let bank = registry.resolve::<PlantScatterPreset>("fern_bank").unwrap();
+    assert_eq!(bank.plant_scatter.plants[0].plant, fern.plant);
+    assert_eq!(bank.plant_scatter.plants[0].density_scale, 0.5);
+    let uses = registry.used_by("plant", procgena_core::preset::Layer::Project, "tall_fern");
+    assert_eq!(uses[0].path.as_deref(), Some("plants.0.plant"));
+}

@@ -34,6 +34,7 @@ use procgena_core::{CHILD_KEY_MAX_LEN, ChildKey};
 use procgena_deadwood::DeadwoodPreset;
 use procgena_fruit::{FlowerPreset, FruitPreset};
 use procgena_mushroom::MushroomPreset;
+use procgena_plant_bevy::prelude::{PlantPreset, PlantScatterPreset};
 use procgena_stone::StonePreset;
 use procgena_terrain::TerrainPreset;
 use procgena_tree::{TreePreset, TreeScatterPreset};
@@ -175,7 +176,9 @@ fn registry() -> Registry {
         .register::<FlowerPreset>()
         .register::<DeadwoodPreset>()
         .register::<EcotopePreset>()
-        .register::<TerrainPreset>();
+        .register::<TerrainPreset>()
+        .register::<PlantPreset>()
+        .register::<PlantScatterPreset>();
     registry
 }
 

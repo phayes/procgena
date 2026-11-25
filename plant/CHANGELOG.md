@@ -5,6 +5,14 @@ break the API; each breaking change below says what to write instead.
 
 ## Unreleased
 
+### Plant presets join the preset registry
+
+`PlantPreset` and `PlantScatterPreset` implement `procgena_core::preset::Preset`,
+so a `procgena_core::preset::Registry` reads `.plant.yml` and
+`.plant_scatter.yml` files beside the other kinds. A project's plant can be
+the `base` of another, and a project Scatter can name a project plant in
+its `plants` list. Reading without a registry is unchanged.
+
 ### Blades on World cells
 
 Blades now sit on a grid fixed to the World, not to each field (see

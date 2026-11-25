@@ -57,7 +57,10 @@ use std::borrow::Cow;
 use std::fmt;
 
 use glam::Vec2;
-use procgena_core::preset::{Document, FILE_GROUP, PresetFileError, diff, from_value, to_value};
+use procgena_core::preset::{
+    Document, FILE_GROUP, Preset, PresetFileError, PresetMeta, ReferenceSlot, References, Registry,
+    diff, expand_slot, from_value, slot_reference, to_value,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -1230,6 +1233,128 @@ impl fmt::Display for PlantFileError {
 }
 
 impl std::error::Error for PlantFileError {}
+
+impl Preset for PlantPreset {
+    type Options = PlantParams;
+    const KIND: &'static str = PLANT_KIND;
+
+    fn key(&self) -> &str {
+        &self.key
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        &self.description
+    }
+    fn group(&self) -> &str {
+        &self.group
+    }
+    fn options(&self) -> &PlantParams {
+        &self.plant
+    }
+    fn into_options(self) -> PlantParams {
+        self.plant
+    }
+    fn from_parts(meta: PresetMeta, plant: PlantParams, _base: Option<&'static Self>) -> Self {
+        Self {
+            key: Cow::Owned(meta.key),
+            name: Cow::Owned(meta.name),
+            description: Cow::Owned(meta.description),
+            group: Cow::Owned(meta.group),
+            plant,
+        }
+    }
+    fn all() -> impl Iterator<Item = &'static Self> {
+        PlantPreset::all()
+    }
+    fn check(plant: &PlantParams) -> Result<(), String> {
+        validate_plant(plant).map_err(|error| error.to_string())
+    }
+}
+
+impl Preset for PlantScatterPreset {
+    type Options = PlantScatterOptions;
+    const KIND: &'static str = SCATTER_KIND;
+
+    fn key(&self) -> &str {
+        &self.key
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn description(&self) -> &str {
+        &self.description
+    }
+    fn group(&self) -> &str {
+        &self.group
+    }
+    fn options(&self) -> &PlantScatterOptions {
+        &self.plant_scatter
+    }
+    fn into_options(self) -> PlantScatterOptions {
+        self.plant_scatter
+    }
+    fn from_parts(
+        meta: PresetMeta,
+        plant_scatter: PlantScatterOptions,
+        _base: Option<&'static Self>,
+    ) -> Self {
+        Self {
+            key: Cow::Owned(meta.key),
+            name: Cow::Owned(meta.name),
+            description: Cow::Owned(meta.description),
+            group: Cow::Owned(meta.group),
+            plant_scatter,
+        }
+    }
+    fn all() -> impl Iterator<Item = &'static Self> {
+        PlantScatterPreset::all()
+    }
+    fn check(scatter: &PlantScatterOptions) -> Result<(), String> {
+        validate_scatter(scatter).map_err(|error| error.to_string())
+    }
+    fn references() -> References {
+        References {
+            slots: plant_slots,
+            expand: expand_plants,
+        }
+    }
+}
+
+/// The plant preset references in a Scatter's settings, at
+/// `plants.<i>.plant`.
+fn plant_slots(settings: &Value) -> Vec<ReferenceSlot> {
+    let Some(Value::Array(plants)) = settings.get("plants") else {
+        return Vec::new();
+    };
+    plants
+        .iter()
+        .enumerate()
+        .filter_map(|(i, entry)| {
+            Some(ReferenceSlot {
+                path: format!("plants.{i}.plant"),
+                kind: PLANT_KIND,
+                reference: slot_reference(entry.get("plant")?)?.to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// Replaces each plant reference in a Scatter's settings with the plant's
+/// settings, looked up in `registry`.
+fn expand_plants(settings: &mut Value, registry: &Registry) -> Result<(), PresetFileError> {
+    let Some(Value::Array(plants)) = settings.get_mut("plants") else {
+        return Ok(());
+    };
+    for (i, entry) in plants.iter_mut().enumerate() {
+        if let Some(plant) = entry.get_mut("plant") {
+            expand_slot::<PlantPreset>(plant, registry)
+                .map_err(|error| error.at(&format!("plants.{i}.plant")))?;
+        }
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests;

@@ -114,6 +114,8 @@ fn every_plain_kind_saves_an_unedited_built_in_as_its_base_alone() {
         ("deadwood", crate::deadwood::START_PRESET),
         ("clump", crate::clump::START_PRESET),
         ("terrain", crate::terrain::START_PRESET),
+        ("plant", crate::plant::START_PRESET),
+        ("plant_scatter", crate::field::START_PRESET),
     ] {
         studio.select(&format!("{kind}/{start}")).unwrap();
         studio.command("save-as-new").unwrap();

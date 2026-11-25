@@ -5,10 +5,15 @@ use procgena_plant_bevy::prelude::{PlantParams, PlantPreset, PlantScatterOptions
 
 use super::{Kind, RegisterKind, entries};
 use crate::params::ParamPanel;
-use crate::plant::editor::{PlantEdited, PlantEditor, PlantEditorPlugin, spawn_plant_editor};
+use crate::plant::editor::{
+    PlantEdited, PlantEditor, PlantEditorPlugin, load_plant, spawn_plant_editor,
+};
 use crate::scene::{FieldSettings, PlantsSubject, Show};
 use crate::studio::documents::DocumentEdited;
+use crate::studio::documents::history::EditorSettings;
+use crate::studio::documents::panels::resolved;
 use crate::studio::status;
+use procgena_core::preset::{from_value, to_value};
 
 /// The plant detail levels, most detailed first.
 pub const LEVELS: &[&str] = &["0 · Near", "1 · Mid", "2 · Far"];
@@ -26,7 +31,22 @@ pub fn register(app: &mut App) {
             start: crate::plant::START_PRESET,
             spawn_editor: spawn_plant_editor,
             show,
-            settings: None,
+            settings: Some(EditorSettings {
+                value: |world, editor| {
+                    let panel = world.get::<PlantEditor>(editor)?.panel();
+                    Some(to_value(
+                        world.get::<ParamPanel<PlantParams>>(panel)?.value(),
+                    ))
+                },
+                resolve: resolved::<PlantPreset>,
+                load: |world, _, value| {
+                    let plant: PlantParams =
+                        from_value(value.clone(), "").map_err(|error| error.to_string())?;
+                    world
+                        .run_system_cached_with(load_plant, plant)
+                        .map_err(|error| error.to_string())
+                },
+            }),
             detail_levels: LEVELS,
             hidden_environment: crate::environment::PLANTS,
             status_line: status::plants_line,
