@@ -459,8 +459,8 @@ fn lose_pointer(
     }
 }
 
-/// Finds what lies under the pointer for the drawn overlay, whenever the
-/// pointer, the camera or the overlay changes.
+/// Finds what lies under the pointer for the drawn overlay after the
+/// pointer, the camera or the overlay changes, once the camera is still.
 #[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 fn probe(
     pointer: Res<OverlayPointer>,
@@ -471,13 +471,20 @@ fn probe(
     marked: Query<&OverlayArea>,
     camera: Query<(&Camera, Ref<GlobalTransform>), With<ViewportCamera>>,
     mut status: ResMut<OverlayStatus>,
+    mut stale: Local<bool>,
 ) {
     let Ok((camera, transform)) = camera.single() else {
         return;
     };
-    if !(pointer.is_changed() || transform.is_changed() || status.is_changed()) {
+    if pointer.is_changed() || transform.is_changed() || status.is_changed() {
+        *stale = true;
+    }
+    // Tracing the ray takes milliseconds, so wait for the camera to stop
+    // rather than trace it on every frame of a drag.
+    if !*stale || transform.is_changed() {
         return;
     }
+    *stale = false;
     let readout = (|| {
         let overlay = status.drawn?;
         let (root, source) = shown_source(&root, &sources)?;
@@ -735,8 +742,18 @@ mod tests {
         // where its height is.
         let height = f64::from(OverlayGround::height(&*world, p, FeatureTier::Rough));
         let direction = DVec3::new(0.3, -1.0, 0.2).normalize();
-        let origin = DVec3::new(p.x, height, p.y) - direction * 150.0;
+        let origin = DVec3::new(p.x, height, p.y) - direction * 1000.0;
         let found = hit(&*world, &pieces, origin, direction).expect("the ray meets the ground");
+
+        // What one probe costs when the whole ray runs over drawn ground.
+        let wide = [(
+            Entity::PLACEHOLDER,
+            AreaKey::new(p - DVec2::splat(1500.0), 3000.0, FeatureTier::Rough),
+        )];
+        let start = Instant::now();
+        let far = hit(&*world, &wide, origin, direction).expect("the ray meets the ground");
+        eprintln!("one probe 1 km along the ray: {:?}", start.elapsed());
+        assert!(far.distance(p) < 0.05, "{far} is near {p}");
         assert!(found.distance(p) < 0.05, "{found} is near {p}");
 
         // A ray over ground that isn't drawn finds nothing.

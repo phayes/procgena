@@ -409,6 +409,17 @@ mod tests {
         wait_for(&mut studio, |status| status.offered == Overlay::ALL);
         assert!(studio.find("Overlay").is_ok(), "the control is shown");
 
+        // Picking from the control chooses the overlay.
+        studio.click("Off").unwrap();
+        studio.click("Curvature").unwrap();
+        assert_eq!(
+            studio.app_mut().world().resource::<OverlayChoice>().0,
+            Some(Overlay::Curvature)
+        );
+        wait_for(&mut studio, |status| {
+            status.drawn == Some(Overlay::Curvature)
+        });
+
         // Slope, with its legend and cost.
         draw(&mut studio, Overlay::Slope);
         let titled = studio.texts().iter().filter(|t| t.text == "Slope").count();
