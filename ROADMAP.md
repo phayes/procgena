@@ -44,7 +44,15 @@ asks.
 - **The largest item is off the spine.** GPU *building* for tree, deadwood
   and mushroom (rule 1) can run at any time after the shared crates. GPU
   *placement* and masks (open question 1) is on the spine, as a research
-  gate.
+  gate (D2), then built as milestone GP after C3, ahead of streaming.
+- **The Ecotope profile sets the GPU order** (2026-11-24,
+  [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)). The goal
+  stays GPU everywhere. Stone building is about 94% of the CPU work, and
+  placing copies is under 20 ms in the studio. So the order is:
+  - ED (cheap Ecotope draw wins) and R3a (stone's existing GPU mesher)
+    first;
+  - then R3's deadwood, mushroom and tree;
+  - then GP, whose payoff comes with streaming.
 - **Decisions are gates.** Four gates (crate names, YAML crate and
   coordinates; GPU masks and chunk reach; stable keys and slot choice;
   region size and shape) block specific milestones (see "Decision gates"). Each sits just before
@@ -152,6 +160,9 @@ flowchart TD
     D5{{"D5 World and Biome scale"}}
     G7["G7 Scale-aware terrain lengths"]
     IX["IX Impostor-heavy experiment"]
+    ED["ED Ecotope draw speed"]
+    R3a["R3a Stone GPU building in the Ecotope"]
+    GP["GP GPU placement and masks"]
 
     ST0["ST0 Studio shell"]
     ST1["ST1 Settings metadata, Inspector"]
@@ -252,6 +263,14 @@ flowchart TD
     D5 --> W0
     I1 --> IX
     I1b --> IX
+    C3a --> ED
+    R2 --> R3a
+    C2 --> GP
+    C3 --> GP
+    R2 --> GP
+    R3 -- "P3, P4" --> GP
+    D2 --> GP
+    GP --> S1
 
     I1b --> ST0
     ST0 --> ST1
@@ -642,7 +661,8 @@ From D5 (decided by the user 2026-11-24; see
 - **Status (2026-11-24):** built for tree, stone, deadwood and mushroom
   ([docs/decisions/C2-plan.md](docs/decisions/C2-plan.md)); plant joins in
   R3. Left: canopy shade as a density mask, part paths, `DrawHandle`, the
-  quantised slope byte and a per-Scatter `d` option, and a GPU path.
+  quantised slope byte and a per-Scatter `d` option, and a GPU path (now
+  milestone GP).
 
 #### C3a: Early Ecotope (moved forward, 2026-11-24)
 
@@ -931,12 +951,97 @@ go to the few copies near the camera.
     instanced renderer, plant's shader, fruit's detail check and the
     impostor level, plus a read-back of the level drawn. Milestone ST7b
     waits for it.
+  - **Build time as well as frame time** (added 2026-11-24 from
+    [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)): a
+    stone's level 0 is about 70% of its CPU build, so "level 1 by default"
+    also shortens loads and edits if level 0 is built only on demand.
 - **Needs:** I1 and fruit's impostors (I1b's fruit steps D1, D2) for the
   build; the planning step can start any time.
 - **Done when:** the plan is agreed with the user, the variants are
   built behind settings and measured on the agreed scenes and machines,
   and the results and the user's decision on defaults are recorded in
   the plan.
+
+The next three milestones come from profiling the studio's Ecotope tab
+(2026-11-24, [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)).
+The goal is settled: GPU placement, masks and building for every Scatter.
+The profile sets the order. In the pine forest floor, placing copies costs
+under 20 ms of CPU. Building stones is about 94% of the CPU work, and the
+first view stalls on shader pipeline compiles. Edits re-place everything,
+and lose cached stones.
+
+#### ED: Ecotope draw speed
+
+Real work in its own right, next to the GPU milestones, not instead of
+them.
+
+- **Covers:**
+  - Edits re-place only from the edited Scatter down, keeping each
+    Scatter's prepared shapes by settings and seed.
+  - Specimen caches survive a layer redraw. Today stone's prune drops all
+    7 cached stones on an edit to the pines.
+  - Dead wood is built once per variant, not once per copy.
+  - The studio gives background building more than Bevy's 3 of 10 cores.
+  - The render pipelines an Ecotope needs are warmed up when one opens.
+    macOS compiles them synchronously, which stalls frames.
+  - In the studio, impostors are baked only when they could be on screen.
+- **Needs:** C3a. It edits `procgena_biome_bevy`, the asset Bevy crates'
+  caches and the studio, so its biome and studio parts wait for GM1,
+  plant P2 and ST1.
+- **Done when:** on a quiet machine, a mushroom-only edit shows in under
+  0.3 s, an edit to the top Scatter rebuilds no unchanged specimen, and a
+  warm second open of an Ecotope has no frame over 100 ms.
+
+#### R3a: Stone GPU building in the Ecotope
+
+The first piece of R3, pulled forward because stones dominate the
+profile.
+
+- **Covers:**
+  - Ecotope stones are built by `procgena_stone`'s existing GPU mesher
+    (feature `gpu`, about 25–55× faster than the CPU at level 0's
+    resolution).
+  - They are drawn through the stone pool on R2's renderer.
+  - The CPU path stays the reference.
+  - The footprint measure stays on the CPU, kept across edits.
+- **Needs:** R2.
+- **Done when:** the pine forest floor's stones come from the GPU in the
+  studio, matching the CPU meshes within stone's parity tolerance.
+- **Then R3's other assets, in this order:** deadwood, mushroom, tree
+  (each cheap per variant today, but pools reach 256 specimens at World
+  scale). Plant's part follows its own plan.
+
+#### GP: GPU placement and masks
+
+- **Covers:** building D2's decided design ("Masks and placement" in
+  ARCHITECTURE.md):
+  - one placement model on a World-anchored lattice with `K_d` spacing;
+  - 8-bit mask textures per chunk, chained down the Ecotope, with exact
+    integer disc tests for hard exclusion;
+  - integer maths, so the CPU and the GPU agree bit for bit (the
+    quantised slope byte included);
+  - the CPU twin for queries, never reading back;
+  - window B streaming, with each chunk's Scatters in one compute pass,
+    so many Scatters run concurrently on the GPU.
+
+  It is C2's missing GPU path. Its first step is the timing runs D2
+  still owes, on a low-end integrated GPU and a discrete one.
+- **Why it isn't first:** in a 40 m studio patch, placement costs under
+  20 ms of CPU. Its payoff is at streaming scale: 0.74 ms per 64 m chunk
+  on the GPU, against about 10 ms for the unoptimised CPU twin, across
+  hundreds of chunks.
+- **Needs:**
+  - C3, whose CPU Ecotope is the twin;
+  - C2 and R2;
+  - plant P3 and P4 (in R3), so that grass joins the same mask chain;
+  - D2 (decided).
+- **Done when:**
+  - The pine forest floor, with grass, is placed on the GPU chunk by
+    chunk.
+  - It is bit-identical to the CPU twin in any build order, with
+    readback only in tests.
+  - It stays within D2's budget of 2 ms per chunk on an integrated GPU.
+- **Gates:** S1.
 
 ### Where the tracks meet
 
@@ -973,7 +1078,8 @@ go to the few copies near the camera.
   "Thinning at a distance" and "Far forest tint". Open question 9 is
   decided here.
 - **Needs:** W1, G6 (chunk grid and terrain streaming), R2 (renderer), I2
-  (impostors prepared per Ecotope ahead of view).
+  (impostors prepared per Ecotope ahead of view), GP (placement and masks
+  on the GPU, chunk by chunk).
 - **Can start earlier:** streaming one Biome over one Terrain needs only
   B1, G6, R2 and I2. World-wide region planning lands once W1 does.
 - **Done when:** the twelve user stories under "Loading by chunk" pass,
@@ -1151,7 +1257,7 @@ a cell run in order within the wave.
 | 5 | C3a; C2; G4; W0; R2; R3; I1 | C3a works in `procgena_biome` and its new Bevy crate only, so it runs beside C2; C2's trait then replaces C3a's adapters in wave 6. |
 | 6 | C3; G6; R4; I1b fruit steps AC1 → B1 | I1b's AC1 needs `tree/` free of other writers, so it runs before or after R4 (which edits `procgena_tree_bevy`), not beside it. It also waits on the user's answer about the cluster cards (see "For the user"). The fruit plan put AC1 and B1 in wave 5, but wave 5 had already run when the decision was applied. |
 | 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2; GM0 → GM1; ST0 (alone in `procgena/src/`, after the Fruit and Flower tabs merge); IX planning | G4 (wave 5, not built yet) runs as G4a, then G4b. GM0 writes a new `ground` module in `procgena_terrain` and the Ecotope's ground in `procgena_biome`; it runs beside B1 only if they don't share files in `procgena_biome`. ST0 is a churn window for the studio only: no other lane edits `procgena/src/` while it runs. IX's planning step needs no code and can run any time. |
-| 8 | W1; S1 (single Biome); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8 | After ST0 each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers (fruit AC1 in `tree/`, plant alignment, GM0 and B1 in `procgena_biome`). ST4 touches `procgena_impostor` and agrees it with fruit D2 and IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. |
+| 8 | ED; R3a → R3 deadwood → mushroom → tree; GP (after C3 and plant P4; D2's owed timing runs any time); W1; S1 (single Biome, after GP); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8 | After ST0 each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers (fruit AC1 in `tree/`, plant alignment, GM0 and B1 in `procgena_biome`). ST4 touches `procgena_impostor` and agrees it with fruit D2 and IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. ED's asset-cache and task-pool parts can start now; its `procgena_biome_bevy` and studio parts wait for GM1, plant P2 and ST1. R3a works in `stone/` plus one studio feature flag. |
 | 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's per-view distance override); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
 
 Workers follow the scoped-check rules in [CLAUDE.md](CLAUDE.md); the
