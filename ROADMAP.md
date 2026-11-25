@@ -47,8 +47,9 @@ asks.
   gate (D2), then built as milestone GP after C3, ahead of streaming.
 - **The Ecotope profile sets the GPU order** (2026-11-24,
   [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)). The goal
-  stays GPU everywhere. Stone building is about 94% of the CPU work, and
-  placing copies is under 20 ms in the studio. So the order is:
+  stays GPU everywhere. Stone building is about 94% of the CPU work
+  (provisional, measured on a loaded machine), and placing copies is under
+  20 ms in the studio. So the order is:
   - ED (cheap Ecotope draw wins) and R3a (stone's existing GPU mesher)
     first;
   - then R3's deadwood, mushroom and tree;
@@ -981,16 +982,16 @@ them.
   - Specimen caches survive a layer redraw. Today stone's prune drops all
     7 cached stones on an edit to the pines.
   - Dead wood is built once per variant, not once per copy.
-  - The studio gives background building more than Bevy's 3 of 10 cores.
   - The render pipelines an Ecotope needs are warmed up when one opens.
     macOS compiles them synchronously, which stalls frames.
   - In the studio, impostors are baked only when they could be on screen.
-- **Needs:** C3a. It edits `procgena_biome_bevy`, the asset Bevy crates'
-  caches and the studio, so its biome and studio parts wait for GM1,
-  plant P2 and ST1.
+- **Needs:** C3a. Its cache and dead wood parts touch only the asset
+  Bevy crates. Its re-placing, warm-up and bake parts edit
+  `procgena_biome_bevy` and the studio, so they wait for GM1, plant P2
+  and ST1.
 - **Done when:** on a quiet machine, a mushroom-only edit shows in under
   0.3 s, an edit to the top Scatter rebuilds no unchanged specimen, and a
-  warm second open of an Ecotope has no frame over 100 ms.
+  second open of an Ecotope in the same session has no frame over 100 ms.
 
 #### R3a: Stone GPU building in the Ecotope
 
@@ -999,12 +1000,17 @@ profile.
 
 - **Covers:**
   - Ecotope stones are built by `procgena_stone`'s existing GPU mesher
-    (feature `gpu`, about 25–55× faster than the CPU at level 0's
-    resolution).
-  - They are drawn through the stone pool on R2's renderer.
+    (feature `gpu`; about 25–55× faster per rock than the CPU at level
+    0's resolution, provisional).
+  - They are drawn through `StonePool` on R2's renderer, instead of one
+    entity per copy.
+  - The pool gains per-variant settings (each class's `StoneScatter`
+    variants) and an impostor level.
+  - `procgena_biome_bevy`'s stone layer spawns pooled stones.
   - The CPU path stays the reference.
   - The footprint measure stays on the CPU, kept across edits.
-- **Needs:** R2.
+- **Needs:** R2. Its `procgena_biome_bevy` part waits for GM1 and plant
+  P2, as ED's does.
 - **Done when:** the pine forest floor's stones come from the GPU in the
   studio, matching the CPU meshes within stone's parity tolerance.
 - **Then R3's other assets, in this order:** deadwood, mushroom, tree
@@ -1082,6 +1088,9 @@ profile.
   on the GPU, chunk by chunk).
 - **Can start earlier:** streaming one Biome over one Terrain needs only
   B1, G6, R2 and I2. World-wide region planning lands once W1 does.
+  Whether single-Biome streaming may start on CPU placement before GP is
+  open (question 4 in [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md);
+  the recommendation is yes).
 - **Done when:** the twelve user stories under "Loading by chunk" pass,
   as tests where they can be.
 
@@ -1257,7 +1266,7 @@ a cell run in order within the wave.
 | 5 | C3a; C2; G4; W0; R2; R3; I1 | C3a works in `procgena_biome` and its new Bevy crate only, so it runs beside C2; C2's trait then replaces C3a's adapters in wave 6. |
 | 6 | C3; G6; R4; I1b fruit steps AC1 → B1 | I1b's AC1 needs `tree/` free of other writers, so it runs before or after R4 (which edits `procgena_tree_bevy`), not beside it. It also waits on the user's answer about the cluster cards (see "For the user"). The fruit plan put AC1 and B1 in wave 5, but wave 5 had already run when the decision was applied. |
 | 7 | B1; I2; X1 (Scatter part); I1b fruit steps B2, D1, D2; GM0 → GM1; ST0 (alone in `procgena/src/`, after the Fruit and Flower tabs merge); IX planning | G4 (wave 5, not built yet) runs as G4a, then G4b. GM0 writes a new `ground` module in `procgena_terrain` and the Ecotope's ground in `procgena_biome`; it runs beside B1 only if they don't share files in `procgena_biome`. ST0 is a churn window for the studio only: no other lane edits `procgena/src/` while it runs. IX's planning step needs no code and can run any time. |
-| 8 | ED; R3a → R3 deadwood → mushroom → tree; GP (after C3 and plant P4; D2's owed timing runs any time); W1; S1 (single Biome, after GP); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8 | After ST0 each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers (fruit AC1 in `tree/`, plant alignment, GM0 and B1 in `procgena_biome`). ST4 touches `procgena_impostor` and agrees it with fruit D2 and IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. ED's asset-cache and task-pool parts can start now; its `procgena_biome_bevy` and studio parts wait for GM1, plant P2 and ST1. R3a works in `stone/` plus one studio feature flag. |
+| 8 | ED; R3a → R3's remaining asset parts (wave 5 started R3; deadwood → mushroom → tree); GP (after C3 and plant P4; D2's owed timing runs any time); W1; S1 (single Biome; see GP's question); GM2; GM3 (after G4a, labels after G4b); GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8 | After ST0 each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers (fruit AC1 in `tree/`, plant alignment, GM0 and B1 in `procgena_biome`). ST4 touches `procgena_impostor` and agrees it with fruit D2 and IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. ED's asset-cache and task-pool parts can start now; its `procgena_biome_bevy` and studio parts wait for GM1, plant P2 and ST1. R3a works in `stone/` plus one studio feature flag. |
 | 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's per-view distance override); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
 
 Workers follow the scoped-check rules in [CLAUDE.md](CLAUDE.md); the
