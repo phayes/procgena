@@ -1,5 +1,10 @@
 # C2 plan: the `Scatter` trait, masks out, World-anchored ids
 
+> **Record status: built** (milestone C2). This is the record of why; the
+> current design is in ARCHITECTURE.md and status in ROADMAP.md. Open
+> point 1 is done (`RegionId` is in `procgena_core/src/address.rs`);
+> points 2 and 3 are ROADMAP follow-ups, and point 4 landed with C2.
+
 Worker plan for roadmap milestone C2 (wave 5). Written 2026-11-24 before any
 code. Follows ARCHITECTURE.md ("Masks and placement", rules 4 and 5), D2,
 D3 and C1. Plant is out (R3).

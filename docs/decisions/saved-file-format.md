@@ -1,8 +1,11 @@
 # Saved-file format: preset bundles
 
-Status: **decided.** The user decided every question and the container on
-2026-11-24 (see "Decisions" and "Questions for the user"). The zip library
-is chosen when PB1 is built. No code was changed or run.
+> **Record status: decided** by the user 2026-11-24 (see "Decisions" and
+> "Questions for the user"); not built yet (PB1–PB4, ROADMAP's studio
+> track). The zip library is chosen when PB1 is built. Sections still
+> marked "(proposed)" were decided with the rest. Since it was written:
+> ST0 split the flower kind out, and "level 1 by default" applies to
+> textures only (trees default to `game_level` 0 under IX).
 
 Written from ARCHITECTURE.md ("Seeds", rule 10 "One preset and file
 pattern", "Bringing your own assets"),

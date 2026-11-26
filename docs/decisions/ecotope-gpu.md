@@ -1,5 +1,15 @@
 # Ecotope draw time, and the order of the GPU work
 
+> **Record status: accepted** by the user 2026-11-24; the order it sets is
+> ROADMAP's ED, R3a and GP. This is the record of why. Questions 1 and 2
+> are decided; 3 to 6 stay open, and ROADMAP's ED, GP and S1 carry them.
+> Since it was written: plant joined the Ecotope (P2), dead wood is built
+> once per variant (ED), R3a moves the Ecotope's stones to the GPU pool,
+> under IX trees default to `game_level` 0 rather than "level 1 by
+> default", baking only impostors that can be on screen is IX's
+> follow-up TODO, and the Ecotope "tab" is now the studio's Ecotope
+> document.
+
 Measured 2026-11-24 on an M1 Max (10 cores) running the studio's Ecotope
 tab: the pine forest floor over 40 m of rolling hills. The long-term goal
 is settled: **GPU everywhere**, meaning placement, masks and building for

@@ -1,5 +1,11 @@
 # IX plan: lean heavily on impostors
 
+> **Record status: decided**, Steps 0–4 built; Step 4's leftovers and
+> Step 5 (the experiment) remain (ROADMAP, milestone IX). The API below
+> is agreed, though some headings still say "proposed". Step 3 deleted the
+> old metre `Lod` once the renderer took the chain in Step 4. "Near level"
+> is the earlier name of `game_level`.
+
 Worker plan for roadmap milestone IX ("Experiment: lean heavily on
 impostors"). Written 2026-11-24 from the decisions recorded in
 [ROADMAP.md](../../ROADMAP.md) (IX, "Decided by the user (2026-11-25)" and

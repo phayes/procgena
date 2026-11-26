@@ -1,9 +1,14 @@
 # Ground materials: Ecotope-owned, driven by terrain measures and labels
 
-Status: **planned with the user on 2026-11-24; GM0 and GM1 built the same
-day** (see "As built"). The choices under "Decisions" are the user's. Anything
-still marked "proposed, not decided" is a recommendation waiting for the
-user (see "Open questions").
+> **Record status: decided** with the user 2026-11-24; what is built is in
+> ROADMAP's GM0–GM5 and GPU2. This is the record of why. The choices under
+> "Decisions" are the user's; anything still marked "proposed, not
+> decided" is a recommendation waiting for the user (see "Open
+> questions"). Since it was written: "GM6" became GPU2, built early by
+> the user's choice; plant joined the Ecotope in P2; the decision-7
+> rule "level 1 is the default for everything" applies to ground textures
+> only, since IX gives meshes a per-preset `game_level`; studio "tabs" are
+> now kinds and documents; G6 has merged.
 
 Written from ARCHITECTURE.md ("3. Ecotope", "4. Biome and Terrain",
 "Loading by chunk", "Masks and placement", "Seeds", "Extensibility",
