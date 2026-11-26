@@ -9,201 +9,297 @@ of the code at e4b4656.
 
 ## Bottom line
 
-- **The GPU can take most of the load, without touching the canonical
-  ground.**
-  - 74–82% of all terrain CPU goes on one product: the 129 × 129
-    `GroundSite`s that each chunk samples for paint, at
-    `SampleDetail::Gradient`.
+- **Most of the load is one visual product, and the GPU can take it
+  without touching the canonical ground.**
+  - 74–82% of all terrain CPU goes on the 129 × 129 `GroundSite`s that
+    each chunk samples for paint (`GroundGrid::chunk`).
   - The drawn mesh heights are another 2.2–2.4%.
   - Paint is visual-only under gate D6, and so is the drawn mesh of every
-    chunk that is not a canonical Fine TIN chunk. So the bitwise gate does
-    not bind the biggest cost.
-  - On one worker thread the cold mixed view at Rough is about 2.0 T
-    instructions of terrain work (about 200 s on one core). The first two
-    steps below should bring that to about 0.2 T (about 20 s). Every
-    figure is an estimate to measure (see "Expected savings").
-- **The canonical work stays on the CPU.** This is the analytic surface
-  `H*` wherever it decides something: TIN probes, river traces, hydrology,
-  road grades, placement, masks, slope and labels.
-  - WGSL has no `f64`.
-  - Its division and `sqrt` are not correctly rounded.
-  - It does not promise when multiplies and adds are fused.
-  - Quantising an approximate float does not make it deterministic (TIN
-    design §14.2).
-  - The only realistic route to canonical GPU stages is a fixed-point
-    `H*`. That belongs with D6a's later "pinned maths" milestone, not with
-    this plan (question 3).
-- **The canonical remainder is then the floor on one thread.** Region
-  plans and builds, about 270 k TIN probes per view, and queries all cost
-  `H*` reads on the CPU, and the GPU cannot help them. So the CPU per-point
-  cost of the border pulls and the fade remains a load-time item next to
-  the GPU work (step 3).
+    chunk that is not canonical (see "Which drawn chunks are canonical").
+    So D6's bitwise gate does not bind the biggest cost.
+- **A CPU-only win comes first, and it was found in this study.**
+  - The default painter is `GroundStack::bare`. Its riverbed layer asks
+    for `HeightAboveWater`, which is classed as
+    `SampleDetail::Measures`.
+  - So every paint site also reads four more full heights for curvature
+    (`Terrain::measures`, `CURVATURE_STEP`), which no layer of the bare
+    stack uses. The load profile assumed `Gradient` detail.
+  - Splitting "nearby water and roads" from "curvature" removes those
+    four heights per site. This is step 1a.
+- **Then slope moves to the GPU.** The CPU samples heights only, and the
+  paint pass takes slope by differences (step 1b). Steps 1a and 1b
+  together should cut terrain CPU by about **55–75%** on one thread.
+- **Next comes the CPU floor (step 2).** Region plans, river traces, road
+  grades, TIN probes and queries are canonical and stay on the CPU. Each
+  of their reads is 78–88% border fade and pulls (TE6). Making those
+  cheaper per point bounds how fast the near ground becomes canonical on
+  one thread.
+- **The long finish is full `H*` on the GPU for drawn non-canonical
+  ground (step 3, GPU3).** It removes most CPU sampling that is left,
+  about another 10–20% of today's cost, so the CPU reads `H*` only where
+  it decides something. It is large, and its border-pull port is the
+  risk.
+- **Canonical stages stay on the CPU.**
+  - WGSL has no `f64`, and the canonical maths is f64 with `std`
+    transcendentals.
+  - Quantising an approximate float is not deterministic (TIN design
+    §14.2).
+  - The one route to canonical GPU stages is a fixed-point `H*` profile.
+    It belongs with D6a's later "pinned maths" milestone, as one design
+    decision (question 3).
+- **Order of work:**
+  1. load-profile #0 (the deadlock);
+  2. step 1 (1a, then 1b), with load-profile #2 and #3, which need no
+     GPU;
+  3. step 2;
+  4. step 3 (GPU3a–d).
 
-### The order (each step stands alone and keeps a CPU path)
-
-| # | Step | Moves to the GPU | Expected saving, one thread | ROADMAP |
+| # | Step | Where | Expected saving, one thread (estimates; see below) | ROADMAP |
 |---|---|---|---|---|
-| 1 | **Heights-only sites, slope on the GPU.** The CPU samples one height grid per chunk (131², with a one-texel apron). The mesh takes every other point, and the existing paint pass derives slope by central differences. | Slope, and the second sampling pass | About **65%** of terrain CPU: the gradient half of the sites (41–43% of all CPU), the mesh's separate pass (about 2%), and sites at mesh-point cost (about 10% left of 74–82%) | GPU2: its site part. Propose a step **GPU2b**. |
-| 2 | **`H*` heights on the GPU for every drawn non-canonical chunk.** These are levels 1 and up, the Rough and Mid tiers, and the paint grid of level-0 chunks. The heights stay resident: displacement and paint read them, and there is no readback. | Relief, E, warp, border pulls and fade, carving, gullies, water and road tags, in f32 | Most of what step 1 leaves: about **10% of today's CPU**, which is about 50% of what is left after step 1. The CPU then reads `H*` only for TIN probes, plans and queries. | **GPU3** (no block yet). Propose GPU3a–d; GPU1 folds into GPU3a. |
-| 3 | **Cheaper `H*` per point on the CPU.** This means analytic pull gradients instead of four offsets, cheaper far integrals, and evaluating a neighbour's relief only where its blend share is above zero. | Nothing. This is the CPU floor. | Unknown until measured. The pulls and fade are 88% of a base read (TE6), and every canonical read pays that, river traces included. | [Border-pull cost (unscheduled)](../ROADMAP.md#border-pull-cost-unscheduled): propose scheduling it |
+| 1a | **Stop reading curvature that nothing paints.** A detail between `Gradient` and `Measures` gives nearby water and roads without the four curvature heights. `HeightAboveWater`, `WaterDistance` and `RoadDistance` ask for it. | CPU, small | Up to about half of each site's cost, if the curvature heights cost what a site's own height does: **about 15–35% of terrain CPU** | New item, beside GPU2 (proposed **GPU2a**). |
+| 1b | **Heights-only sites, slope on the GPU.** One CPU height grid per chunk (131², a one-texel apron). The mesh takes every other point, and the paint pass takes slope by central differences. | CPU and the existing GPU paint | With 1a, sites fall to about one height plus tags each: **about 55–75% in all**, leaving about 0.45–0.9 T of 1.99 T | GPU2's site part: proposed **GPU2b** |
+| 2 | **Cheaper `H*` per point on the CPU:** analytic pull gradients, cheaper far integrals, a neighbour's relief only where its blend share is above zero | CPU | Not measured. Pulls and fade are most of every canonical read, so halving them would cut the canonical remainder by roughly 30–40%. | [Border-pull cost (unscheduled)](../ROADMAP.md#border-pull-cost-unscheduled): propose scheduling it |
+| 3 | **`H*` on the GPU for drawn non-canonical ground:** heights and paint inputs computed and kept on the GPU, with no readback | GPU, large | Most of what step 1 leaves of sampling: **about 10–20% of today's terrain CPU**, leaving about 0.2 T (about 20 s) on the mixed view | **GPU3** (no block yet; defined in `edit_cache_plan.md`). Proposed GPU3a–d; GPU1 becomes GPU3a. |
 
 Not worth moving now: TIN refinement and CDT (about 0% of CPU), roads
-(0–0.2%), river carving (0.6–1.6%), and the river trace (0.3–0.4%). This
-covers CT6, RBG, CT7 and CT8 (see "Stages" for each).
-
-Load-profile items #0 (the deadlock), #2 (skipping Rough → Fine re-reads)
-and #3 (nearest upgrades first) are independent of the GPU and should
-land first or alongside. #2 also saves GPU time once step 2 lands.
+(0–0.2%), river carving (0.6–1.6%) and the river trace (0.3–0.4%). This
+covers CT6, RBG, CT7 and CT8 (see "Stages").
 
 ## Expected savings: how the estimate is made
 
-- **What it is based on:** the shares and instruction counts in
-  `load_profile.md` (10 Rayon workers, under load). Wall times there run
-  2–4× long, so they are not used.
-- **Converting to one thread:**
-  - The mixed view at Rough only: 2.32 T instructions for 252 chunks.
-    That is 252 × 16,641 ≈ 4.19 M paint sites and 252 × 4,225 ≈ 1.06 M
-    mesh points.
-  - Bevy's uncapped headless frames (14.4%) are left out, which leaves
-    about 1.99 T of terrain work.
+All of these are estimates. **The first task of step 1 is to measure
+them:**
+
+- one site's cost at Height, at Gradient, at the new detail and at
+  Measures;
+- inside the border margin and outside it;
+- with `--example ground_cost` (or an addition to it);
+- then a re-run of `load_timeline`.
+
+**The inputs:**
+
+- `load_profile.md` was measured on 10 Rayon workers under load, so its
+  wall times run 2–4× long. Only its shares and instruction counts are
+  used here.
+- The site share (74.4%) comes from the default run. The instruction
+  count (2.32 T) comes from the Rough-only run of the same view. Both are
+  on the mixed world, and they are combined here.
+- **One thread:**
+  - 2.32 T less Bevy's uncapped headless frames (14.4%) leaves about
+    1.99 T of terrain work.
   - At an assumed 10 G instructions/s on one M1 Max performance core,
-    that is about 200 s. Mountains: about 6.4 T, or about 640 s.
+    that is about **200 s**. Mountains is about 6.4 T, or about 640 s.
 - **Per point:**
-  - A paint site at `Gradient` costs about 410 k instructions on average
-    (74.4% of 2.32 T over 4.19 M).
-  - A mesh height costs about 52 k (2.4% over 1.06 M).
-  - The averages hide the border margin. Inside it a point pays the pulls
-    and the fade; outside, it pays almost only relief noise. The profiler
-    was asked for the split; it is not in the data yet.
-- **After step 1:**
-  - The profile's own estimate is that the sites fall to about 10% of
-    today's CPU (4× the mesh points, at mesh-point cost). The separate
-    mesh pass goes.
-  - That leaves about 1.99 − 1.73 + 0.23 ≈ 0.5 T, or about 50 s.
-  - Risk: a heights-only site still computes water and road tags and
-    relief height. If that costs more than a mesh point, the saving
-    shrinks towards the 41–43% floor of the gradient frames alone.
-- **After step 2:**
-  - The CPU reads `H*` for the TIN's 1 m lattice on 64 level-0 chunks
-    only: 270 k probes, about 14 G.
-  - Region stages (about 2–4%) and stream bookkeeping (about 7%) remain.
-  - Total about 0.2 T, or about 20 s, on the mixed view. Mountains has
-    heavier region stages (plans up to 6 s each, loaded), so expect
-    roughly 40–60 s.
-  - The GPU work is small. About 4.2 M points × a few thousand flops is
-    on the order of 10–20 ms on an M1 Max per full view, before
-    dispatch overhead.
-- **What step 2 does not shorten:** the first picture still waits for
-  the CPU's region builds, which run serially on one thread. TE2's
-  "nearest regions first" and plan-ahead (load-profile #5) decide it.
+  - The view has 252 × 16,641 ≈ 4.19 M paint sites and 252 × 4,225 ≈
+    1.06 M mesh points.
+  - A site costs about 410 k instructions on average, and a mesh height
+    about 52 k.
+  - About 8× a height matches a site at `Measures`: one height, the
+    gradient (several heights near borders) and four curvature heights.
+  - The profile's "gradient-only frames" (41–43%) put the gradient's part
+    at about 230 k. The curvature heights' part has not been measured, so
+    1a is given as a range.
+
+**After step 1:**
+
+- A site costs about one height plus the water and road lookups: about
+  52–100 k, or 0.22–0.42 T for the view.
+- The separate mesh pass (0.056 T) goes.
+- The rest is about 0.21 T: region stages, stream bookkeeping and the
+  remainder.
+- Total: **about 0.45–0.65 T, or 45–65 s**, against 200 s.
+- **The pessimistic case:** curvature is cheap and the non-gradient part
+  of a site stays about 185 k. Then about 0.9 T remains (about 55%
+  saved).
+
+**After step 3:**
+
+- The CPU reads `H*` only for:
+  - the TIN's 1 m lattice on level-0 chunks: 64 × 4,225 ≈ 270 k probes,
+    about 14 G;
+  - level-0 mesh heights for collision when the TIN is off: the same
+    count;
+  - the region stages (2–4%) and bookkeeping (about 7%).
+- Total: **about 0.2 T, or about 20 s, on the mixed view.** Mountains
+  has heavier region stages, so expect roughly 40–60 s.
+- The GPU work is about 4.2 M points × a few thousand flops: on the order
+  of 10–20 ms per full view on an M1 Max, before dispatch overhead.
+
+**What the GPU does not shorten:** the first picture waits for region
+builds, which run serially on one thread. TE2's "nearest regions first"
+and plan-ahead (load-profile #5), and step 2, decide that.
+
+## Which drawn chunks are canonical
+
+- **Only the Fine tier is canonical** (D6). Rough and Mid chunks are
+  provisional at every level.
+- **The TIN** (opt-in streaming, CT5a) is the physical ground of
+  level-0 Fine chunks. With it on, their mesh is built from about 4,225
+  CPU `H*` probes and is canonical.
+- **With the TIN off,** level-0 chunks draw a regular mesh from CPU `H*`
+  and give collision. That mesh stays on the CPU in this plan, because
+  collision must not depend on the GPU.
+- **Every other drawn product is visual:** levels 1 and up, Rough and Mid
+  tiers, paint at every level, normals, stand-ins and skirts. In the
+  measured view that is 188 of 252 chunks, and paint on all 252.
 
 ## Stages
 
-Shares are of all CPU on the mixed world (mountains in brackets), from
-the load profile.
+Shares are of all CPU on the mixed world (mountains in brackets).
 
-- **Canonical** means its output feeds the TIN, plans, river or road
+- **Canonical** means the output feeds the TIN, plans, river or road
   decisions, placement, masks or labels (D6b).
-- **Visual** means paint, a drawn non-canonical mesh, previews or far
+- **Visual** means paint, drawn non-canonical meshes, previews and far
   terrain.
 
 ### Per region
 
 | Stage | Code | CPU share | Data shape | Maths | Output | GPU fit |
 |---|---|---|---|---|---|---|
-| Region graph, owners, E agreement | `graph.rs`, `elevation.rs` | in "other" | Graph over a few dozen sites | f64, small | Canonical | **No.** Tiny and branchy. The GPU needs only the per-point owner lookup (see "Relief and E" under per point). |
-| Border negotiation: offers, agreements, edge samples | `ports.rs`, `seam.rs`, `stitch.rs`, `plan.rs` | 1.3% (1.9%) | Per edge: hundreds of samples, then a negotiation | f64, `exp` in `seam.rs` | Canonical | **No.** Sequential, small. Its outputs (agreed and own edge samples, segments) become GPU buffers. |
+| Region graph, owners, E agreement | `graph.rs`, `elevation.rs` | in "other" | Graph over a few dozen sites | f64, small | Canonical | **No.** Small and branchy. The GPU needs only the per-point owner lookup. |
+| Border negotiation, warp of border lines, agreed edge samples | `ports.rs`, `seam.rs`, `stitch.rs`, `warp.rs`, `plan.rs` | 1.3% (1.9%) | Per edge: hundreds of samples, then negotiation | f64; `exp` in `seam.rs` | Canonical | **No.** Sequential and small. Its outputs (segments, agreed and own edge samples) become GPU buffers. |
 | Convergence targets | `converge.rs` (`relief_target`, `blend_weights`, `level_for`) | ~0 | Per edge | `ln`, `exp`, `powf`, `asin`, `sin` | Canonical | **No.** Per edge, not per point. The results become buffers. |
-| River trace, hydrology, ponds | `river.rs`, `drainage.rs`, `plan.rs` | 0.4% + part of 0.3% (0.3% + 1.8%) | The trace reads the faded relief on a 25 m grid (95% of it, TE6), then makes a sequential downhill walk | The reads are `H*` maths; the walk is comparisons | Canonical | **No.** The grid reads are parallel but decide rivers, and the walk is a sequential search. A GPU grid would need bitwise parity. Without parity it could only be a proposal the CPU re-reads, which saves nothing. |
-| Roads: search, fitting, sections, earthworks | `road/` | 0.0% (0.2%) | 8 m and 16 m cost grids, A*, profile solves | f64 | Canonical | **Not now.** RBG (an integer delta-stepping cost field) is exact-parity feasible, but roads are no load cost. Keep RBG for road edits, after RB2. |
-| Gully patterns | `gully.rs` | (per point) | Per point | `exp` ×4, `floor` | Canonical in `H*` | See "Carving and gullies" under per point. |
+| River trace, hydrology, ponds | `river.rs`, `drainage.rs`, `plan.rs` | 0.4% + part of 0.3% (0.3% + 1.8%) | The faded relief on a 25 m grid (95% of the trace, TE6), then a sequential downhill walk | `H*` maths, then comparisons | Canonical | **No.** The grid reads decide rivers, so they would need bitwise parity. A GPU proposal that the CPU re-reads saves nothing. Step 2 is the lever here. |
+| Roads: search, fitting, sections, earthworks | `road/` | 0.0% (0.2%) | 8 m and 16 m cost grids, A*, profile solves | f64 | Canonical | **Not now.** RBG (an integer delta-stepping cost field) can reach exact parity, but roads cost nothing at load. Keep RBG for road edits, after RB2. |
 
 ### Per point (the inside of `H*`, paid by every read)
 
-Each read is a chain. It finds the owner region (`WorldTerrain::sample_batch`)
-and evaluates its relief (noise layers scaled and blended by the
-convergence fade). It then adds E, bends towards the border agreement
-(`Terrain::base`: pulls), and cuts in rivers, ponds, roads and gullies
-(`carve.rs`, `gully.rs`).
+A read is a chain:
+
+1. The owner region (`WorldTerrain::sample_batch`).
+2. Its relief: noise layers, scaled and blended by the convergence fade
+   (`Relief::height_above_elevation`), plus E.
+3. The bend towards the border agreement (`Terrain::base`: pulls).
+4. Rivers, ponds and roads cut in, then gullies (`carve.rs`, `gully.rs`).
 
 | Part | Share | Data shape | Maths | GPU port effort and parity risk |
 |---|---|---|---|---|
-| **Relief noise** (`noise.rs`, `relief.rs`, `warp.rs`) | 22.9% (16.9%) | Per point, independent | The integer PCG hash (`hash2`: wrapping u32 maths, with i64 cells folded to u32). The fraction is f32 Perlin with a quintic fade. Relief masks use `exp`; `ridged` uses `abs` and `max`; eroded fBm needs noise gradients inside the sum. Octave rotations are constants. | **Low effort, low risk.** The hash is bitwise portable: pass cells as two i32 words, and `fold` is exact. The lattice split keeps f32 fractions small, so f32 GPU noise is within a few ULP of the CPU's. `exp` in the masks is approximate in WGSL, which is fine for visual output. This is GPU1's kernel. |
-| **E** (`elevation.rs`) | in relief | Per point | fBm with gradient | As relief. |
-| **Owner lookup** (`world.rs`) | in "other" | Per point, a few nearby sites | Distances, comparisons | **Low.** Upload the chunk's nearby sites. A point exactly on an owner boundary may choose differently on the GPU. That is visual and the bend makes both sides meet, but test it. |
-| **Convergence fade** (`converge.rs`: `scales`, `blended`, and their gradients) | 17.8% (22.6%) | Per point: segment index cell → a few segments, then closed-form pulls | The same pull integrals as the border, plus `smootherstep`. Blend mode evaluates the neighbours' own relief at the point, which is a variable fan-out of 1–3 relief evaluations. | **High effort, medium risk.** It shares the pull kernel with the border (next row). The fan-out means the kernel evaluates up to N regions' relief per point, with relief parameters indexed per region. |
-| **Border pulls and bend** (`border.rs`, `terrain.rs::base`) | 28.2% (39.5%) | Per point: index cell → segments. Each segment's pull is a closed-form integral of `r^-(p+1)` with p = 3 and 16. | f64 throughout: `powi` up to 16, `powf(-1/16)` for the soft distance, `atan2` and `sqrt` in `cos_power_integral`, a series in `(a/x)²` stopped at a relative 1e-17, and subtractions of the constant 1 (`zeroth - (x1 - x0)`). The gradient path takes four more evaluations by differences (`pull_gradients`). | **The hardest part.** There is no f64 on Metal or WGSL. In f32 the "less 1" subtractions and the far series lose digits. Plan: work in segment-relative coordinates scaled by the reach (all lengths ≤ 1), and measure the error against the CPU. If it misses the tolerance, use two-float (df64) emulation for the moments only, which costs about 10–20× flops there and is affordable on the GPU. Step 1 already removes the four-offset gradients from the paint. |
-| **Carving: rivers, ponds** (`carve.rs`) | 1.6% (0.6%) | Per point: feature index → nearby lines; valley reach up to 300 m | Distances to polylines, bank profiles, `smootherstep`, one `exp` | **Medium.** Lines, profiles and the feature index become buffers. It also gives the water level for paint. |
-| **Carving: roads** (`carve.rs`, `road/section.rs`) | 0.5% (~0) | Per point: nearby stations' cross-sections | Interpolated sections, bands, `smootherstep` | **Medium.** Sections are per station, so upload them as arrays. It also gives road tags and distances for paint. |
-| **Gullies** (`gully.rs`) | 1.3% (1.1%) | Per point, independent pattern | `exp` ×4, `floor`, faded near roads | **Low.** |
-| **Measures and labels** (`measure.rs`, `label.rs`) | Only for stacks that ask (`Measures`: about 4 more heights; `Labels`: about 8 more) | Per point, stencils of heights | Differences, `sin`, `cos`, `powi` | **Visual measures (curvature) by differences on the GPU height grid: yes.** Labels are canonical for placement (D6b). Paint could use GPU-derived labels only if paint is allowed to differ from the placement labels (question 4). |
+| **Relief noise and E** (`noise.rs`, `relief.rs`, `elevation.rs`) | 22.9% (16.9%) | Per point, independent | Each octave rotates and scales the world position in f64 (`octave_rotation`, `LACUNARITY`), then splits it into an i64 lattice cell and an f32 fraction. The PCG hash is wrapping u32 maths, with cells folded to u32. The Perlin fade is quintic f32. The masks use `exp`. Eroded fBm sums noise gradients inside the loop. | **Low to medium effort, low risk for visual use.** The GPU has neither f64 nor i64, so the CPU passes, per chunk and per octave, the chunk origin already rotated, scaled and split into integer cell and fraction. The GPU adds the rotated, scaled local offset in f32. Cell indices then fit in i32 for any planned world, and the hash is bit-exact. Fractions differ from the CPU by a few f32 ULP. This is GPU1's kernel. |
+| **Owner lookup** (`world.rs`) | in "other" | Per point, a few nearby graph sites | Distances, comparisons | **Low.** Upload the chunk's nearby sites. A point exactly on an owner boundary may choose differently from the CPU. The bend makes both sides meet there, but test it. |
+| **Convergence fade** (`converge.rs`: `scales`, `blended` and their gradients) | 17.8% (22.6%) | Per point: segment index cell → a few fade edges, then closed-form pulls | The same pull integrals as the border, plus `smootherstep`. Blend mode evaluates the neighbours' own relief at the point, a variable fan-out of 1–3 relief evaluations. | **High effort, medium risk.** It shares the pull kernel with the next row. The kernel takes relief parameters indexed by region. |
+| **Border pulls and bend** (`border.rs`, `terrain.rs::base`) | 28.2% (39.5%) | Per point: index cell → segments. Each segment's pull is a closed-form integral of `r^-(p+1)`, with p = 3 for targets and 16 for distance. | All f64. `powi` up to 16. `powf(-1/16)` for the soft distance. `atan2` and `sqrt` in `cos_power_integral`. A series in `(a/x)²` stopped at a relative 1e-17. Subtractions of the constant 1 (`zeroth - (x1 - x0)`). The gradient path takes four more evaluations by differences (`pull_gradients`). | **The hardest part.** In f32 the "less 1" subtractions and the far series lose digits. Plan: segment-relative coordinates scaled by the reach (all lengths ≤ 1), and measure the error against the CPU. If it misses the tolerance, emulate two-float (df64) arithmetic for the moments only, which costs about 10–20× flops there and is affordable. Step 1b already removes the four-offset gradients from paint. |
+| **Carving: rivers, ponds** (`carve.rs`) | 1.6% (0.6%) | Per point: feature index → nearby lines; valleys reach up to 300 m | Distances to polylines, bank profiles, `smootherstep`, one `exp` | **Medium.** Lines, profiles and the feature index become buffers. It also gives the water level and nearby water for paint. |
+| **Carving: roads** (`carve.rs`, `road/section.rs`) | 0.5% (~0) | Per point: nearby stations' cross-sections | Interpolated sections and bands | **Medium.** Upload the sections as per-station arrays. It also gives road tags and distances for paint. |
+| **Gullies** (`gully.rs`) | 1.3% (1.1%) | Per point, independent pattern | `exp` ×4, `floor`, fading near roads | **Low.** |
+| **Measures and labels** (`Terrain::measures`, `label.rs`) | At `Measures`: four more heights (curvature) plus nearby features. At `Labels`: about eight more. | Stencils of heights | Differences, `sin`, `cos`, `powi` | **Curvature for paint can come by differences on the GPU height grid.** Labels are canonical for placement (D6b), so paint keeps the CPU path for label layers (question 4). |
 
 ### Per chunk
 
 | Stage | Code | Share | Shape | Output | GPU fit |
 |---|---|---|---|---|---|
-| **Ground sites for paint** | `GroundGrid::chunk` (`ground/weights.rs`, `ground/site.rs`) | **74.4% (82.4%)** | 129² `H*` reads with analytic gradients; a few heights more near borders | Visual | **Yes.** Step 1 drops the gradient and lets the paint pass take slope from the heights. Step 2 moves the heights too. |
-| Mesh heights | `ChunkSamples::sample` (`chunk.rs`) | 2.4% (2.2%) | 65² `H*` reads | Visual, except canonical Fine chunks drawn as TIN | **Yes for non-canonical chunks.** Step 1 shares the paint grid; step 2 moves it. |
-| Ground paint: layer stack, weights | `procgena_terrain_bevy::gpu_ground`, `ground_weights.wgsl` | Already on the GPU | Per texel | Visual | **Built.** Parity: within one byte per channel against the CPU painter (Metal readback test). |
-| TIN: probes | `tin/probe.rs::sample_heights`, `tin/refine.rs` | ~0% (TIN builds take milliseconds) | 65² Fine `H*` reads on the 1 m lattice, rounded to mm | **Canonical** | **No.** The rounding to mm makes CPU/GPU parity a threshold problem (§14.2). |
-| TIN: refinement, CDT | `tin/refine.rs`, `tin/cdt.rs` (spade) | ~0% | Sequential topology changes, robust predicates | Canonical | **No** (TIN design §13). CT8 stays research. |
-| CT6: GPU error probes | (not built) | — | Dense probes | Canonical selection | **Not now.** The probes are about 0% of CPU. A GPU proposal changes which probe wins unless a margin keeps the CPU's decision independent of it. Revisit only with a fixed-point `H*`. |
-| Render products: normals, stand-ins, AABBs, skirts | `procgena_terrain_bevy` (`ChunkSamples::stand_in`, mesh build) | In "stream bookkeeping" 2.0% (0.8%) | Per vertex | Visual | **Yes, as part of step 2.** Normals by differences. Stand-ins take a sub-rectangle of the parent's height texture, as paint's `part` already does. AABBs come from a tiny async readback of min and max, or a conservative bound. |
-| CT7: GPU-resident derived products from the TIN | (not built) | ~0% | Per vertex | Visual | **Later.** It reuses step 2's resident buffers. There is no load win. |
+| **Ground sites for paint** | `GroundGrid::chunk` (`ground/weights.rs`, `ground/site.rs`); detail from `GroundStack::detail` | **74.4% (82.4%)** | 129² `H*` reads at the bare stack's `Measures`: height, gradient, four curvature heights, nearby features | Visual | **Yes.** 1a drops the curvature, 1b drops the gradient (slope on the GPU), and step 3 moves the heights. |
+| Mesh heights | `ChunkSamples::sample` (`chunk.rs`) | 2.4% (2.2%) | 65² `H*` reads | Visual, except level-0 collision and canonical TIN chunks | **Yes for non-canonical chunks.** 1b shares the paint grid; step 3 moves it. |
+| Ground paint: layer stack, weights | `procgena_terrain_bevy::gpu_ground`, `ground_weights.wgsl` | Already on the GPU | Per texel | Visual | **Built.** Parity: within one byte per channel against the CPU painter (Metal readback test), with unsplit weights summing to 255. |
+| TIN probes | `tin/probe.rs::sample_heights`, `tin/refine.rs` (1 m lattice) | ~0% (milliseconds per chunk) | 65² Fine `H*` reads, rounded to mm | **Canonical** | **No.** Rounding to mm makes CPU/GPU parity a threshold problem (§14.2). |
+| TIN refinement, CDT | `tin/refine.rs`, `tin/cdt.rs` (spade) | ~0% | Sequential topology changes, robust predicates | Canonical | **No** (TIN design §13). CT8 stays research. |
+| CT6: GPU error probes | (not built) | — | Dense probes | Canonical selection | **Not now.** The probes are about 0% of CPU, and a GPU proposal changes which probe wins. Revisit only with a fixed-point `H*`. |
+| Render products: normals, stand-ins, bounding boxes, skirts | `procgena_terrain_bevy` (`ChunkSamples::stand_in`, mesh build) | In "stream bookkeeping": 2.0% (0.8%) | Per vertex | Visual | **Yes, in step 3.** Normals by differences. Stand-ins take a sub-rectangle of the parent's height texture, as paint's `part` already does. Bounding boxes come from a tiny async readback or a conservative bound. |
+| CT7: GPU-resident products derived from the TIN | (not built) | ~0% | Per vertex | Visual | **Later.** It reuses step 3's resident buffers, with no load win. |
 
-## Step 1: heights-only sites, slope on the GPU (GPU2b)
+## Step 1: cheaper paint sites
+
+### 1a: no curvature unless a layer paints by it (CPU)
+
+- **The change:** a sample detail, or flags, that gives the nearby water
+  height, water distance and road distance without the four curvature
+  heights.
+  - `Condition::HeightAboveWater`, `WaterDistance` and `RoadDistance` ask
+    for it.
+  - Only `Curvature` asks for `Measures`.
+  - The nearby-feature lookup (`features.nearby`) reads the feature
+    index, not heights.
+- **Results:** paint is bit-identical. Every site value the bare stack
+  reads is unchanged, and curvature becomes `None` where no layer reads
+  it.
+- **Check:** paint weights from a fresh read equal today's, bit for bit,
+  on the shipped presets.
+- **Effort:** small. `measure.rs` and `terrain.rs::query` (`SampleDetail`),
+  `ground/layer.rs` (`Condition::detail`), `ground/site.rs`, tests.
+
+### 1b: heights only, slope on the GPU (GPU2b)
 
 - **The CPU, per chunk:**
-  - One `GroundGrid` at `SampleDetail::Height`, at the same world points
-    the stream reads today, plus a one-texel apron: 131² instead of
-    129² + 65².
-  - The mesh takes every other interior point, which are the same world
-    positions, so there is no extra read.
-  - Water, road tags and relief height still come from the CPU site.
+  - One grid at the new detail without the gradient: 131² points (129²
+    plus a one-texel apron), at the world points the stream reads
+    today.
+  - The mesh takes every other interior point, at the same world
+    positions, so there is no second pass.
+  - Water, road tags, relief height and nearby water stay CPU site
+    values.
 - **The GPU paint pass:**
-  - It reads the height grid and computes slope by central differences
-    over the apron.
-  - Every chunk evaluates its shared edge texels from the same world
-    samples, so neighbours agree at seams.
-  - Retained grids keep working, so a material edit repaints without
-    reading.
-- **Parity:**
-  - This is visual only, and `gpu_progress.md` asks that the
-    differences' error be measured before they replace analytic slopes.
-    Measure the slope error against the analytic gradient on the shipped
-    presets, at every level, near rivers, roads and borders.
-  - Measure how far material boundaries move, in texels.
-  - Proposed acceptance (question 1): the 95th-percentile slope error
-    under 1°, and no material boundary moving more than one texel except
-    at creases (bank and road edges), which are shown in an image.
+  - It computes slope (and curvature, if a layer asks) by central
+    differences over the apron.
+  - Shared edge texels are evaluated from the same world samples on
+    both sides, so neighbours agree at seams.
+  - Retained grids keep working, so a material edit repaints without a
+    read.
+- **Parity (visual):**
+  - `gpu_progress.md` asks that the differences' error be measured before
+    they replace analytic slopes.
+  - Measure the slope error against the analytic gradient on the shipped
+    presets at every level, near rivers, roads and borders, and how far
+    material boundaries move in texels.
+  - Proposed acceptance (question 1): the 95th-percentile error under
+    1°, and boundaries moving no more than one texel away from creases
+    (bank and road edges), with an image of the creases.
 - **The CPU painter:**
-  - It stays the reference and the fallback (devices without compute,
-    custom and noise painters, more than eight materials).
-  - Its slope comes either from the same differences, so both paths
-    agree, or from the analytic gradient as today (question 2).
-- **What it does not cover:** stacks at `Measures` or `Labels` still take
-  the CPU path. Today that is custom stacks only, not the standard
-  terrain stack.
+  - It stays the reference and the fallback: devices without compute,
+    custom and noise painters, more than eight materials.
+  - For it to agree with the GPU in its inputs, it takes slope from the
+    same differences (question 2).
+- **What it does not cover:** stacks with label layers keep the CPU path.
+  No shipped terrain stack has them today.
 - **Effort:** small to medium.
-  - `procgena_terrain`: a heights-plus-apron grid, and the mesh taken from
+  - `procgena_terrain`: the grid with an apron, and the mesh taken from
     it.
-  - `procgena_terrain_bevy`: the shader's site layout and slope in
-    `ground_weights.wgsl`, the stream's single read, and tests.
-- **What survives into step 2:** the slope-by-differences shader is
-  exactly what step 2 needs, and the CPU heights path stays as the
-  fallback. Nothing is thrown away.
+  - `procgena_terrain_bevy`: the site layout and slope in
+    `ground_weights.wgsl`, the single read in the stream, and tests.
+- **What step 3 reuses:** the slope-by-differences shader is exactly what
+  step 3 needs, and the CPU heights path stays as the fallback.
+- **A note on ARCHITECTURE:** it says GPU Scatters take slope from the
+  tile's gradient grid, not by differencing a height texture, so that
+  Scatters and labels agree on what is steep. Paint is not a Scatter and
+  decides nothing. Taking its slope by differences departs from that
+  rule's spirit only for a visual product (question 1).
 
-## Step 2: `H*` on the GPU for drawn non-canonical ground (GPU3)
+## Step 2: the CPU floor (Border-pull cost)
 
-**Scope.** These chunks take their heights and paint sites from a GPU
-kernel:
+After steps 1 and 3, the CPU still reads `H*` for:
+
+- the TIN's probes;
+- level-0 collision heights;
+- the river trace (25 m grid) and hydrology;
+- road grades (8 m and 16 m grids) and earthworks (a few hundred heights
+  per station);
+- every query and placement.
+
+Each read is 78–88% fade and pulls (TE6). On one thread this sets how
+soon the near ground becomes canonical and a region is planned. It also
+sets the first picture, which waits for region builds.
+
+The candidates are already in ROADMAP:
+
+- fewer border pieces;
+- cheaper far-piece integrals;
+- a neighbour's relief only where its blend share is above zero;
+- analytic pull gradients for `Gradient` queries and the TIN's slope
+  checks.
+
+Changed results are allowed in this early repo, but are reported. This
+step comes before step 3 because it helps the canonical path, which no
+GPU step can, and because it is much smaller.
+
+## Step 3: `H*` on the GPU for drawn non-canonical ground (GPU3)
+
+**Scope.** These take their heights and paint inputs from a GPU kernel:
 
 - every chunk at level 1 and up;
-- every chunk drawn at the Rough or Mid tier (both provisional by D6);
-- the paint grid of level-0 Fine chunks, whose mesh is the CPU TIN.
+- every chunk drawn at the Rough or Mid tier;
+- the paint grid of level-0 chunks.
 
 The CPU keeps `H*` for:
 
+- level-0 meshes (TIN or collision);
 - TIN probes;
 - region stages;
 - `Terrain::query`, placement, masks and labels;
@@ -211,177 +307,153 @@ The CPU keeps `H*` for:
 
 **Kernel structure.**
 
-- **Buffers that stay resident per region**, built once after the
-  region's tier build:
+- **Region buffers**, built once per region tier and kept resident:
   - relief and E parameters;
-  - the segment index;
-  - the agreed and own edge samples and fade edges;
-  - river, pond and road lines with their sections and profiles;
+  - segment and fade-edge indexes;
+  - agreed and own edge samples;
+  - river, pond and road lines with sections and profiles;
   - gully parameters.
-- **Per chunk:** the ring of nearby graph sites and the up-to-N regions
-  it touches.
-- **Dispatches** are batched over many chunks. Each point writes its
-  height, plus water level and road tags for paint, to a resident storage
-  texture.
-- **Drawing:** the mesh is a flat grid displaced in the vertex shader from
-  that texture, with normals by differences. Stand-ins are
-  sub-rectangles of a parent texture.
+- **Per chunk:**
+  - the nearby graph sites;
+  - the regions it touches (up to N);
+  - the per-octave origin splits (see "Relief noise and E" under per
+    point).
+- **Dispatches** are batched over chunks. Each point writes its height,
+  water level, nearby water and road tags to resident storage textures.
+- **Drawing:** a flat grid displaced in the vertex shader, with normals
+  by differences. Stand-ins are sub-rectangles of a parent texture.
 - **Coordinates:**
-  - Chunk origins go in as integer metres (two i32 words where worlds
-    exceed 2³¹ mm), with chunk-local f32 positions.
+  - Chunk origins are integer metres; positions inside a chunk are f32.
   - Feature geometry is stored relative to its region's origin.
-  - Lattice cells are integer, so the hash matches the CPU bit for bit.
   - Shared edge points are computed from integer grid positions, never
     accumulated, so neighbouring GPU chunks agree exactly.
 - **The batch seam:** `WorldTerrain::sample_batch` already groups a
   batch's points by owner region. The GPU path is a second backend
-  behind it for visual products, chosen by the stream (as `gpu_ground` is
-  today).
+  behind it for visual products, chosen by the stream, as `gpu_ground`
+  is today.
 
 **Proposed stages, each landing on its own with parity tests:**
 
 | Stage | Contents | Replaces | Notes |
 |---|---|---|---|
-| GPU3a | Relief, warp, E and owner lookup, without the border or fade. This is GPU1's kernel. | GPU1 | It already serves the studio's relief preview (TE2). Drawn terrain switches only after GPU3b, since without the bend it would not match the CPU near borders. |
-| GPU3b | The pull kernel (border bend and convergence fade, including blend fan-out) | — | The df64 decision is made here, from measured error. |
-| GPU3c | Rivers, ponds, roads, gullies; water level and road tags for paint | — | The first point at which drawn ground can switch. |
-| GPU3d | Resident displacement, normals, stand-ins, AABBs; the stream switches drawn non-canonical chunks to GPU3 | TE3b for drawing | Retained height textures replace retained `GroundGrid`s for repaint. |
+| GPU3a | Relief, E and owner lookup, without the bend or fade. This is GPU1's kernel. | GPU1 | It serves the studio's relief preview (TE2). Drawn terrain switches only after GPU3c. |
+| GPU3b | The pull kernel: border bend and convergence fade with the blend fan-out | — | The df64 decision is made here, from measured error. |
+| GPU3c | Rivers, ponds, roads, gullies; water and road inputs for paint | — | The first stage at which drawn ground can switch. |
+| GPU3d | Resident displacement, normals, stand-ins, bounding boxes; the stream switches drawn non-canonical chunks | TE3b for drawing | Retained height textures replace retained `GroundGrid`s for repaint. |
 
-**Parity (visual products; TIN design §13.1, §13.6 and §14.10).**
+**Parity (visual; TIN design §13.1, §13.6 and §14.10).**
 
-- **Against the CPU `H*`:** |Δh| ≤ 1 cm at every sampled point over the
-  shipped presets and fixtures, including large and negative world
-  coordinates (question 5).
-  - Far copies rest on `H*` (D6b), so drawn far ground must not visibly
-    float under them.
-  - A level-1 cell is 2 m, so 1 cm is far below a pixel.
+- **Against the CPU `H*`:** GPU1 and `gpu_progress.md` already record
+  "within a few millimetres" (millimetre-scale) parity for drawn GPU
+  heights. Keep that criterion and measure it over the shipped presets
+  and fixtures, including large and negative world coordinates. If the
+  pull kernel cannot reach it even with df64, loosening is question 5.
 - **Seams:** exact between GPU chunks at the same level (same kernel,
   same inputs).
-- **Between GPU and CPU chunks** (a TIN chunk beside a GPU level-1
-  chunk): the existing level skirts and stand-ins cover the gap, as they
-  do between levels today.
-- **Paint:** the weights test stays within one byte per channel against
-  the CPU painter fed with CPU heights.
+- **GPU beside CPU chunks:** the existing level skirts and stand-ins
+  cover a GPU chunk next to a CPU level-0 chunk.
+- **Paint:** within one byte per channel against the CPU painter fed with
+  CPU heights.
 - **Never canonical:** no query, placement or plan reads a GPU height.
   `gpu_progress.md` already records "Terrain queries and planning never
-  use GPU readback", and that becomes a test.
+  use GPU readback". That becomes a test.
 
 **Readback and latency.**
 
 - **No height readback** for drawing.
-- **Chunk bounds for culling:** either a two-float min and max per chunk
-  read back asynchronously (a few bytes, a frame or two late, with a
-  conservative bound from the region's E and relief amplitude until it
-  arrives), or the conservative bound alone.
-- **Upload:** region buffers once per region tier build, about 100 KB to
+- **Bounding boxes for culling:** a two-float min and max per chunk read
+  back asynchronously, a frame or two late. A conservative bound from
+  the region's E and relief amplitude serves until it arrives.
+- **Uploads:** region buffers once per region tier build, about 100 KB to
   1 MB each (to measure).
-- **Latency:** a chunk is drawable one frame after its dispatch. This is
-  bounded by a per-frame compute budget (question 6), so terrain never
-  starves the renderer.
-- **Main thread:** step 2 removes the CPU mesh build from swaps, which
+- **Latency:** a chunk is drawable one frame after its dispatch, within
+  a per-frame compute budget (question 6).
+- **The main thread:** the CPU mesh build leaves chunk swaps, which
   should help the 20 ms swap frames in the load profile.
 
-**Effort:** large. About 2,500 lines of f64 Rust maths go to WGSL across
-`noise`, `relief`, `warp`, `elevation`, `border`, `converge`, `terrain::base`,
-`carve`, `road/section` and `gully`. Each needs the same stencil of parity
-tests. Risk sits mostly in GPU3b.
-
-## Step 3: the CPU floor (Border-pull cost)
-
-After steps 1 and 2 the CPU still reads `H*` for:
-
-- the TIN's 270 k probes per view;
-- the river trace (25 m grid) and hydrology;
-- road grades (8 m and 16 m grids);
-- earthworks (a few hundred heights per station);
-- every query and placement.
-
-Each of those reads is 78–88% border fade and pulls (TE6, Border-pull
-cost). On one thread this sets how quickly the near ground becomes
-canonical and how quickly a region is planned. The candidates are already
-listed in ROADMAP:
-
-- fewer border pieces;
-- cheaper far-piece integrals;
-- a neighbour's relief only where its blend share is above zero;
-- analytic pull gradients (a query at `Gradient`, and the TIN's slope
-  checks).
-
-All of them must keep `H*` bitwise identical, or be reported as changed
-results, which is allowed in this early repo (memory: results may
-change). This step is not GPU work, but without it the GPU plan leaves
-the canonical path where it is.
+**Effort:** large. About 2,500 lines of f64 Rust maths go to WGSL:
+`noise`, `relief`, `elevation`, `converge`, `border`, `terrain::base`,
+`carve`, `road/section` and `gully`, each with the same stencil of parity
+tests. The risk sits in GPU3b.
 
 ## What stays on the CPU, and why
 
 - **Canonical `H*` and everything that reads it:** plans, rivers,
-  hydrology, roads, TIN probes and refinement, CDT, labels, masks,
-  placement and queries. D6 requires bitwise or exactly quantised parity.
-  WGSL gives neither for floats, and the canonical maths is f64 with
-  `std` transcendentals.
+  hydrology, roads, TIN probes, refinement and CDT, labels, masks,
+  placement, queries and level-0 collision.
+  - D6 requires bitwise or exactly quantised parity.
+  - The canonical maths is f64 with `std` transcendentals, and WGSL has
+    no f64.
+  - WGSL's accuracy for division and `sqrt`, and whether it may fuse a
+    multiply and an add, are **to verify** against the spec before any
+    float stage is called exact.
 - **Sequential searches:** the river walk, road A*, fitting and the
   negotiation. They are small and irregular.
-- **The CPU paths for visual products:** these are kept as reference and
-  fallback (no compute, custom and noise painters, more than eight
-  materials, servers and tests).
+- **The CPU paths for visual products:** kept as reference and fallback.
 
 ## Canonical stages on the GPU: the only route
 
-If canonical GPU stages are ever wanted (the long-term "GPU everywhere"
-goal), the route is a fixed-point `H*` profile:
+The long-term "GPU everywhere" goal may want canonical GPU stages. The
+route is a fixed-point `H*` profile:
 
-- integer hash and lattice (already integer);
+- the integer hash and lattice, which are already integer;
 - fixed-point noise polynomials;
-- polynomial approximations of `exp`, `pow` and `atan2`, defined bit for
-  bit and run identically on both sides;
+- polynomial `exp`, `pow` and `atan2`, defined bit for bit;
 - integer pull moments.
 
-The same profile would give D6a's cross-platform identity ("pinned
-maths"). The two should be one design decision, made when D6a's later
-milestone opens, and not before. The border integrals with power-16
-weights are the hard part. Until then CT6, CT8 and any canonical GPU
-`H*` stay research.
+The same profile would give D6a's cross-platform identity. So it should
+be one design decision, taken when D6a's pinned-maths milestone opens.
+The border integrals with power-16 weights are the hard part. Until then,
+CT6, CT8 and any canonical GPU `H*` stay research.
 
-## Proposed ROADMAP changes (for the coordinator, not edited here)
+## Proposed ROADMAP changes (for the coordinator; not edited here)
 
-- **GPU2:** add the step **GPU2b**, "Heights-only ground sites, slope by
-  differences on the GPU", with step 1's done-when: the measured slope
-  error accepted, one CPU read per chunk, and the load profile re-run.
-- **GPU3:** add a block with GPU3a–d as above. Its done-when: parity
-  tests at each stage; drawn non-canonical chunks read no `H*` on the
-  CPU; a cold mixed view on one thread measured against this plan's
-  estimate.
-- **GPU1:** mark it as becoming GPU3a. The studio preview (TE2) uses the
-  kernel without the border.
-- **Border-pull cost:** schedule it as the CPU floor for canonical reads.
-- **CT6, CT7, CT8, RBG:** unchanged, behind the fixed-point decision
-  (CT6, CT8) or with no load win (RBG, CT7). Add a line linking this plan.
-- **New dependencies:** none needed (wgpu and naga come through Bevy).
+- **GPU2a (new): no curvature unless painted.** Done when paint is
+  bit-identical, the curvature heights are gone from the bare stack's
+  reads, and the saving is measured.
+- **GPU2b (new): heights-only sites, slope by differences on the GPU.**
+  Done when the slope error is measured and accepted, one CPU read is
+  made per chunk, and `load_timeline` is re-run on one thread.
+- **GPU3 (new block): GPU3a–d as above.** Done when every stage passes
+  its parity tests, drawn non-canonical chunks read no CPU `H*`, and a
+  cold mixed view on one thread is measured against this plan.
+- **GPU1:** becomes GPU3a. The studio preview (TE2) uses it without the
+  bend.
+- **Border-pull cost:** schedule it, as the CPU floor for canonical
+  reads.
+- **CT6, CT7, CT8, RBG:** link this plan. CT6 and CT8 wait on the
+  fixed-point decision; RBG and CT7 have no load win.
+- **load_profile.md:** its #1 says the bare stack samples at `Gradient`.
+  It samples at `Measures` (finding 1a), so that line should be
+  corrected (sent to the profiler).
+- **No new dependencies:** wgpu and naga come through Bevy.
 
 ## Open questions (for the coordinator; a recommendation for each)
 
-1. **Is slope by differences good enough for paint?** Recommended: yes,
-   with the acceptance in step 1 (95th-percentile error under 1°,
-   boundaries within one texel away from creases), measured on the
-   shipped presets before switching.
-2. **Should the CPU painter also take slope by differences, so the CPU
-   and GPU paths agree exactly in their input?** Recommended: yes. It
-   also removes the gradient from the CPU fallback, and analytic
-   gradients remain for queries.
-3. **Should canonical stages stay on the CPU until a fixed-point `H*`
-   designed together with D6a's pinned maths?** Recommended: yes. Don't
-   start CT6, CT8 or a canonical GPU `H*` before that decision.
-4. **Should paint use GPU-derived landform labels and curvature, and
-   differ slightly from placement's canonical labels?** Recommended: not
-   yet. Stacks at `Labels` keep the CPU path, and the question is revisited
-   when a shipped stack paints by label.
-5. **Is 1 cm the height tolerance for drawn GPU ground against `H*`?**
-   Recommended: yes for levels 1 and up. Measure first and tighten if
-   it's cheap.
-6. **What compute budget per frame should terrain have?** Recommended:
-   2 ms a frame in the game and uncapped while the studio loads with
-   nothing to draw.
-7. **What order of work?** Recommended: load-profile #0 (deadlock), then
-   step 1 with #2 and #3, then step 3, then GPU3a–d. Step 1 is the
-   biggest win per unit of effort. Step 3 bounds canonical latency on one
-   thread. Step 2 is the long, large finish.
+1. **Is slope by differences good enough for paint, and does it fit
+   ARCHITECTURE's GPU Scatter slope rule?**
+   - Recommended: yes for paint only. Accept it with step 1b's measured
+     acceptance (95th-percentile error under 1°, boundaries within one
+     texel away from creases).
+   - Scatters keep gradient grids.
+2. **Should the CPU painter also take slope by differences, so both paths
+   read the same inputs?**
+   - Recommended: yes.
+   - The fallback then needs no gradient either, and analytic gradients
+     stay for queries.
+3. **Should canonical stages stay on the CPU until a fixed-point `H*` is
+   designed together with D6a's pinned maths?**
+   - Recommended: yes.
+   - Start no CT6, CT8 or canonical GPU `H*` before that decision.
+4. **Should paint use GPU-derived landform labels, which may differ
+   slightly from placement's canonical labels?**
+   - Recommended: not yet. Label layers keep the CPU path.
+   - Revisit when a shipped stack paints by label.
+5. **If the pull kernel cannot meet millimetre parity even with df64,
+   may drawn GPU ground at levels 1 and up loosen to 1 cm?**
+   - Recommended: yes for those levels only. A level-1 cell is 2 m, far
+     copies rest on `H*`, and 1 cm is well below a pixel there.
+   - This loosens a recorded criterion, so it needs an explicit yes.
+6. **What compute budget per frame should terrain have?**
+   - Recommended: 2 ms a frame in the game.
+   - Uncapped while the studio loads with nothing yet drawn.
