@@ -85,7 +85,12 @@ with the advisor where needed, for the user to review.
      depend on neighbours' plans. Conditions: plan cost well inside about
      55 ms on one thread, and identical shared profiles whichever region
      is built first.
-8. **Cheap borders (TB):**
+8. **Demo play area:** the plan's 1.5 km area stays. Play starts once
+   the 3×3 tiles around the start are placed, and the rest load in the
+   background. Porcini is halved in the demo's own Ecotope preset only.
+   Placement takes about 68 s per tile on a loaded machine; it's the next
+   bottleneck to measure, per Scatter.
+9. **Cheap borders (TB):**
    - Its "before" numbers are taken after the Rayon removal (TS), so the
      comparison is like for like.
    - `Convergence::blend` and `EdgeOptions::roughness` stay as settings
