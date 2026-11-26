@@ -58,6 +58,8 @@ const CREASE_CLEARANCE: f64 = 1.5;
 struct Counting<'a> {
     world: &'a WorldTerrain,
     reads: AtomicUsize,
+    /// Nanoseconds spent reading heights.
+    nanos: AtomicUsize,
 }
 
 impl<'a> Counting<'a> {
@@ -65,6 +67,7 @@ impl<'a> Counting<'a> {
         Self {
             world,
             reads: AtomicUsize::new(0),
+            nanos: AtomicUsize::new(0),
         }
     }
 
@@ -72,16 +75,33 @@ impl<'a> Counting<'a> {
     fn take(&self) -> usize {
         self.reads.swap(0, AtomicOrdering::Relaxed)
     }
+
+    /// The milliseconds spent reading heights since the last call.
+    fn take_ms(&self) -> f64 {
+        self.nanos.swap(0, AtomicOrdering::Relaxed) as f64 / 1e6
+    }
 }
 
 impl ChunkSource for Counting<'_> {
     fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
         self.reads.fetch_add(1, AtomicOrdering::Relaxed);
-        self.world.surface(p, tier)
+        let started = Instant::now();
+        let s = self.world.surface(p, tier);
+        self.nanos.fetch_add(
+            started.elapsed().as_nanos() as usize,
+            AtomicOrdering::Relaxed,
+        );
+        s
     }
     fn surfaces(&self, points: &[DVec2], tier: FeatureTier) -> Vec<SurfacePoint> {
         self.reads.fetch_add(points.len(), AtomicOrdering::Relaxed);
-        self.world.surfaces(points, tier)
+        let started = Instant::now();
+        let s = self.world.surfaces(points, tier);
+        self.nanos.fetch_add(
+            started.elapsed().as_nanos() as usize,
+            AtomicOrdering::Relaxed,
+        );
+        s
     }
     fn tier(&self, tier: FeatureTier) -> FeatureTier {
         self.world.tier(tier)
@@ -147,8 +167,8 @@ fn main() {
         "build ms"
     );
     println!(
-        "{:<16} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
-        "", "reads", "edge rd", "edge ms", "1m over", "worst", "norm rd", "norm ms"
+        "{:<16} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        "", "reads", "edge rd", "edge ms", "1m over", "worst", "norm rd", "norm ms", "H* ms"
     );
 
     let presets: Vec<&TerrainPreset> = if use_fixtures {
@@ -252,6 +272,9 @@ struct Stats {
     reads: Vec<f64>,
     /// Heights read building each chunk's four edge contracts alone.
     edge_reads: Vec<f64>,
+    /// Of each chunk's fastest build, the milliseconds spent reading
+    /// heights.
+    read_ms: Vec<f64>,
     /// Heights read for each chunk's shading normals, and the time taken.
     normal_reads: Vec<f64>,
     normal_ms: Vec<f64>,
@@ -284,14 +307,19 @@ impl Stats {
         // few builds, and the heights each reads.
         let counting = Counting::new(world);
         let mut mesh = None;
-        let mut fastest = f64::INFINITY;
+        let (mut fastest, mut fastest_reading) = (f64::INFINITY, 0.0);
+        counting.take_ms();
         for _ in 0..self.repeats {
             let started = Instant::now();
             mesh = Some(build_chunk(&counting, key, tolerance).map_err(|e| e.to_string())?);
-            fastest = fastest.min(started.elapsed().as_secs_f64() * 1000.0);
+            let (took, reading) = (started.elapsed().as_secs_f64() * 1000.0, counting.take_ms());
+            if took < fastest {
+                (fastest, fastest_reading) = (took, reading);
+            }
         }
         let mesh = mesh.expect("built at least once");
         self.build_ms.push(fastest);
+        self.read_ms.push(fastest_reading);
         self.reads.push((counting.take() / self.repeats) as f64);
         let started = Instant::now();
         mesh.shading_normals(&counting).map_err(|e| e.to_string())?;
@@ -404,7 +432,7 @@ impl Stats {
             mean(&self.build_ms),
         );
         println!(
-            "{:<16} {:>8.0} {:>8.0} {:>8.2} {:>8} {:>8.0} {:>8.0} {:>8.2}",
+            "{:<16} {:>8.0} {:>8.0} {:>8.2} {:>8} {:>8.0} {:>8.0} {:>8.2} {:>8.2}",
             "",
             mean(&self.reads),
             mean(&self.edge_reads),
@@ -413,6 +441,7 @@ impl Stats {
             self.over_worst,
             mean(&self.normal_reads),
             mean(&self.normal_ms),
+            mean(&self.read_ms),
         );
     }
 }
