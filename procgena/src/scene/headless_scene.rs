@@ -104,15 +104,12 @@ impl HeadlessScene {
         let events = EventSink::default();
 
         // Build the app and finish its plugins; the renderer starts
-        // asynchronously. Clumps and the ground are drawn in flat colours,
-        // which tests recognise more reliably than textures. Impostors are
+        // asynchronously. Clumps are drawn in flat colours, which tests
+        // recognise more reliably than textures. Impostors are
         // baked afresh, whatever the user's cache folder holds.
         let mut app = App::new();
         sources(&mut app);
-        let scene = scene
-            .without_clump_textures()
-            .without_ground_textures()
-            .without_impostor_cache();
+        let scene = scene.without_clump_textures().without_impostor_cache();
         app.add_plugins((headless_plugins(), scene))
             .insert_resource(FrameSink {
                 log: frames.clone(),

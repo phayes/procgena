@@ -43,13 +43,6 @@ pub const MUSHROOM_TEXTURE_ROOT: &str = "procgena_mushroom://textures";
 /// locations with [`add_asset_sources`].
 pub const DEADWOOD_TEXTURE_ROOT: &str = "procgena_deadwood://textures";
 
-/// Path prefix for loading the ground textures supplied with
-/// procgena_terrain.
-///
-/// Use as [`GroundTextureSettings::root`](procgena_terrain_bevy::GroundTextureSettings::root)
-/// after registering the texture locations with [`add_asset_sources`].
-pub const TERRAIN_TEXTURE_ROOT: &str = "procgena_terrain://textures";
-
 /// A generator's asset folder, registered as an asset source.
 struct GeneratorAssets {
     /// The asset source name, as in `procgena_tree://`.

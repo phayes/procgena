@@ -61,18 +61,6 @@ pub(crate) struct Swap {
 }
 
 impl Stream {
-    /// Replaces paint-bearing reads without changing selection or geometry.
-    pub(crate) fn map_reads(&mut self, mut map: impl FnMut(&Arc<ChunkRead>) -> Arc<ChunkRead>) {
-        for read in self
-            .samples
-            .values_mut()
-            .chain(self.stand_ins.values_mut())
-            .flatten()
-        {
-            *read = map(read);
-        }
-    }
-
     /// Starts over with new ground: earlier reads are dropped, and the
     /// drawn chunks stay until the new ones are ready.
     pub(crate) fn reset(&mut self) {
@@ -355,7 +343,6 @@ impl Stream {
 mod tests {
     use glam::DVec3;
     use procgena_terrain::ChunkLevels;
-    use procgena_terrain::ground::{GroundSite, GroundSource, GroundStack};
 
     use super::*;
 
@@ -397,18 +384,10 @@ mod tests {
         }
     }
 
-    impl GroundSource for TwoTiers {
-        fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite {
-            use procgena_terrain::ChunkSource;
-            GroundSite::new(self.surface(p, tier).height, glam::Vec2::ZERO)
-        }
-    }
-
-    /// Reads `key` from [`TwoTiers`] at `tier`, painted bare, and finishes
-    /// it.
+    /// Reads `key` from [`TwoTiers`] at `tier`, and finishes it.
     fn read(stream: &mut Stream, key: ChunkKey, tier: FeatureTier) {
         stream.start(key);
-        let read = ChunkRead::read(&TwoTiers, &GroundStack::bare(0, 1.0), key, tier).unwrap();
+        let read = ChunkRead::read(&TwoTiers, key, tier).unwrap();
         let generation = stream.generation;
         stream.finish(key, generation, Some(Arc::new(read)));
     }

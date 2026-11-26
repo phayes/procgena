@@ -21,8 +21,6 @@
 //!   Their y values are heights above the ground. Defaults are `0 120 0` and
 //!   `900 0 -300`, respectively.
 //! - `--view <metres>` sets the view distance (default: 4000).
-//! - `--paint` paints the ground with bare terrain's look; without it the
-//!   ground is plain grass and no ground sites are read.
 //! - `--rough-from <level>` and `--mid-from <level>` limit feature detail at
 //!   that chunk level and above. Higher levels cover coarser chunks. Rough detail
 //!   omits roads; mid detail uses coarse road routes. Rough takes precedence;
@@ -64,7 +62,6 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use glam::DVec2;
-use procgena_terrain::ground::GroundStack;
 use procgena_terrain::{
     ChunkDetail, ChunkKey, ChunkSource, Elevation, FeatureKind, FeatureTier, RegionId,
     RegionProgress, RegionStage, TerrainPreset, WorldTerrain, WorldTerrainOptions,
@@ -236,11 +233,7 @@ fn main() {
         mid_from,
         tin,
         regions: Some(tracker),
-        paint: has("--paint"),
-        ..TerrainStream {
-            ground: Arc::new(GroundStack::bare(seed, 1.0)),
-            ..TerrainStream::new(world.clone())
-        }
+        ..TerrainStream::new(world.clone())
     };
 
     // Set the view distance. Terrain is read on its own single thread.

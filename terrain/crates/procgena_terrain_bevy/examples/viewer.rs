@@ -27,13 +27,6 @@
 //!   `--rough-from`) at the mid tier, with roads in outline;
 //! - `--levels`, `--borders`, `--wireframe`: start with chunk levels
 //!   tinted, chunk borders drawn, or the wireframe drawn;
-//! - `--paint`: paint the ground with bare terrain's look (rock on steep
-//!   ground, snow up high, roads and riverbeds); without it the ground is
-//!   all plain grass and reads no ground sites, which loads much faster;
-//! - `--textures`: draw the ground with its texture sets, read from
-//!   `terrain/assets/textures` (download them first with
-//!   `uv run --project tools textures download terrain --sizes 128,512,1k`);
-//!   without it the ground has flat colours;
 //! - `--screenshot <file.png>`: save an image once every chunk is drawn,
 //!   then exit;
 //! - `--measure <frames>`: once every chunk is drawn, time this many frames
@@ -77,8 +70,8 @@ use procgena_terrain::{
     WorldTerrainOptions,
 };
 use procgena_terrain_bevy::{
-    CanonicalChunk, GroundTextureSettings, TerrainChunk, TerrainDebug, TerrainPlugin,
-    TerrainProgress, TerrainStream, TerrainViewer, TerrainWater,
+    CanonicalChunk, TerrainChunk, TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream,
+    TerrainViewer, TerrainWater,
 };
 
 /// Frames to wait after every chunk is drawn before a screenshot, so
@@ -148,8 +141,6 @@ struct Scene {
     /// Draw the finest chunks from their canonical meshes (within the
     /// world's tolerance).
     tin: bool,
-    /// Paint the ground; otherwise it is all plain grass.
-    paint: bool,
     headless: bool,
 }
 
@@ -256,8 +247,8 @@ fn main() {
     } else {
         Duration::from_secs_f64(1.0 / 60.0)
     };
-    // Assets are read from the workspace, where the ground textures live.
-    // The wireframe needs the GPU to draw lines.
+    // Assets are read from the workspace. The wireframe needs the GPU to
+    // draw lines.
     let defaults = DefaultPlugins
         .set(AssetPlugin {
             file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../..").to_owned(),
@@ -272,10 +263,6 @@ fn main() {
             ..default()
         });
     let mut app = App::new();
-    app.insert_resource(GroundTextureSettings {
-        root: has("--textures").then(|| "terrain/assets/textures".to_owned()),
-        ..default()
-    });
     if headless {
         app.add_plugins((
             defaults
@@ -316,7 +303,6 @@ fn main() {
                 .map(|v| v.parse().expect("--rough-from needs a level")),
             mid_from: value("--mid-from").map(|v| v.parse().expect("--mid-from needs a level")),
             tin: tin.is_some(),
-            paint: has("--paint"),
             headless,
         })
         .add_systems(Startup, setup)
@@ -362,7 +348,6 @@ fn setup(
         rough_from: scene.rough_from,
         mid_from: scene.mid_from,
         tin: scene.tin,
-        paint: scene.paint,
         ..TerrainStream::world(world)
     });
 
