@@ -605,3 +605,11 @@ in these files (`git show <commits> -- <file>` shows which).
   `f7709bc`, `3c73967`, `6f85f2b`):
   `terrain/crates/procgena_terrain/src/{border,carve,converge,drainage,feature,gully,lib,noise,plan,region,relief,seam,stitch,terrain,world}.rs`,
   `tests/{bench,ground,world}.rs`.
+- **Road builder RB0, RB1, RB3 and canonical TIN CT0–CT2** (commits
+  `08cd6d1`, `a788b74`, `8b23ded`):
+  `terrain/crates/procgena_terrain/src/road/{mod,search,level,quality}.rs`
+  (`RouteStats`, `Scratch`, `search`, `least_gap`, `bands`, `rises`,
+  `levels_within`, `road_quality`, `RoadQuality`), `src/grid.rs`
+  (`Grid::with_cell_where`), `src/terrain.rs` (`Terrain::road_stats`,
+  `moved`), `src/tin/*.rs` (every item), `tests/tin.rs`,
+  `examples/{road_cost,tin_cost}.rs`.
