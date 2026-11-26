@@ -83,13 +83,13 @@ pub struct EcotopeRoot;
 /// Marks the entity that holds one Scatter of a drawn Ecotope. It stands at
 /// the centre of the area the Ecotope was placed over, at height 0. Its
 /// children are the Scatter's copies: one [`TreeParams`] or
-/// [`StoneParams`](procgena_stone_bevy::StoneParams) per copy, or one
+/// [`procgena_stone_bevy::StoneParams`] per copy, or one
 /// [`DeadwoodPlacedParams`] or [`MushroomGroundScatterParams`] for the
 /// whole Scatter.
 ///
 /// With the `gpu` feature, stones are instead drawn through GPU-generated
 /// pools: one child per stone class, holding one
-/// [`PooledStone`](procgena_stone_bevy::PooledStone) per stone. Add the
+/// `procgena_stone_bevy::PooledStone` per stone. Add the
 /// stone plugin with its own `gpu` feature to draw them.
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
 #[require(Transform, Visibility)]
