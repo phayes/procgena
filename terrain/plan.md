@@ -1235,7 +1235,7 @@ strategy is used: 0 is Phase 2.5's scaling exactly, 1 is the blend alone.
 
 ### Road rework (Phase 2.7)
 
-Built 2026-11-22, review pending. It started from the blend-1 mountain
+Built 2026-11-22; signed off by the user 2026-11-23. It started from the blend-1 mountain
 road: a 4.7 km road climbing 556 m to the region's hub, cutting 17 m,
 with zero-radius hairpins whose legs overlapped. The causes, measured:
 the road's heights came from the nearest 25 m grid cell (up to 17.6 m
@@ -1331,7 +1331,7 @@ road; it is the hardest road in the test worlds.
 - [ ] **Where the hub goes** (question 12): a low valley spot rather than a
   flat summit. Deferred by the user.
 - [x] **Crossing a river must cost roads something** (user TODO,
-  2026-11-23; built 2026-11-23, review pending). The search used to
+  2026-11-23; built 2026-11-23, signed off). The search used to
   multiply a step onto a water cell by `RIVER_COST` (6), so roads crossed
   the same river twice to save a few metres, and diagonal and knight
   steps could hop a one-cell river for free. Now every grid move whose
@@ -1452,7 +1452,7 @@ worlds, seeds 1 to 6.
 - **Drainage area is cheap:** 14–78 ms per region on the 25 m river grid.
   It can size rivers (width, depth) and valleys and pick a river type,
   even without stream-power levels.
-- **Proposal, for review:** build idea 1 first (valleys whose width
+- **Proposal (reviewed by the user; see below):** build idea 1 first (valleys whose width
   grows with cut depth, shaped by river type, types chosen from slope and
   drainage area); smooth mountain river levels so they don't drop
   hundreds of metres at the source; leave stream-power levels for the
@@ -1756,7 +1756,7 @@ bend in the border, though the plains below have a pond waiting.
     copy of the piece. The stepped segments are within carving reach of
     the border, so the two sides carved differently there (a 0.17 m
     crack).
-  - [x] (built 2026-11-23, review pending) The second river crosses too.
+  - [x] (built 2026-11-23, signed off) The second river crosses too.
     Two rivers flowing across an edge from the same side may now cross
     130 m apart (`RIVER_SPACING`, 2 × `FEATURE_CLEARANCE`). Every other
     pair of crossings keeps 195 m (`PORT_SPACING`). In two_terrains the
@@ -2027,11 +2027,11 @@ What that asks of this crate, and where it stands:
 | Phase | Work | Depends on |
 |---|---|---|
 | 0 | **Coordinator only:** add both crates to the root `Cargo.toml`; add `terrain/prior_art/` to `.gitignore` and the `_typos.toml` excludes; add `CLAUDE.md` package rows and a README row; add the generic tags to `procgena_mesh/src/tag.rs`. | — |
-| 1 ✅ | **Seam spike (2D heightfield only).** Done 2026-11-22: three presets (plains, rolling hills, mountains); continuity in height and slope tested for every pair, at a triple junction and at 10⁷ m. Review pending. Hash, noise with derivatives, calibration, a minimal base relief for two presets, `Region` types, offers, `negotiate`, `negotiate_corner`, conformance, the reference stitcher, and an image dump of two terrains and a triple junction. Includes the symmetry, seam and triple-junction tests. **Stop and review with the user.** | 0 |
-| 2 ✅ | River and road ports across one edge in the spike (monotone check, fallback ending). Done 2026-11-22, see "Phase 2 as built". Review pending. | 1 |
+| 1 ✅ | **Seam spike (2D heightfield only).** Done 2026-11-22: three presets (plains, rolling hills, mountains); continuity in height and slope tested for every pair, at a triple junction and at 10⁷ m. Signed off by the user 2026-11-23. Hash, noise with derivatives, calibration, a minimal base relief for two presets, `Region` types, offers, `negotiate`, `negotiate_corner`, conformance, the reference stitcher, and an image dump of two terrains and a triple junction. Includes the symmetry, seam and triple-junction tests. | 0 |
+| 2 ✅ | River and road ports across one edge in the spike (monotone check, fallback ending). Done 2026-11-22, see "Phase 2 as built". Signed off 2026-11-23. | 1 |
 | 2.5 ✅ | **Shared world noise and relief convergence** (built 2026-11-22; exit results recorded under "Relief convergence (Phase 2.5)") (replaces the relief taper; see "Relief convergence (Phase 2.5)" above): layer seeds come from the world seed and the layer's role, not the region seed; near each edge both sides fade their relief toward one agreed relief amplitude, so same-family neighbours match before negotiation. Exit: the border gap probe (239 m mean, plains–mountains) and the crossing count (6 in 300 seeds) re-run with both on. Done already: 16-direction river and road routing, 3 smoothing passes, rivers merge on meeting and never double back. | 2 |
-| 2.6 ✅ | **Relief blending** (built 2026-11-22, review pending) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
-| 2.7 ✅ | **Road rework** (built 2026-11-22, review pending; see "Road rework (Phase 2.7)" above): road levels from the real ground with a cut-leaning fit, an 8 m road grid, hairpins with a radius and spaced legs, banks that steepen with the terrain into flat faces, road tags (cut, embankment, retaining wall, bluff, cliff) and road-end points of interest; cut and fill measured across the road; roads narrow through deep cuts (`min_width`); sped up with an A* search and parallel region builds. Still to do: hub placement (deferred); a GPU implementation is a later follow-up. | 2.6 |
+| 2.6 ✅ | **Relief blending** (built 2026-11-22, signed off 2026-11-23) (see "Relief blending (Phase 2.6)" above): near borders each terrain also fades towards a weighted mix of its neighbours' actual height fields; the world option `relief_blend` (0 to 1) sets how much of that against Phase 2.5's scaling. Exit: border gap, the triple-junction road and crossing counts measured at blend 0, 0.5 and 1. | 2.5 |
+| 2.7 ✅ | **Road rework** (built 2026-11-22, signed off 2026-11-23; see "Road rework (Phase 2.7)" above): road levels from the real ground with a cut-leaning fit, an 8 m road grid, hairpins with a radius and spaced legs, banks that steepen with the terrain into flat faces, road tags (cut, embankment, retaining wall, bluff, cliff) and road-end points of interest; cut and fill measured across the road; roads narrow through deep cuts (`min_width`); sped up with an A* search and parallel region builds. Still to do: hub placement (deferred); a GPU implementation is a later follow-up. | 2.6 |
 | 2.8 ✅ | **River valleys and erosion** (built 2026-11-23 and 2026-11-24 (G1); exit measurements recorded under "As built in G1"). Built: valleys from the distance to the river that keep the ground's relief, wider for deeper cuts, shaped by river type (from slope); gullies; rivers stepping down at crossings; rivers from one side crossing closer together; drainage area per region and along rivers, and the steady-state stream-power profile, as measurements. Deep cuts come from rivers breaching hollow rims, and wait for lakes (Phase 4). For the user: whether river levels, widths and types should follow drainage area (stream-power levels would cut up to 176 m deeper in mountains). | 2.7 |
 | W | **WorldTerrain** (the big follow-up): world elevation field E (its slope is the drainage tilt, its zero the sea level), region graph and region edges, biome choice. See `terrain/world_plan.md`. | 2.6 |
 | 3 | Full options and presets as data, base relief, landforms, analytic erosion | 1 |
