@@ -2630,9 +2630,12 @@ when a chunk's TIN is built, as today.
      - per TIN vertex, for Biome paint (BP).
 
      For paint (decided by the user 2026-11-26), there is no dense
-     segmentation raster. Each TIN vertex carries the canonical
-     neighbourhood facts as vertex attributes: landform class weights,
-     curvature, 12 m shape and wetness. The fragment shader adds per-pixel
+     segmentation raster. Each TIN vertex carries the canonical soft
+     landform class weights (plus wetness once rivers return) as vertex
+     attributes. Raw continuous shape (convexity, curvature) for gradient
+     effects such as moss in hollows is kept as a maybe (user, 2026-11-26):
+     build without it, and add it only if Biome rules turn out to need it.
+     The fragment shader adds per-pixel
      slope (from the interpolated normal), height bands, aspect and
      world-space noise breakup, and blends the textures. Paint matches
      placement exactly at the vertices; between vertices only the
