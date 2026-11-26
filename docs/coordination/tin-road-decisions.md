@@ -71,8 +71,13 @@ lives in ROADMAP.md ("Canonical ground and roads track").
 
 ## How CT0–CT2 were built (so later work fits)
 
-- **Sampling:** each chunk samples `H*` once, on a 1 m lattice, in one batch
-  through `ChunkSource::surfaces(.., FeatureTier::Fine)`.
+- **Sampling:** each chunk samples `H*` on the 1 m lattice through
+  `ChunkSource::surfaces(.., FeatureTier::Fine)`. Since CT-A (ROADMAP) the
+  inside is sampled coarse to fine (`src/tin/sampling.rs`): every 8 m
+  where the ground is close to flat, down to every metre where it bends,
+  and every metre near water and roads, in one batch per level. Edges are
+  still read every metre and handed to the inside. `TinSampling::EveryMetre`
+  (`TinTolerance::DENSE`) restores CT2's full lattice.
 - **Refinement:** Garland–Heckbert over that lattice. Each step splits the worst
   triangle at its worst sample, using exact integer orientation tests and
   `i128` interpolation. Ties go to the sample nearest the centre, then by row
@@ -80,7 +85,10 @@ lives in ROADMAP.md ("Canonical ground and roads track").
 - **Tolerance:** since CT3, `TinTolerance { general, water, water_band, chord,
   vertex_budget }`. `general` and `water` are each a
   `DomainTolerance { height, gradient, max_edge }`. CT2's `GENERAL` was 0.5 m,
-  32 m and 4,096 vertices. `min_spacing` was removed.
+  32 m and 4,096 vertices. `min_spacing` was removed. Since CT-A it also has
+  `sampling` (`TinSampling::Adaptive` or `EveryMetre`), and named levels
+  `DENSE`, `GENERAL` (the default), `LOW_POLY` and `VERY_LOW_POLY`; one
+  tolerance serves a whole world, so chunk edges match (see ROADMAP CT-A).
 - **Edge contracts:** `EdgeContract::build` samples every 1 m along the edge and
   splits at the worst sample, or at the midpoint when a segment is too long.
   Since CT3 a contract also carries `crossings`. It is a pure function of the

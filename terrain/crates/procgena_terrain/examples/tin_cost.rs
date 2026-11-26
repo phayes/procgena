@@ -9,35 +9,87 @@
 //!
 //! Options: `--preset <key>` (default: every shipped preset), `--seed <n>`
 //! world seed (default 1), `--chunks <n>` an n × n block of chunks
-//! (default 4), round the origin, or with `--along-river` round the middle
-//! of the longest river of the region at the origin; `--gradient <g>`
-//! checks open land's slope to `g` (rise over run) while refining, which
-//! [`TinTolerance::GENERAL`] leaves unchecked.
+//! (default 4), round the origin, or with `--along-river` (or
+//! `--along-road`) round the middle of the longest river (or road) of the
+//! region at the origin; `--fixtures` uses the medium-scale fixtures on
+//! their world, with rivers and roads on, instead of the shipped presets;
+//! `--gradient <g>` checks open land's slope to `g` (rise over run) while
+//! refining, which [`TinTolerance::GENERAL`] leaves unchecked (and which
+//! samples every metre); `--level <name>` starts from a named tolerance
+//! (`dense`, `general`, `low_poly` or `very_low_poly`; default `general`,
+//! see [`TinTolerance::named`]);
+//! `--repeats <n>` builds each chunk `n` times and reports the fastest
+//! (default 3).
 //!
 //! The error is measured at points between the 1 m samples (every half
 //! metre, a quarter metre off the samples), where neither mesh was fitted:
 //! in height, and in slope (against the ground's slope from differences a
 //! quarter metre either side, away from water's edges, where the ground
 //! creases). Points within the tolerance's water band of a river or pond
-//! count as near water. Times are per chunk, on a world whose regions are
-//! already built: sampling is the 65 × 65 samples of one chunk, building
-//! is the whole canonical mesh, sampling included.
+//! count as near water. It also counts the 1 m lattice points the
+//! canonical mesh misses by more than their tolerance, with the worst
+//! excess: the mesh is built from only some of them. Times are per chunk,
+//! on a world whose regions are already built: sampling is the 65 × 65
+//! samples of one chunk, building is the whole canonical mesh, sampling
+//! included. Reads are the ground heights each build asks for, and those
+//! of the four edge contracts alone.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::time::Instant;
 
 use glam::DVec2;
 use procgena_terrain::tin::{
-    DomainTolerance, Mm, ProbeAddr, TinChunk, TinTolerance, TinTriangle, build_chunk,
-    sample_heights,
+    ChunkEdgeKey, DomainTolerance, EdgeContract, Mm, ProbeAddr, TinChunk, TinTolerance,
+    TinTriangle, build_chunk, sample_heights,
 };
 use procgena_terrain::{
     ChunkFeature, ChunkFeatureShape, ChunkKey, ChunkSource, Elevation, FeatureKind, FeatureTier,
-    RegionId, TerrainPreset, WorldTerrain, WorldTerrainOptions,
+    RegionId, SurfacePoint, TerrainPreset, WorldTerrain, WorldTerrainOptions, fixtures,
 };
 
 /// Slope is not measured this close to a water's edge, in metres.
 const CREASE_CLEARANCE: f64 = 1.5;
+
+/// A world that counts the ground heights read from it.
+struct Counting<'a> {
+    world: &'a WorldTerrain,
+    reads: AtomicUsize,
+}
+
+impl<'a> Counting<'a> {
+    fn new(world: &'a WorldTerrain) -> Self {
+        Self {
+            world,
+            reads: AtomicUsize::new(0),
+        }
+    }
+
+    /// The heights read since the last call.
+    fn take(&self) -> usize {
+        self.reads.swap(0, AtomicOrdering::Relaxed)
+    }
+}
+
+impl ChunkSource for Counting<'_> {
+    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
+        self.reads.fetch_add(1, AtomicOrdering::Relaxed);
+        self.world.surface(p, tier)
+    }
+    fn surfaces(&self, points: &[DVec2], tier: FeatureTier) -> Vec<SurfacePoint> {
+        self.reads.fetch_add(points.len(), AtomicOrdering::Relaxed);
+        self.world.surfaces(points, tier)
+    }
+    fn tier(&self, tier: FeatureTier) -> FeatureTier {
+        self.world.tier(tier)
+    }
+    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
+        self.world.tier_difference(min, max, from)
+    }
+    fn lines_within(&self, min: DVec2, max: DVec2, tier: FeatureTier) -> Vec<ChunkFeature> {
+        self.world.lines_within(min, max, tier)
+    }
+}
 
 fn main() {
     // Options.
@@ -52,17 +104,30 @@ fn main() {
     let seed: u32 = option("--seed").map_or(1, |s| s.parse().expect("--seed <n>"));
     let n: i64 = option("--chunks").map_or(4, |s| s.parse().expect("--chunks <n>"));
     let along_river = args.iter().any(|a| a == "--along-river");
+    let along_road = args.iter().any(|a| a == "--along-road");
+    let use_fixtures = args.iter().any(|a| a == "--fixtures");
+    let repeats: usize = option("--repeats").map_or(3, |s| s.parse().expect("--repeats <n>"));
+    assert!(repeats > 0, "--repeats must be at least 1");
     let gradient: Option<f64> = option("--gradient").map(|s| s.parse().expect("--gradient <g>"));
+    let level = option("--level").map_or(TinTolerance::GENERAL, |name| {
+        TinTolerance::named(&name).expect("--level dense|general|low_poly|very_low_poly")
+    });
     let tolerance = TinTolerance {
         general: DomainTolerance {
             gradient,
-            ..TinTolerance::GENERAL.general
+            ..level.general
         },
-        ..TinTolerance::GENERAL
+        ..level
     };
     println!(
         "seed {seed}, {n} × {n} chunks{}, tolerance {tolerance:?}",
-        if along_river { " along a river" } else { "" },
+        if along_river {
+            " along a river"
+        } else if along_road {
+            " along a road"
+        } else {
+            ""
+        },
     );
     println!(
         "{:<16} {:>6} {:>6} {:>5} {:>18} {:>25} {:>13} {:>18} {:>18} {:>7} {:>7}",
@@ -78,35 +143,53 @@ fn main() {
         "samp ms",
         "build ms"
     );
+    println!(
+        "{:<16} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        "", "reads", "edge rd", "edge ms", "1m over", "worst"
+    );
 
-    for preset in TerrainPreset::all() {
+    let presets: Vec<&TerrainPreset> = if use_fixtures {
+        fixtures::all().collect()
+    } else {
+        TerrainPreset::all().collect()
+    };
+    for preset in presets {
         if only.as_deref().is_some_and(|key| key != preset.key) {
             continue;
         }
         let options = preset.terrain.clone();
         let source = move |_: RegionId, _: DVec2, _: &Elevation| options.clone();
+        let world_options = if use_fixtures {
+            fixtures::world_medium()
+        } else {
+            WorldTerrainOptions::default()
+        };
         let world = WorldTerrain::new(
             WorldTerrainOptions {
                 seed,
-                ..WorldTerrainOptions::default()
+                ..world_options
             },
             Arc::new(source),
         )
-        .expect("the default world options are valid");
+        .expect("the world options are valid");
 
         // The block's middle chunk.
-        let centre = if along_river {
+        let centre = if along_river || along_road {
             let Some(mid) = world
                 .terrain(world.region_at(DVec2::ZERO))
                 .ok()
                 .and_then(|t| {
-                    t.rivers()
+                    let lines = if along_river { t.rivers() } else { t.roads() };
+                    lines
                         .iter()
                         .max_by_key(|r| r.points.len())
                         .map(|r| r.points[r.points.len() / 2])
                 })
             else {
-                println!("{:<16} no river in the region at the origin", preset.key);
+                println!(
+                    "{:<16} no such line in the region at the origin",
+                    preset.key
+                );
                 continue;
             };
             ((mid.x / 64.0).floor() as i64, (mid.y / 64.0).floor() as i64)
@@ -114,7 +197,10 @@ fn main() {
             (0, 0)
         };
 
-        let mut stats = Stats::default();
+        let mut stats = Stats {
+            repeats,
+            ..Stats::default()
+        };
         for z in -n / 2..n - n / 2 {
             for x in -n / 2..n - n / 2 {
                 let key = ChunkKey::new(centre.0 + x, centre.1 + z, 0);
@@ -142,6 +228,18 @@ struct Stats {
     slope: [Vec<f64>; 2],
     sample_ms: Vec<f64>,
     build_ms: Vec<f64>,
+    /// Heights read building each chunk, its four edge contracts included.
+    reads: Vec<f64>,
+    /// Heights read building each chunk's four edge contracts alone.
+    edge_reads: Vec<f64>,
+    /// Time building each chunk's four edge contracts alone.
+    edge_ms: Vec<f64>,
+    /// How many times each chunk is built; the fastest build is reported.
+    repeats: usize,
+    /// How many 1 m samples the mesh misses by more than their tolerance.
+    over: usize,
+    /// The most any of them is over, in millimetres.
+    over_worst: f64,
 }
 
 impl Stats {
@@ -159,9 +257,30 @@ impl Stats {
         let heights = sample_heights(world, &lattice).map_err(|e| e.to_string())?;
         self.sample_ms
             .push(started.elapsed().as_secs_f64() * 1000.0);
-        let started = Instant::now();
-        let mesh = build_chunk(world, key, tolerance).map_err(|e| e.to_string())?;
-        self.build_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+        // The whole mesh, then its edge contracts alone: the fastest of a
+        // few builds, and the heights each reads.
+        let counting = Counting::new(world);
+        let mut mesh = None;
+        let mut fastest = f64::INFINITY;
+        for _ in 0..self.repeats {
+            let started = Instant::now();
+            mesh = Some(build_chunk(&counting, key, tolerance).map_err(|e| e.to_string())?);
+            fastest = fastest.min(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        let mesh = mesh.expect("built at least once");
+        self.build_ms.push(fastest);
+        self.reads.push((counting.take() / self.repeats) as f64);
+        let mut fastest = f64::INFINITY;
+        for _ in 0..self.repeats {
+            let started = Instant::now();
+            for edge in ChunkEdgeKey::of_chunk(key) {
+                EdgeContract::build(&counting, edge, tolerance).map_err(|e| e.to_string())?;
+            }
+            fastest = fastest.min(started.elapsed().as_secs_f64() * 1000.0);
+        }
+        self.edge_ms.push(fastest);
+        self.edge_reads
+            .push((counting.take() / self.repeats) as f64);
         self.triangles.push(mesh.triangles.len() as f64);
         self.vertices.push(mesh.vertices.len() as f64);
         self.unmet += mesh.unmet.len();
@@ -186,6 +305,31 @@ impl Stats {
             self.grid[near].push((grid_height(&grid, key, p) - t).abs());
             if gap.abs() >= CREASE_CLEARANCE {
                 self.slope[near].push((slope - ground_slope).length());
+            }
+        }
+
+        // The 1 m samples the mesh misses by more than their tolerance
+        // (plus a millimetre of rounding).
+        for (&p, h) in lattice.iter().zip(&heights) {
+            let gap = water_gap(&water, p.to_m());
+            let limit = if gap < tolerance.water_band {
+                tolerance.water.height
+            } else {
+                tolerance.general.height
+            } * 1000.0
+                + 1.0;
+            let miss = (tin_at(&mesh, (p.x.0, p.z.0)).0 - f64::from(h.0)).abs();
+            if miss > limit {
+                if std::env::var_os("TIN_COST_DEBUG").is_some() {
+                    eprintln!(
+                        "over {key:?} at ({}, {}) by {:.0} mm",
+                        p.x.0 - key.x * 64_000,
+                        p.z.0 - key.z * 64_000,
+                        miss - limit
+                    );
+                }
+                self.over += 1;
+                self.over_worst = self.over_worst.max(miss - limit);
             }
         }
         Ok(())
@@ -229,6 +373,15 @@ impl Stats {
             spread(grid_water),
             mean(&self.sample_ms),
             mean(&self.build_ms),
+        );
+        println!(
+            "{:<16} {:>8.0} {:>8.0} {:>8.2} {:>8} {:>8.0}",
+            "",
+            mean(&self.reads),
+            mean(&self.edge_reads),
+            mean(&self.edge_ms),
+            self.over,
+            self.over_worst,
         );
     }
 }

@@ -45,6 +45,10 @@
 //!   flight, still moving);
 //! - `--tin`: draw the finest chunks from their canonical meshes (see
 //!   `TerrainStream::tin`); `--measure` then also counts those chunks;
+//!   `--tin-level <name>` picks how closely they follow the ground
+//!   (`dense`, `general`, `low_poly` or `very_low_poly`), and
+//!   `--tin-error <m>` how far open land may stray from it; either implies
+//!   `--tin`;
 //! - `--headless`: with `--screenshot` or `--measure`, render a
 //!   1280 × 720 image without opening a window.
 
@@ -138,8 +142,9 @@ struct Scene {
     target: Vec3,
     rough_from: Option<u8>,
     mid_from: Option<u8>,
-    /// Draw the finest chunks from their canonical meshes.
-    tin: bool,
+    /// Draw the finest chunks from their canonical meshes, within this
+    /// tolerance.
+    tin: Option<TinTolerance>,
     headless: bool,
 }
 
@@ -303,7 +308,7 @@ fn main() {
             rough_from: value("--rough-from")
                 .map(|v| v.parse().expect("--rough-from needs a level")),
             mid_from: value("--mid-from").map(|v| v.parse().expect("--mid-from needs a level")),
-            tin: has("--tin"),
+            tin: tin_tolerance(has("--tin"), value("--tin-level"), value("--tin-error")),
             headless,
         })
         .add_systems(Startup, setup)
@@ -312,6 +317,29 @@ fn main() {
             (water, toggle_debug, measure, fly, screenshot).chain(),
         )
         .run();
+}
+
+/// The canonical meshes' tolerance from the options, or `None` without
+/// any TIN option: `--tin` alone gives [`TinTolerance::GENERAL`],
+/// `--tin-level <name>` a named level, and `--tin-error <m>` sets how far
+/// open land may stray (either implies `--tin`).
+///
+/// # Panics
+///
+/// On an unknown level name, or an error that isn't a positive number.
+fn tin_tolerance(tin: bool, level: Option<String>, error: Option<String>) -> Option<TinTolerance> {
+    if !tin && level.is_none() && error.is_none() {
+        return None;
+    }
+    let mut tolerance = level.map_or(TinTolerance::GENERAL, |name| {
+        TinTolerance::named(&name)
+            .expect("--tin-level needs dense, general, low_poly or very_low_poly")
+    });
+    if let Some(error) = error {
+        tolerance.general.height = error.parse().expect("--tin-error needs metres");
+    }
+    assert!(tolerance.is_valid(), "invalid TIN tolerance {tolerance:?}");
+    Some(tolerance)
 }
 
 /// Spawns the terrain, the camera and the light.
@@ -325,7 +353,7 @@ fn setup(
     commands.spawn(TerrainStream {
         rough_from: scene.rough_from,
         mid_from: scene.mid_from,
-        tin: scene.tin.then_some(TinTolerance::GENERAL),
+        tin: scene.tin,
         ..TerrainStream::world(world)
     });
 

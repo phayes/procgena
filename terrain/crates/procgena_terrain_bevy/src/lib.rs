@@ -271,7 +271,10 @@ pub struct TerrainStream {
     /// [`procgena_terrain::tin`]), and load them into the stream's
     /// [`CanonicalGround`]. Coarser levels and tiers stay regular. Where
     /// the source can't give the fine tier, chunks stay regular too.
-    /// `None`, the default, draws every chunk regular.
+    /// `None`, the default, draws every chunk regular. One tolerance serves
+    /// the whole world, so neighbouring chunks meet exactly; a coarser
+    /// level such as [`TinTolerance::LOW_POLY`] gives a faceted look from
+    /// fewer triangles.
     pub tin: Option<TinTolerance>,
 }
 

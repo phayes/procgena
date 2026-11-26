@@ -8,18 +8,19 @@ use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkSource};
 use crate::feature::{FeatureId, FeatureTier};
 
 use super::mesh::{ConstraintKind, TinVertex};
-use super::numeric::{MM_PER_M, Mm};
+use super::numeric::{MM_PER_M, Mm, MmHeight};
 use super::probe::{ProbeAddr, TinError, sample_heights};
 use super::resolve::{Pt, edge_crossing};
+use super::sampling::STEP_MM;
 use super::tolerance::TinTolerance;
 use super::water::Water;
 
 /// The width of a finest-level chunk in whole millimetres.
 pub(crate) const CHUNK_MM: i64 = (CHUNK_SIZE * MM_PER_M) as i64;
 
-/// How far apart the ground is sampled along a chunk edge, in millimetres.
-/// Contract vertices sit on these samples.
-const EDGE_PROBE_MM: i64 = 1000;
+/// How far apart the ground is sampled along a chunk edge, in millimetres:
+/// every lattice point. Contract vertices sit on these samples.
+const EDGE_PROBE_MM: i64 = STEP_MM;
 
 /// Which way a chunk edge runs from its first corner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -154,16 +155,23 @@ impl EdgeContract {
         key: ChunkEdgeKey,
         tolerance: &TinTolerance,
     ) -> Result<Self, TinError> {
+        Self::build_sampled(source, key, tolerance).map(|(contract, _)| contract)
+    }
+
+    /// [`build`](Self::build), with the lattice points it sampled along
+    /// the edge: how far each is from the first corner (in lattice steps)
+    /// and its height.
+    pub(crate) fn build_sampled(
+        source: &dyn ChunkSource,
+        key: ChunkEdgeKey,
+        tolerance: &TinTolerance,
+    ) -> Result<(Self, Vec<(usize, MmHeight)>), TinError> {
         assert!(tolerance.is_valid(), "invalid tolerance {tolerance:?}");
         let (start, end) = (key.start(), key.end());
         let corner_m = |(x, z): (Mm, Mm)| DVec2::new(x.to_m(), z.to_m());
         let (lo, hi) = (corner_m(start), corner_m(end));
-        let water = Water::new(
-            &source.lines_within(lo, hi, FeatureTier::Fine),
-            tolerance,
-            lo,
-            hi,
-        );
+        let features = source.lines_within(lo, hi, FeatureTier::Fine);
+        let water = Water::new(&features, tolerance, lo, hi);
 
         // Where the lines cross, unless a water's edge is inside water.
         let mut crossings: Vec<EdgeCrossing> = water
@@ -266,11 +274,20 @@ impl EdgeContract {
                 h: heights[i],
             })
             .collect();
-        Ok(Self {
-            key,
-            vertices,
-            crossings,
-        })
+        let samples = stations
+            .iter()
+            .zip(&heights)
+            .filter(|((s, _), _)| s % EDGE_PROBE_MM == 0)
+            .map(|(&(s, _), &h)| ((s / EDGE_PROBE_MM) as usize, h))
+            .collect();
+        Ok((
+            Self {
+                key,
+                vertices,
+                crossings,
+            },
+            samples,
+        ))
     }
 
     /// A hash of the contract, equal on every platform for equal

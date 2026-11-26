@@ -22,8 +22,29 @@ impl DomainTolerance {
     }
 }
 
+/// How densely the ground is sampled to build a canonical mesh.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TinSampling {
+    /// Only as densely as the ground needs: every 8 m where it is close to
+    /// flat, down to every metre where it bends, and every metre near
+    /// water and roads. Far fewer reads, but ground that bends sharply
+    /// within a few metres and looks flat at the samples can be missed by
+    /// a little more than the height tolerance.
+    Adaptive,
+    /// Every metre: the mesh is within its height tolerance at every 1 m
+    /// lattice point, at several times the cost on gentle ground.
+    EveryMetre,
+}
+
 /// How closely a canonical mesh follows the ground, and how many vertices
 /// it may spend doing so.
+///
+/// Neighbouring chunks meet exactly only if they were built with the same
+/// tolerance, so a world uses one tolerance for all its chunks. Named
+/// levels, from the closest to the coarsest: [`DENSE`](Self::DENSE),
+/// [`GENERAL`](Self::GENERAL) (the default), [`LOW_POLY`](Self::LOW_POLY)
+/// and [`VERY_LOW_POLY`](Self::VERY_LOW_POLY). All of them hold river and
+/// pond beds and banks to the same water tolerance.
 ///
 /// Ground within [`water_band`](Self::water_band) of a river's or pond's
 /// water follows [`water`](Self::water); all other ground follows
@@ -46,13 +67,15 @@ pub struct TinTolerance {
     /// The border and the feature lines are always kept, even past the
     /// budget.
     pub vertex_budget: usize,
+    /// How densely the ground is sampled.
+    pub sampling: TinSampling,
 }
 
 impl TinTolerance {
     /// Open land within half a metre with edges up to 32 m, and river and
     /// pond beds and banks (5 m beyond the water) within 10 cm and a slope
     /// of 0.03 with edges up to 4 m; curved lines within 5 cm, and at most
-    /// 4,096 vertices a chunk.
+    /// 4,096 vertices a chunk. Sampled [`Adaptive`](TinSampling::Adaptive)ly.
     pub const GENERAL: Self = Self {
         general: DomainTolerance {
             height: 0.5,
@@ -67,7 +90,50 @@ impl TinTolerance {
         water_band: 5.0,
         chord: 0.05,
         vertex_budget: 4096,
+        sampling: TinSampling::Adaptive,
     };
+
+    /// [`GENERAL`](Self::GENERAL) sampled every metre: every 1 m lattice
+    /// point is within the tolerance, at several times the cost on gentle
+    /// ground.
+    pub const DENSE: Self = Self {
+        sampling: TinSampling::EveryMetre,
+        ..Self::GENERAL
+    };
+
+    /// Open land within 1 m with edges up to 64 m (a chunk's width), for
+    /// a low-poly look; water as in [`GENERAL`](Self::GENERAL).
+    pub const LOW_POLY: Self = Self {
+        general: DomainTolerance {
+            height: 1.0,
+            gradient: None,
+            max_edge: 64.0,
+        },
+        ..Self::GENERAL
+    };
+
+    /// Open land within 3 m with edges up to 64 m, for a strongly faceted
+    /// look; water as in [`GENERAL`](Self::GENERAL).
+    pub const VERY_LOW_POLY: Self = Self {
+        general: DomainTolerance {
+            height: 3.0,
+            gradient: None,
+            max_edge: 64.0,
+        },
+        ..Self::GENERAL
+    };
+
+    /// The named level `name`: `"dense"`, `"general"`, `"low_poly"` or
+    /// `"very_low_poly"`, or `None` for any other name.
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "dense" => Some(Self::DENSE),
+            "general" => Some(Self::GENERAL),
+            "low_poly" => Some(Self::LOW_POLY),
+            "very_low_poly" => Some(Self::VERY_LOW_POLY),
+            _ => None,
+        }
+    }
 
     /// Whether every value is in range.
     pub fn is_valid(&self) -> bool {

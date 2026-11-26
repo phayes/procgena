@@ -11,18 +11,19 @@ use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkSource};
 use crate::feature::FeatureTier;
 
 use super::cdt::ChunkCdt;
-use super::contract::{ChunkEdgeKey, EdgeContract};
+use super::contract::{CHUNK_MM, ChunkEdgeKey, EdgeAxis, EdgeContract};
 use super::mesh::{TinChunk, TinVertex, UnmetTolerance};
 use super::numeric::{MM_PER_M, Mm, MmHeight};
 use super::probe::{ProbeAddr, TinError, sample_heights};
 use super::resolve::{Piece, Pt, Square, point_along, resolve_chunk, untangle};
+use super::sampling::{DenseNear, STEP_MM, SparseSquare, coarse_margin, detail_limit};
 use super::tolerance::{DomainTolerance, TinTolerance};
 use super::water::Water;
 
-/// How far apart the ground is sampled across a chunk, in millimetres:
-/// the lattice refinement vertices sit on. The same spacing as along chunk
+/// How far apart lattice points are across a chunk, in millimetres: the
+/// points refinement vertices sit on. The same spacing as along chunk
 /// edges.
-const LATTICE_MM: i64 = 1000;
+const LATTICE_MM: i64 = STEP_MM;
 
 /// Lattice points along a chunk's side, both corners included.
 const SIDE: usize = (CHUNK_SIZE as i64 * MM_PER_M as i64 / LATTICE_MM) as usize + 1;
@@ -39,13 +40,23 @@ const CREASE_CLEARANCE: f64 = 1.5;
 /// meshes meet it exactly. The rivers' and ponds' lines in the chunk (see
 /// [`ChunkSource::lines_within`]) are kept as edges: each river's lowest
 /// line and the outline of its water, and each pond's shore, cut where
-/// they cross. Then the ground is sampled on a 1 m lattice, and while some
-/// triangle misses a sample by more than that sample's height tolerance,
-/// differs from its slope by more than its slope tolerance, or has an edge
-/// longer than allowed, the worst triangle gets a vertex at its worst
-/// sample. Samples within `tolerance.water_band` of water follow
-/// `tolerance.water` (and a triangle touching one takes the water's
-/// longest edge); the rest follow `tolerance.general`.
+/// they cross.
+///
+/// Then the ground inside is sampled on the 1 m lattice, but only as
+/// densely as it needs: every 8 m where the ground is close to flat,
+/// down to every metre where it bends, and every metre within reach of
+/// water and roads, or everywhere if `tolerance.general` checks slope.
+/// While some triangle misses a sample by more than that sample's height
+/// tolerance, differs from its slope by more than its slope tolerance, or
+/// has an edge longer than allowed, the worst triangle gets a vertex at
+/// its worst sample. Samples that stand for ground left coarse are held
+/// to a tighter height (by a share of `tolerance.general.height`), so the
+/// ground between them stays within the tolerance. That is checked by
+/// measurement on the shipped presets, not proven: ground that bends
+/// sharply within a few metres yet looks flat at the samples can still
+/// be missed by a little more. Samples within `tolerance.water_band` of
+/// water follow `tolerance.water` (and a triangle touching one takes the
+/// water's longest edge); the rest follow `tolerance.general`.
 ///
 /// Where the vertex budget runs out first, the triangles still missing
 /// their height tolerance are listed in [`TinChunk::unmet`]; feature line
@@ -64,21 +75,34 @@ pub fn build_chunk(
     assert_eq!(key.level, 0, "canonical meshes are for level 0 chunks");
     assert!(tolerance.is_valid(), "invalid tolerance {tolerance:?}");
     let edges = ChunkEdgeKey::of_chunk(key);
-    let contracts = edges
+    let built = edges
         .iter()
-        .map(|&edge| EdgeContract::build(source, edge, tolerance))
+        .map(|&edge| EdgeContract::build_sampled(source, edge, tolerance))
         .collect::<Result<Vec<_>, _>>()?;
-    let contracts = [&contracts[0], &contracts[1], &contracts[2], &contracts[3]];
+    let contracts = [&built[0].0, &built[1].0, &built[2].0, &built[3].0];
     let mut chunk = ChunkCdt::new(key, contracts);
+
+    // The lattice points the contracts sampled, as lattice columns and
+    // rows of the chunk.
+    let border: Vec<(usize, usize, MmHeight)> = built
+        .iter()
+        .zip(edges)
+        .flat_map(|((_, samples), edge)| {
+            let (col, row) = (
+                ((edge.start().0.0 - key.x * CHUNK_MM) / LATTICE_MM) as usize,
+                ((edge.start().1.0 - key.z * CHUNK_MM) / LATTICE_MM) as usize,
+            );
+            samples.iter().map(move |&(i, h)| match edge.axis {
+                EdgeAxis::X => (col + i, row, h),
+                EdgeAxis::Z => (col, row + i, h),
+            })
+        })
+        .collect();
 
     // The feature lines, cut to the chunk and where they cross.
     let (lo, hi) = (key.min_corner(), key.max_corner());
-    let water = Water::new(
-        &source.lines_within(lo, hi, FeatureTier::Fine),
-        tolerance,
-        lo,
-        hi,
-    );
+    let features = source.lines_within(lo, hi, FeatureTier::Fine);
+    let water = Water::new(&features, tolerance, lo, hi);
     let (x0, z0) = edges[0].start();
     let square = Square {
         lo: (x0.0, z0.0),
@@ -118,7 +142,8 @@ pub fn build_chunk(
     chunk.record_dropped(&dropped);
     chunk.add_lines(&pieces, &line_vertices);
 
-    let lattice = Lattice::sample(source, key, &water, tolerance)?;
+    let dense = DenseNear::new(&features, &water, tolerance);
+    let lattice = Lattice::sample(source, key, &border, &water, &dense, tolerance)?;
     Ok(refine(chunk, &lattice, tolerance, &water))
 }
 
@@ -227,13 +252,19 @@ fn follow_ground(
     Ok(out)
 }
 
-/// The ground sampled on the 1 m lattice over one chunk, with each
-/// sample's tolerance.
+/// The ground sampled on part of the 1 m lattice over one chunk (see
+/// [`SparseSquare`]), with each sample's tolerance.
 pub(crate) struct Lattice {
     /// The chunk's smallest corner, in millimetres.
     origin: (i64, i64),
-    /// Heights, row by row along x, `SIDE` by `SIDE`.
+    /// Heights, row by row along x, `SIDE` by `SIDE`; 0 where not sampled.
     heights: Vec<MmHeight>,
+    /// Whether each point is sampled.
+    sampled: Vec<bool>,
+    /// The most the mesh may miss each sample by, in millimetres: its
+    /// domain's height tolerance, less [`coarse_margin`] where the sample
+    /// stands for a cell left coarse.
+    limits: Vec<f64>,
     /// Whether each sample is within the water band (and follows the
     /// water's tolerance).
     near_water: Vec<bool>,
@@ -243,36 +274,78 @@ pub(crate) struct Lattice {
 }
 
 impl Lattice {
-    /// Samples the ground of `source` over chunk `key`, with each sample's
-    /// place relative to `water`.
+    /// Samples the ground of `source` over chunk `key` coarse to fine,
+    /// every metre where `dense` asks, with each sample's place relative
+    /// to `water`. `border` are lattice points on the chunk's border
+    /// already sampled (column, row and height).
     pub(crate) fn sample(
         source: &dyn ChunkSource,
         key: ChunkKey,
+        border: &[(usize, usize, MmHeight)],
         water: &Water,
+        dense: &DenseNear,
         tolerance: &TinTolerance,
     ) -> Result<Self, TinError> {
         let (x0, z0) = ChunkEdgeKey::of_chunk(key)[0].start();
-        let probes: Vec<ProbeAddr> = (0..SIDE * SIDE)
+        let square = SparseSquare::sample(
+            source,
+            (x0.0, z0.0),
+            SIDE,
+            border,
+            dense,
+            detail_limit(tolerance),
+        )?;
+        let SparseSquare {
+            heights,
+            sampled,
+            coarse,
+            ..
+        } = square;
+        let at = |i: usize| {
+            let (col, row) = ((i % SIDE) as i64, (i / SIDE) as i64);
+            DVec2::new(
+                Mm(x0.0 + col * LATTICE_MM).to_m(),
+                Mm(z0.0 + row * LATTICE_MM).to_m(),
+            )
+        };
+        let gaps: Vec<f64> = (0..SIDE * SIDE)
             .map(|i| {
-                let (col, row) = ((i % SIDE) as i64, (i / SIDE) as i64);
-                ProbeAddr::new(Mm(x0.0 + col * LATTICE_MM), Mm(z0.0 + row * LATTICE_MM))
+                if sampled[i] {
+                    water.gap(at(i))
+                } else {
+                    f64::INFINITY
+                }
             })
             .collect();
-        let heights = sample_heights(source, &probes)?;
-        let gaps: Vec<f64> = probes.iter().map(|p| water.gap(p.to_m())).collect();
-        let near_water = gaps.iter().map(|&g| g < tolerance.water_band).collect();
+        let near_water: Vec<bool> = gaps.iter().map(|&g| g < tolerance.water_band).collect();
+        let margin = coarse_margin(tolerance);
+        let limits = (0..SIDE * SIDE)
+            .map(|i| {
+                let domain = if near_water[i] {
+                    &tolerance.water
+                } else {
+                    &tolerance.general
+                };
+                let slack = if coarse[i] { margin } else { 0.0 };
+                domain.height * MM_PER_M - slack
+            })
+            .collect();
 
         // Slopes by differences across each sample (one-sided on the
         // border), unless slope is unchecked there or a crease is near.
+        // Wherever slope is checked, the neighbours are sampled too.
         let checked = |i: usize| {
-            let domain = if gaps[i] < tolerance.water_band {
+            let domain = if near_water[i] {
                 &tolerance.water
             } else {
                 &tolerance.general
             };
-            domain.gradient.is_some() && gaps[i].abs() >= CREASE_CLEARANCE
+            sampled[i] && domain.gradient.is_some() && gaps[i].abs() >= CREASE_CLEARANCE
         };
-        let h = |col: usize, row: usize| f64::from(heights[row * SIDE + col].0);
+        let h = |col: usize, row: usize| {
+            debug_assert!(sampled[row * SIDE + col], "a slope's neighbour is sampled");
+            f64::from(heights[row * SIDE + col].0)
+        };
         let slopes = (0..SIDE * SIDE)
             .map(|i| {
                 if !checked(i) {
@@ -293,6 +366,8 @@ impl Lattice {
         Ok(Self {
             origin: (x0.0, z0.0),
             heights,
+            sampled,
+            limits,
             near_water,
             slopes,
         })
@@ -487,6 +562,9 @@ impl Scorer<'_> {
                     continue;
                 }
                 let at = (x as usize, z as usize);
+                if !lattice.sampled[at.1 * SIDE + at.0] {
+                    continue;
+                }
                 near_water |= lattice.near_water[at.1 * SIDE + at.0];
                 if taken.contains(&at) {
                     continue;
@@ -499,7 +577,7 @@ impl Scorer<'_> {
                     + i128::from(wc) * heights[2];
                 let sample = i128::from(lattice.heights[at.1 * SIDE + at.0].0) * i128::from(area);
                 let error = ((sample - flat).abs() / i128::from(area)) as i64;
-                misses |= error > (domain.height * MM_PER_M) as i64;
+                misses |= error as f64 > lattice.limits[at.1 * SIDE + at.0].floor();
                 // Nine times the squared distance to the centre.
                 let (cx, cz) = (3 * p.0 - sum.0, 3 * p.1 - sum.1);
                 let off_centre = cx * cx + cz * cz;

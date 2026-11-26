@@ -137,7 +137,7 @@ fn a_plane_chunk_has_a_fixed_hash() {
 }
 
 /// [`a_plane_chunk_has_a_fixed_hash`]'s hash.
-const GOLDEN_PLANE: u64 = 10_738_285_288_521_230_516;
+const GOLDEN_PLANE: u64 = 2_351_256_048_787_654_546;
 
 #[test]
 fn hashes_ignore_the_order_of_vertices() {
@@ -261,6 +261,66 @@ fn smooth_hills_converge_within_the_tolerance() {
                 assert!(
                     (height - sample).abs() <= 501.0,
                     "chunk {key:?} at {p:?}: mesh {height} mm, ground {sample} mm"
+                );
+            }
+        }
+    }
+}
+
+/// Ground from another source, counting the heights read from it.
+struct Counted<S> {
+    ground: S,
+    reads: std::sync::atomic::AtomicUsize,
+}
+
+impl<S: ChunkSource> ChunkSource for Counted<S> {
+    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
+        self.reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.ground.surface(p, tier)
+    }
+    fn tier(&self, tier: FeatureTier) -> FeatureTier {
+        self.ground.tier(tier)
+    }
+    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
+        self.ground.tier_difference(min, max, from)
+    }
+    fn lines_within(&self, min: DVec2, max: DVec2, tier: FeatureTier) -> Vec<ChunkFeature> {
+        self.ground.lines_within(min, max, tier)
+    }
+}
+
+/// Gentle swells, up to about 16 m.
+fn swells(p: DVec2) -> f64 {
+    10.0 + 6.0 * (p.x / 61.0).sin() * (p.y / 47.0).cos()
+}
+
+#[test]
+fn gentle_ground_is_sampled_sparsely_and_stays_within_the_tolerance() {
+    // The four edges are read every metre (65 heights each), and the
+    // inside only as finely as the swells bend: far fewer than the 65 × 65
+    // lattice plus the edges. Every 1 m point, read or not, is still within
+    // the tolerance (plus rounding).
+    let ground = Counted {
+        ground: Analytic(swells),
+        reads: Default::default(),
+    };
+    let dense = 65 * 65 + 4 * 65;
+    for (x, z) in BLOCK {
+        ground.reads.store(0, std::sync::atomic::Ordering::Relaxed);
+        let mesh = build_chunk(&ground, ChunkKey::new(x, z, 0), &TinTolerance::GENERAL).unwrap();
+        let reads = ground.reads.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(reads * 4 < dense, "chunk ({x}, {z}) read {reads} heights");
+        assert!(mesh.unmet.is_empty());
+        for row in 0..=64 {
+            for col in 0..=64 {
+                let p = (x * 64_000 + col * 1000, z * 64_000 + row * 1000);
+                let at = DVec2::new(p.0 as f64, p.1 as f64) / 1000.0;
+                let sample = (swells(at) as f32 as f64 * 1000.0).round();
+                let height = mesh_height(&mesh, p).expect("the mesh covers the chunk");
+                assert!(
+                    (height - sample).abs() <= 501.0,
+                    "chunk ({x}, {z}) at {p:?}: mesh {height} mm, ground {sample} mm"
                 );
             }
         }
@@ -850,6 +910,41 @@ fn river_lines_follow_the_ground_along_their_length() {
         }
     }
     assert!(checked > 100, "{checked} kept edges");
+}
+
+#[test]
+fn rippled_banks_stay_within_the_water_tolerance_everywhere() {
+    // Ripples a few metres long beside a river: every 1 m point within
+    // the water band is within the water's tolerance (plus rounding), and
+    // every other one within the open land's, though the open land is
+    // sampled sparsely.
+    let source = Rippled(river(1, &[(-60.0, 7.3), (60.0, 7.3)], 6.0));
+    let tolerance = TinTolerance::GENERAL;
+    let features = [source.0.clone()];
+    let meshes = build_block(&source, BLOCK, &tolerance);
+    let mut near = 0;
+    for (mesh, (x, z)) in meshes.iter().zip(BLOCK) {
+        assert!(mesh.unmet.is_empty(), "chunk ({x}, {z})");
+        for row in 0..=64 {
+            for col in 0..=64 {
+                let p = (x * 64_000 + col * 1000, z * 64_000 + row * 1000);
+                let at = DVec2::new(p.0 as f64, p.1 as f64) / 1000.0;
+                let ground = f64::from(source.surface(at, FeatureTier::Fine).height);
+                let height = mesh_height(mesh, p).expect("the mesh covers its chunk");
+                let limit = if water_gap(&features, at, None) < tolerance.water_band {
+                    near += 1;
+                    tolerance.water.height
+                } else {
+                    tolerance.general.height
+                };
+                assert!(
+                    (height - (ground * 1000.0).round()).abs() <= limit * 1000.0 + 1.0,
+                    "chunk ({x}, {z}) at {at}: mesh {height} mm, ground {ground} m"
+                );
+            }
+        }
+    }
+    assert!(near > 1000, "{near} points near the water");
 }
 
 /// A world of medium-scale rolling hills, built once and shared.
