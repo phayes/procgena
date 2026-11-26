@@ -2581,6 +2581,19 @@ music).
   warm-up (R4), GM5's tint (R5), CT5's collision (R8), and later S1's
   slice (R6) and the chopping slice of R4 and X1 (R7).
 - **Done when:** the plan's milestones are met.
+- **Status (2026-11-26): L0 built; L1 built but not yet done.** The
+  lumberjack walks, runs and jumps over a 7 × 7 grid of 220 m forest tiles
+  on chunk-mesh colliders. The scripted `--autowalk` runs 1.5 km of loops
+  around the start, across tile borders, without falling through, getting
+  stuck or entering a trunk. Still open
+  for L1:
+  - loading takes about 6 minutes, not 30 s: the keep-off mask's
+    `annotate` per candidate spot is most of each tile's placing time
+    (to re-measure after TB, then ED or an engine labels raster);
+  - frame times are not yet measured on a quiet machine;
+  - the demo runs without roads or rivers (the user's choice, 2026-11-26),
+    so the walk along a road is untested;
+  - foot sliding and tile borders still need a look in motion.
 
 #### EP: Placed Ecotope copies for games
 
@@ -2593,6 +2606,9 @@ music).
 - **Needs:** C3a.
 - **Done when:** a game system gets every copy of a placed Ecotope after
   placing finishes and again after each edit, with a test.
+- **Status (2026-11-26): done.** `EcotopeCopies` sits beside each placed
+  Ecotope; the lumberjack demo builds its trunk and stone colliders from
+  it.
 
 ### Studio track
 

@@ -1,7 +1,8 @@
 # Demo: the lumberjack and the wind (plan, draft)
 
 **State: approved in outline by the user (2026-11-25); see "Decisions"
-at the end.** Nothing here is built.
+at the end.** What is built is in the ROADMAP's
+[DM](../ROADMAP.md#dm-lumberjack-demo) block.
 
 **It is an experience more than a game** (the user, 2026-11-25: "Its
 more of an experience than a game I guess"; "The works for a small
@@ -58,7 +59,8 @@ wisps of leaves floating, animal calls and whistles, gentle music."*
      [W1](../ROADMAP.md#w1-world-with-cover) and
      [S1](../ROADMAP.md#s1-streaming). Rather than write its own cover
      streaming (which would duplicate S1), the demo places a fixed grid of
-     Ecotope tiles once, with a loading screen, and fades the edge of the
+     Ecotope tiles once, the nearest behind a loading screen and the rest
+     in the background, and fades the edge of the
      area into fog and impostors. When S1 lands the demo drops the tiles
      and the edge (milestone L8). Trade-off: a soft wall at the edge of the
      map until then.
@@ -170,10 +172,13 @@ workspace member only after its files exist.
   `TerrainStream::world(world_terrain)` with the player's camera as the
   `TerrainViewer`.
 - **The play area** (about 1.5 km square): a grid of Ecotope
-  tiles (for example 6 × 6 tiles of 256 m), each an `EcotopeParams` over
+  tiles (7 × 7 tiles of 220 m, an odd count so the start is in the middle
+  tile), each an `EcotopeParams` over
   the shared `Arc<WorldTerrain>` as `Ground`, all of one forest Ecotope
   with a coverage mask from terrain labels (no trees on water, roads or
-  cliffs). Tiles are placed during the loading screen. Tile borders must
+  cliffs). The start tile and the ring of eight around it are placed
+  during the loading screen; the rest are placed during play, nearest
+  first, a few at a time. Tile borders must
   not show; if per-tile placement makes visible seams, that is an engine
   question for C2's world-anchored ids, not something the demo papers over.
 - **The edge**: beyond the area, terrain keeps streaming to the horizon,
