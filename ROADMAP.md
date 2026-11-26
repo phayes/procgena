@@ -2154,6 +2154,19 @@ in a `tin` module of `procgena_terrain`.
   deferred on 2026-11-25.)
 - **Done when:** network hashes are stable across runs and thread counts,
   and grade and curvature limits hold on the fitted alignment.
+- **Status: done 2026-11-25.** `Terrain::road_network()` (`src/road/`
+  `network.rs`, `align.rs`, `assemble.rs`); minimum radius
+  `RoadOptions::min_radius` (12 m); bends that can't reach it are kept
+  and recorded as `PoiKind::SharpBend`; roads stop 6 m from rivers and
+  ponds at linked `RiverBank` nodes; the ground is carved from the
+  fitted network. Network hashes match on 1, 3 and 8 threads and without
+  `rayon`. Corpus (load average about 10, so times are not comparable to
+  the quiet baseline): 117/117 ports, 22 sharp bends, 11 crossings,
+  routing median 84 ms. **Left as shortcuts:** a crossing whose gap
+  would reach a road's end is skipped and the road fills the river (one
+  case in the corpus, mountains 3/2); no clearance above the water; the
+  fitted line may stray up to 4 m from the routed cells. Details in
+  [docs/coordination/rb4-handoff.md](docs/coordination/rb4-handoff.md).
 
 #### RB5: Cross-sections and earthworks
 
@@ -2252,7 +2265,7 @@ summary below is for ordering.
 | **ST5b** Picking by part paths | D3 part paths for single parts | X1's `part()`, fruit AC1 |
 | **ST6** Texture library | One `TextureCatalogue` shared with GM2, import to BC7 KTX2 with `ctt` | ST2, ST3, ST4; agreement with GM2 |
 | **ST7a** Problems, overlays, stats | Problems panel, debug overlays, live stats, one Detail and Quality control | ST0, ST1 |
-| **ST7b** Chain preview | IX's chain preview on the view frame: pretend a distance, force the lower mesh or the impostor, and read back which step is drawn and why. The studio shows each preset's `game_level` | IX Step 4's chain preview |
+| **ST7b** Chain preview | IX's chain preview on the view frame: pretend a distance in metres, force the lower mesh or the impostor, and read back the size on screen, the next threshold and the step drawn. The studio shows each preset's `game_level` | IX Step 4's chain preview |
 | **ST8** Export and commands | One Export, screenshot, turntable, command palette, shortcuts | ST0; turntable after ST4 |
 | **ST9** Later | A/B compare, seed browser, node diagram, preview contexts, Biome and World kinds | B1, W1 for their kinds |
 | Far future | The studio as an extension of the Bevy editor (decided by the user 2026-11-24: not planned until Bevy offers editor extensions; research in the plan's "Bevy editor") | Bevy editor extensions |
@@ -2448,12 +2461,14 @@ where the details are.
     - *Also decided 2026-11-24:* ground never feeds placement (Scatter
       density rules get the same condition types instead); a rule's height
       is an enum, either absolute (scaling with the World's `vertical`) or
-      relative to the region's relief; texture defaults go well down,
-      with a 128 px version of every material baked too, and full
-      resolution an opt-in level ("level 1 is the default for everything,
-      level 0 optional").
-    - *Still open:* exact texture sizes per level and the resident cap,
-      in GM2 with the machines from item 18.
+      relative to the region's relief. Ground textures default to 512 px,
+      1k is an opt-in, and 128 px of every material is always baked (and
+      always exported in bundles); confirmed by the user 2026-11-25, as a
+      texture rule of its own, apart from meshes' `game_level`.
+    - *Still open:* the resident cap, with the machines from item 18.
+      Then consider letting the quality setting pick the texture size
+      (for example Low 128 px, Ultra 1k), since texture size is a memory
+      budget like the rest of quality.
     - *Settled in GM1:* the level-ring seam in the weight textures stays
       as it is.
     - *Also open:* where plant's far colour function lives (before GM5, with the

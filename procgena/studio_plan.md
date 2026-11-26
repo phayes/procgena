@@ -769,6 +769,13 @@ Built 2026-11-24 on Bevy alone (`scene/fly.rs`, `studio/camera.rs`).
 
 ### Viewing distance (requirement on IX)
 
+The control is a pretended distance in metres (the user, 2026-11-25).
+The runtime turns it into size on screen through the view's field of
+view and each copy's size, since steps switch by size on screen. The
+readout shows the resulting size on screen, the next threshold and the
+step drawn, for example "300 m · 2.1% of screen · impostor (below 3%)",
+so the same control serves threshold tuning.
+
 The studio needs, from the shared LOD runtime (`procgena_core_bevy`,
 designed in IX's plan):
 
