@@ -528,10 +528,22 @@ impl WorldTerrain {
         sites: &[(DVec2, RegionKey); 25],
         mut region: impl FnMut(RegionKey) -> Arc<Region>,
     ) -> RegionKey {
-        let mut candidates = sites.map(|(site, key)| (site.distance_squared(p), key));
-        candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        // The candidates nearest site first, ties by key, picked one at a
+        // time: most points belong to the first, so the rest are never
+        // ordered.
+        let candidates = sites.map(|(site, key)| (site.distance_squared(p), key));
+        let mut taken = [false; 25];
         let mut nearest_border: Option<(f64, RegionKey)> = None;
-        for (_, key) in candidates {
+        for _ in 0..candidates.len() {
+            let next = (0..candidates.len())
+                .filter(|&i| !taken[i])
+                .min_by(|&i, &j| {
+                    let (a, b) = (candidates[i], candidates[j]);
+                    a.0.total_cmp(&b.0).then(a.1.cmp(&b.1))
+                })
+                .expect("a candidate is left");
+            taken[next] = true;
+            let key = candidates[next].1;
             let boundary = &region(key).boundary;
             if boundary.contains(p) {
                 return key;

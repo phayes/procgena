@@ -2047,6 +2047,9 @@ bitwise identical.
     without gradients. 12.10 / 12.41 / 14.89 G → 10.91 / 11.10 /
     12.64 G instructions. The gradient and Hessian are not shared yet;
     the normalisation costs a few multiplies a call and was left.
+  - Region search without a sort: the 25 nearby regions are tried
+    nearest first, picked one at a time, so most points never order the
+    rest. Same order and ties. → 8.60 / 8.81 / 10.34 G.
 
 #### TB: Cheap borders
 
