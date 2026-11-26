@@ -31,5 +31,15 @@ with the advisor where needed, for the user to review.
    within about 2× today's. The river band, determinism and identical chunk
    edges are not loosened. The curve and the choice are in ROADMAP's CT-A
    block, for review.
-4. **CT4 (roads in the TIN) is held** while the focus is loading speed.
+4. **How the speed-up options are being run**
+   (`terrain/speedup_options.md`):
+   - **Option 3** (classify each chunk against borders) is folded into the
+     cheap-borders worker's design.
+   - **Option 1** (disabled features cost nothing, lazy plans) starts as its
+     own worker once the Rayon removal (TS) lands.
+   - **Option 4** (sharing noise evaluations) waits until the borders land,
+     because both edit `relief.rs`.
+   - **The GPU plan's 6 open questions** wait for the user. Nothing that
+     depends on them has started.
+5. **CT4 (roads in the TIN) is held** while the focus is loading speed.
    CT3 and RB5 have unblocked it.
