@@ -60,6 +60,90 @@ impl FeatureTier {
     }
 }
 
+/// Which features a read of the ground carries, named by chunk level: a
+/// read at level `L` carries the features a chunk at level `L` is drawn
+/// with (see [`ChunkSource`](crate::ChunkSource)).
+///
+/// A smaller level carries at least the features of a larger one, so
+/// [`FINEST`](Self::FINEST) carries every feature and is the real ground.
+/// Placement, masks and queries must read that; a coarser level is for
+/// drawing only. A source answers each asked level with a *canonical*
+/// level (see [`ChunkSource::level`](crate::ChunkSource::level)): two
+/// reads at the same canonical level are the same, bit for bit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct FeatureLevel(pub u8);
+
+impl FeatureLevel {
+    /// Every feature: the real ground.
+    pub const FINEST: Self = Self(0);
+
+    /// Only the features every level carries, the cheapest read of the
+    /// ground: what a stream draws first while finer reads are built.
+    pub const COARSEST: Self = Self(u8::MAX);
+
+    /// The features chunk `key` is drawn with: its own level.
+    pub fn of(key: crate::ChunkKey) -> Self {
+        Self(key.level)
+    }
+}
+
+/// Which [`FeatureTier`] a [`WorldTerrain`](crate::WorldTerrain) reads at
+/// each [`FeatureLevel`]: levels from [`rough_from`](Self::rough_from) up,
+/// and [`FeatureLevel::COARSEST`] always, are read at
+/// [`Rough`](FeatureTier::Rough); levels from [`mid_from`](Self::mid_from)
+/// up (below `rough_from`) at [`Mid`](FeatureTier::Mid); the rest at
+/// [`Fine`](FeatureTier::Fine).
+///
+/// The default reads every level but `COARSEST` at the fine tier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct TierLevels {
+    /// The first level read at the mid tier, with the costly features in
+    /// outline (today the roads on a coarse route), or `None` for none.
+    pub mid_from: Option<u8>,
+    /// The first level read at the rough tier, without the costly features
+    /// (today the roads), or `None` for none but `COARSEST`.
+    pub rough_from: Option<u8>,
+}
+
+impl TierLevels {
+    /// One level for each tier: level 0 is fine, level 1 is mid, and every
+    /// level from 2 up is rough.
+    pub const ONE_EACH: Self = Self {
+        mid_from: Some(1),
+        rough_from: Some(2),
+    };
+
+    /// The tier read at `level`.
+    pub fn tier(self, level: FeatureLevel) -> FeatureTier {
+        let from = |from: Option<u8>| from.is_some_and(|from| level.0 >= from);
+        if level == FeatureLevel::COARSEST || from(self.rough_from) {
+            FeatureTier::Rough
+        } else if from(self.mid_from) {
+            FeatureTier::Mid
+        } else {
+            FeatureTier::Fine
+        }
+    }
+
+    /// The canonical level of `tier`: [`FeatureLevel::FINEST`] for the
+    /// fine tier, [`mid_from`](Self::mid_from) for the mid tier (level 1
+    /// if `mid_from` is `None`), and [`FeatureLevel::COARSEST`] for the
+    /// rough tier. Levels read at one tier all share its canonical level,
+    /// and a finer tier's canonical level is smaller.
+    pub fn level(self, tier: FeatureTier) -> FeatureLevel {
+        match tier {
+            FeatureTier::Fine => FeatureLevel::FINEST,
+            FeatureTier::Mid => FeatureLevel(self.mid_from.unwrap_or(1)),
+            FeatureTier::Rough => FeatureLevel::COARSEST,
+        }
+    }
+
+    /// The canonical level of the tier read at `level`.
+    pub fn canonical(self, level: FeatureLevel) -> FeatureLevel {
+        self.level(self.tier(level))
+    }
+}
+
 impl FeatureKind {
     /// Every kind of feature.
     pub const ALL: [FeatureKind; 3] = [FeatureKind::River, FeatureKind::Pond, FeatureKind::Road];

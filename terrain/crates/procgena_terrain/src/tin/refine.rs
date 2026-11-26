@@ -8,7 +8,7 @@ use std::collections::{BinaryHeap, HashSet};
 use glam::DVec2;
 
 use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkSource};
-use crate::feature::FeatureTier;
+use crate::feature::FeatureLevel;
 
 use super::cache::ContractCache;
 use super::cdt::ChunkCdt;
@@ -35,7 +35,7 @@ const SIDE: usize = (CHUNK_SIZE as i64 * CM_PER_M as i64 / LATTICE_CM) as usize 
 const CREASE_CLEARANCE: f64 = 1.5;
 
 /// The canonical mesh of finest-level chunk `key` over the ground of
-/// `source` at the fine tier, within `tolerance`.
+/// `source` at [`FeatureLevel::FINEST`], within `tolerance`.
 ///
 /// The border is locked to the four [`EdgeContract`](super::EdgeContract)s, so the neighbours'
 /// meshes meet it exactly. The rivers' and ponds' lines in the chunk (see
@@ -122,7 +122,7 @@ pub fn build_chunk_with(
 
     // The feature lines, cut to the chunk and where they cross.
     let (lo, hi) = (key.min_corner(), key.max_corner());
-    let features = source.lines_within(lo, hi, FeatureTier::Fine);
+    let features = source.lines_within(lo, hi, FeatureLevel::FINEST);
     let water = Water::new(&features, tolerance, lo, hi);
     let (x0, z0) = edges[0].start();
     let square = Square {

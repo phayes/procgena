@@ -26,7 +26,7 @@ use std::time::Instant;
 use glam::DVec2;
 use procgena_terrain::tin::{TinChunk, TinTolerance, TinTriangle, build_chunk};
 use procgena_terrain::{
-    ChunkKey, ChunkSource, Elevation, FeatureTier, RegionId, SurfacePoint, TerrainPreset,
+    ChunkKey, ChunkSource, Elevation, FeatureLevel, RegionId, SurfacePoint, TerrainPreset,
     WorldTerrain, WorldTerrainOptions,
 };
 
@@ -38,14 +38,14 @@ struct Shrunk<'a> {
 }
 
 impl ChunkSource for Shrunk<'_> {
-    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
-        self.surfaces(&[p], tier)[0]
+    fn surface(&self, p: DVec2, level: FeatureLevel) -> SurfacePoint {
+        self.surfaces(&[p], level)[0]
     }
-    fn surfaces(&self, points: &[DVec2], tier: FeatureTier) -> Vec<SurfacePoint> {
+    fn surfaces(&self, points: &[DVec2], level: FeatureLevel) -> Vec<SurfacePoint> {
         self.reads.fetch_add(points.len(), Ordering::Relaxed);
         let real: Vec<DVec2> = points.iter().map(|&p| p * self.scale).collect();
         self.world
-            .surfaces(&real, tier)
+            .surfaces(&real, level)
             .into_iter()
             .map(|s| SurfacePoint {
                 height: (f64::from(s.height) / self.scale) as f32,
@@ -53,10 +53,10 @@ impl ChunkSource for Shrunk<'_> {
             })
             .collect()
     }
-    fn tier(&self, tier: FeatureTier) -> FeatureTier {
-        self.world.tier(tier)
+    fn level(&self, level: FeatureLevel) -> FeatureLevel {
+        self.world.level(level)
     }
-    fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+    fn level_difference(&self, _: DVec2, _: DVec2, _: FeatureLevel) -> f32 {
         0.0
     }
 }
@@ -131,7 +131,7 @@ fn main() {
                     })
                     .collect();
                 let started = Instant::now();
-                let _ = shrunk.surfaces(&probe, FeatureTier::Fine);
+                let _ = shrunk.surfaces(&probe, FeatureLevel::FINEST);
                 read_us += started.elapsed().as_secs_f64() * 1e6 / chunk_reads.max(1.0);
                 tris += mesh.triangles.len() as f64;
                 reads += chunk_reads;
@@ -160,7 +160,7 @@ fn errors_of(mesh: &TinChunk, shrunk: &Shrunk, key: ChunkKey) -> Vec<f64> {
     let points: Vec<DVec2> = (0..256 * 256)
         .map(|i| key.min_corner() + DVec2::new((i % 256) as f64, (i / 256) as f64) * 0.25 + 0.125)
         .collect();
-    let truth = shrunk.surfaces(&points, FeatureTier::Fine);
+    let truth = shrunk.surfaces(&points, FeatureLevel::FINEST);
     points
         .iter()
         .zip(truth)

@@ -26,7 +26,7 @@
 //! ```
 //! use glam::DVec3;
 //! use procgena_terrain::{
-//!     Boundary, ChunkSamples, ChunkSelection, FeatureTier, Region, RegionId, TerrainGenerator,
+//!     Boundary, ChunkSamples, ChunkSelection, FeatureLevel, Region, RegionId, TerrainGenerator,
 //!     TerrainPreset, chunk_levels,
 //! };
 //!
@@ -40,7 +40,7 @@
 //! let chosen = ChunkSelection::around(&levels, 1.0, &[DVec3::new(0.0, 2.0, 0.0)], None)?;
 //! let (key, transitions) = chosen.iter().next().unwrap();
 //!
-//! let samples = ChunkSamples::sample(&terrain, key, FeatureTier::Fine)?;
+//! let samples = ChunkSamples::sample(&terrain, key, FeatureLevel::of(key))?;
 //! let mesh = samples.mesh(transitions, 0.0);
 //! assert!(!mesh.indices.is_empty());
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -53,8 +53,8 @@ use glam::{DVec2, DVec3, Vec3};
 use procgena_core::chain::ViewScale;
 
 use crate::{
-    ChunkLevels, ChunkLevelsError, FeatureId, FeatureLine, FeatureShape, FeatureTier, Pond,
-    RegionId, SampleDetail, Terrain, TerrainFeature, WorldTerrain,
+    ChunkLevels, ChunkLevelsError, FeatureId, FeatureLevel, FeatureLine, FeatureShape, FeatureTier,
+    Pond, RegionId, SampleDetail, Terrain, TerrainFeature, TierLevels, WorldTerrain,
 };
 
 /// Width in metres of a chunk at level 0. Each level up doubles it.
@@ -392,38 +392,43 @@ impl ChunkFeature {
 
 /// Something chunks can be built from: a terrain, or a world of them.
 pub trait ChunkSource: Sync {
-    /// The ground at world position `p` (x and z, metres), with its
-    /// features planned to `tier`, or as near to it as the source has (see
-    /// [`tier`](Self::tier)).
-    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint;
+    /// The ground at world position `p` (x and z, metres), carrying the
+    /// features of `level`, or as near to them as the source has (see
+    /// [`level`](Self::level)).
+    fn surface(&self, p: DVec2, level: FeatureLevel) -> SurfacePoint;
 
     /// Surfaces in the order of `points`, with exactly the same values as
     /// [`surface`](Self::surface). Worlds reuse region boundaries and
     /// terrains across the batch; other sources may use the default.
-    fn surfaces(&self, points: &[DVec2], tier: FeatureTier) -> Vec<SurfacePoint> {
-        points.iter().map(|&p| self.surface(p, tier)).collect()
+    fn surfaces(&self, points: &[DVec2], level: FeatureLevel) -> Vec<SurfacePoint> {
+        points.iter().map(|&p| self.surface(p, level)).collect()
     }
 
-    /// The tier [`surface`](Self::surface) gives when asked for `tier`.
-    fn tier(&self, tier: FeatureTier) -> FeatureTier;
+    /// The canonical level of what [`surface`](Self::surface) gives when
+    /// asked for `level`: reads at the same canonical level are the same,
+    /// bit for bit, and a smaller canonical level carries more features.
+    /// [`FeatureLevel::FINEST`] means the real ground.
+    fn level(&self, level: FeatureLevel) -> FeatureLevel;
 
     /// The most, in metres, the ground between `min` and `max` (x and z)
-    /// at the fine tier differs from the same ground at tier `from` (see
-    /// [`Terrain::tier_difference`]). It sizes the skirts between chunks of
-    /// different tiers. Builds nothing: ground that isn't built yet counts
-    /// as not moving, so ask after reading the area at the fine tier.
-    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32;
+    /// at [`FeatureLevel::FINEST`] differs from the same ground read at
+    /// `from` (see [`Terrain::tier_difference`]). It sizes the skirts
+    /// between chunks read at different levels. Builds nothing: ground
+    /// that isn't built yet counts as not moving, so ask after reading the
+    /// area at the finest level.
+    fn level_difference(&self, min: DVec2, max: DVec2, from: FeatureLevel) -> f32;
 
-    /// Every river, pond and road that can change the ground at `tier`
-    /// within the box from `min` to `max` (x and z, metres), whole, each
-    /// once, sorted by id. The same features as [`surface`](Self::surface)
-    /// cuts into the ground there, so a feature reaching into the box is
-    /// listed whatever box around it is asked about.
+    /// Every river, pond and road that can change the ground read at
+    /// `level` within the box from `min` to `max` (x and z, metres), whole,
+    /// each once, sorted by id. The same features as
+    /// [`surface`](Self::surface) cuts into the ground there, so a feature
+    /// reaching into the box is listed whatever box around it is asked
+    /// about.
     ///
     /// The default lists nothing: a source without features, such as
     /// ground given by a formula, keeps it.
-    fn lines_within(&self, min: DVec2, max: DVec2, tier: FeatureTier) -> Vec<ChunkFeature> {
-        let _ = (min, max, tier);
+    fn lines_within(&self, min: DVec2, max: DVec2, level: FeatureLevel) -> Vec<ChunkFeature> {
+        let _ = (min, max, level);
         Vec::new()
     }
 
@@ -438,28 +443,36 @@ pub trait ChunkSource: Sync {
         crate::tin::TinTolerance::GENERAL
     }
 
-    /// Whether reading chunk `key` at tier `to` could give anything
-    /// different from reading it at tier `from`: its samples, or its
+    /// Whether reading chunk `key` at level `to` could give anything
+    /// different from reading it at level `from`: its samples, or its
     /// canonical mesh. `false` means a read at `from` is exactly a read at
     /// `to`, bit for bit, so it can stand for one.
     ///
-    /// The default answers `true` whenever the tiers differ, which is
-    /// always safe.
-    fn tier_changes(&self, key: ChunkKey, from: FeatureTier, to: FeatureTier) -> bool {
+    /// The default answers `true` whenever the canonical levels differ
+    /// (see [`level`](Self::level)), which is always safe.
+    fn level_changes(&self, key: ChunkKey, from: FeatureLevel, to: FeatureLevel) -> bool {
         let _ = key;
-        self.tier(from) != self.tier(to)
+        self.level(from) != self.level(to)
     }
 
-    /// [`tier_changes`](Self::tier_changes) if it can be answered without
-    /// building anything, `None` otherwise. Ask it where building now
-    /// would hold up something more urgent.
+    /// [`level_changes`](Self::level_changes) if it can be answered
+    /// without building anything, `None` otherwise. Ask it where building
+    /// now would hold up something more urgent.
     ///
-    /// The default asks `tier_changes`, which is right for a source whose
-    /// `tier_changes` builds nothing.
-    fn tier_change_known(&self, key: ChunkKey, from: FeatureTier, to: FeatureTier) -> Option<bool> {
-        Some(self.tier_changes(key, from, to))
+    /// The default asks `level_changes`, which is right for a source whose
+    /// `level_changes` builds nothing.
+    fn level_change_known(
+        &self,
+        key: ChunkKey,
+        from: FeatureLevel,
+        to: FeatureLevel,
+    ) -> Option<bool> {
+        Some(self.level_changes(key, from, to))
     }
 }
+
+/// The tiers a lone [`Terrain`] is told apart by, as levels.
+const TERRAIN_LEVELS: TierLevels = TierLevels::ONE_EACH;
 
 /// How far past a chunk's sides its read looks: the ring of samples
 /// around its mesh (one cell), with a cell to spare.
@@ -475,8 +488,8 @@ fn sorted_features(mut features: Vec<ChunkFeature>) -> Vec<ChunkFeature> {
 }
 
 impl ChunkSource for Terrain {
-    /// The terrain's own ground, whatever tier is asked for.
-    fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
+    /// The terrain's own ground, whatever level is asked for.
+    fn surface(&self, p: DVec2, _: FeatureLevel) -> SurfacePoint {
         let sample = self.query(p, SampleDetail::Height);
         SurfacePoint {
             height: sample.height,
@@ -484,28 +497,37 @@ impl ChunkSource for Terrain {
         }
     }
 
-    /// The terrain's own tier (see [`Terrain::tier`]), whatever is asked
-    /// for.
-    fn tier(&self, _: FeatureTier) -> FeatureTier {
-        Terrain::tier(self)
+    /// The level of the terrain's own tier (see [`Terrain::tier`]) in
+    /// [`TierLevels::ONE_EACH`], whatever is asked for: the finest level
+    /// for a terrain at the fine tier.
+    fn level(&self, _: FeatureLevel) -> FeatureLevel {
+        TERRAIN_LEVELS.level(Terrain::tier(self))
     }
 
-    /// The terrain's own [`Terrain::tier_difference`], anywhere.
-    fn tier_difference(&self, _: DVec2, _: DVec2, from: FeatureTier) -> f32 {
-        Terrain::tier_difference(self, from)
+    /// The terrain's own [`Terrain::tier_difference`] from the tier `from`
+    /// reads in [`TierLevels::ONE_EACH`], anywhere.
+    fn level_difference(&self, _: DVec2, _: DVec2, from: FeatureLevel) -> f32 {
+        Terrain::tier_difference(self, TERRAIN_LEVELS.tier(from))
     }
 
     /// The terrain's own features (at its own tier, whatever is asked for)
     /// that can change the ground in the box.
-    fn lines_within(&self, min: DVec2, max: DVec2, _: FeatureTier) -> Vec<ChunkFeature> {
-        sorted_features(
-            self.features_within(min, max)
-                .into_iter()
-                .filter_map(|id| self.feature(id))
-                .map(ChunkFeature::of)
-                .collect(),
-        )
+    fn lines_within(&self, min: DVec2, max: DVec2, _: FeatureLevel) -> Vec<ChunkFeature> {
+        terrain_lines(self, min, max)
     }
+}
+
+/// `terrain`'s own features that can change the ground in the box from
+/// `min` to `max`, sorted by id.
+fn terrain_lines(terrain: &Terrain, min: DVec2, max: DVec2) -> Vec<ChunkFeature> {
+    sorted_features(
+        terrain
+            .features_within(min, max)
+            .into_iter()
+            .filter_map(|id| terrain.feature(id))
+            .map(ChunkFeature::of)
+            .collect(),
+    )
 }
 
 impl ChunkSource for WorldTerrain {
@@ -514,24 +536,27 @@ impl ChunkSource for WorldTerrain {
         self.options().tin
     }
 
-    fn surfaces(&self, points: &[DVec2], tier: FeatureTier) -> Vec<SurfacePoint> {
+    fn surfaces(&self, points: &[DVec2], level: FeatureLevel) -> Vec<SurfacePoint> {
+        let tier = self.tier_levels().tier(level);
         self.sample_batch(points, tier, |terrain, p| {
             terrain.map_or(
                 SurfacePoint {
                     height: f32::NAN,
                     water: None,
                 },
-                |terrain| terrain.surface(p, tier),
+                |terrain| terrain.surface(p, level),
             )
         })
     }
 
-    /// The ground of the region holding `p` at `tier` (see
+    /// The ground of the region holding `p` at the tier the world's
+    /// [`TierLevels`] read at `level` (see
     /// [`WorldTerrain::terrain_tier`]). NaN heights where the region can't
     /// be built.
-    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
+    fn surface(&self, p: DVec2, level: FeatureLevel) -> SurfacePoint {
+        let tier = self.tier_levels().tier(level);
         match self.terrain_tier(self.region_at(p), tier) {
-            Ok(terrain) => terrain.surface(p, tier),
+            Ok(terrain) => terrain.surface(p, level),
             Err(_) => SurfacePoint {
                 height: f32::NAN,
                 water: None,
@@ -539,14 +564,17 @@ impl ChunkSource for WorldTerrain {
         }
     }
 
-    /// Always the tier asked for.
-    fn tier(&self, tier: FeatureTier) -> FeatureTier {
-        tier
+    /// The canonical level of the tier the world's [`TierLevels`] read at
+    /// `level` (see [`TierLevels::canonical`]).
+    fn level(&self, level: FeatureLevel) -> FeatureLevel {
+        self.tier_levels().canonical(level)
     }
 
-    /// The largest [`Terrain::tier_difference`] of the fine terrains kept
-    /// for the regions holding a 5 × 5 grid of points over the area.
-    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
+    /// The largest [`Terrain::tier_difference`], from the tier read at
+    /// `from`, of the fine terrains kept for the regions holding a 5 × 5
+    /// grid of points over the area.
+    fn level_difference(&self, min: DVec2, max: DVec2, from: FeatureLevel) -> f32 {
+        let from = self.tier_levels().tier(from);
         let mut regions = std::collections::BTreeSet::new();
         for j in 0..5 {
             for i in 0..5 {
@@ -561,27 +589,21 @@ impl ChunkSource for WorldTerrain {
             .fold(0.0, f32::max)
     }
 
-    /// The features at `tier` of every region reaching into the box that
-    /// can change the ground there. A feature carved by two regions (a
-    /// river or road crossing their border) is listed once. Regions that
-    /// can't be built add nothing.
-    fn lines_within(&self, min: DVec2, max: DVec2, tier: FeatureTier) -> Vec<ChunkFeature> {
-        let mut features = Vec::new();
-        for id in regions_reaching(self, min, max) {
-            if let Ok(terrain) = self.terrain_tier(id, tier) {
-                features.extend(terrain.lines_within(min, max, tier));
-            }
-        }
-        sorted_features(features)
+    /// The features at the tier read at `level` (see
+    /// [`WorldTerrain::lines_within_tier`]).
+    fn lines_within(&self, min: DVec2, max: DVec2, level: FeatureLevel) -> Vec<ChunkFeature> {
+        self.lines_within_tier(min, max, self.tier_levels().tier(level))
     }
 
     /// Whether, in any region holding a point that chunk `key`'s read
     /// samples, a feature within reach of those points differs between the
-    /// tiers. A point's ground comes only from its own region's features
-    /// near it, and a later tier only adds and reshapes roads, so equal
-    /// features mean an equal read. Builds those regions, and only those,
-    /// at both tiers, as the read itself would.
-    fn tier_changes(&self, key: ChunkKey, from: FeatureTier, to: FeatureTier) -> bool {
+    /// tiers read at the two levels. A point's ground comes only from its
+    /// own region's features near it, and a later tier only adds and
+    /// reshapes roads, so equal features mean an equal read. Builds those
+    /// regions, and only those, at both tiers, as the read itself would.
+    fn level_changes(&self, key: ChunkKey, from: FeatureLevel, to: FeatureLevel) -> bool {
+        let levels = self.tier_levels();
+        let (from, to) = (levels.tier(from), levels.tier(to));
         if from == to {
             return false;
         }
@@ -589,16 +611,23 @@ impl ChunkSource for WorldTerrain {
         let (min, max) = (key.min_corner() - reach, key.max_corner() + reach);
         regions_reaching(self, min, max).into_iter().any(|id| {
             match (self.terrain_tier(id, from), self.terrain_tier(id, to)) {
-                (Ok(a), Ok(b)) => a.lines_within(min, max, from) != b.lines_within(min, max, to),
+                (Ok(a), Ok(b)) => terrain_lines(&a, min, max) != terrain_lines(&b, min, max),
                 _ => true,
             }
         })
     }
 
-    /// [`tier_changes`](ChunkSource::tier_changes) from the region
+    /// [`level_changes`](ChunkSource::level_changes) from the region
     /// terrains already kept at both tiers; `None` if any of them isn't
     /// kept. Builds nothing.
-    fn tier_change_known(&self, key: ChunkKey, from: FeatureTier, to: FeatureTier) -> Option<bool> {
+    fn level_change_known(
+        &self,
+        key: ChunkKey,
+        from: FeatureLevel,
+        to: FeatureLevel,
+    ) -> Option<bool> {
+        let levels = self.tier_levels();
+        let (from, to) = (levels.tier(from), levels.tier(to));
         if from == to {
             return Some(false);
         }
@@ -608,9 +637,31 @@ impl ChunkSource for WorldTerrain {
         for id in regions_reaching(self, min, max) {
             let a = self.kept_terrain(id, from)?;
             let b = self.kept_terrain(id, to)?;
-            changes |= a.lines_within(min, max, from) != b.lines_within(min, max, to);
+            changes |= terrain_lines(&a, min, max) != terrain_lines(&b, min, max);
         }
         Some(changes)
+    }
+}
+
+impl WorldTerrain {
+    /// The features at `tier` of every region reaching into the box from
+    /// `min` to `max` (x and z, metres) that can change the ground there,
+    /// whole, each once, sorted by id. A feature carved by two regions (a
+    /// river or road crossing their border) is listed once. Builds those
+    /// regions at `tier`; regions that can't be built add nothing.
+    pub fn lines_within_tier(
+        &self,
+        min: DVec2,
+        max: DVec2,
+        tier: FeatureTier,
+    ) -> Vec<ChunkFeature> {
+        let mut features = Vec::new();
+        for id in regions_reaching(self, min, max) {
+            if let Ok(terrain) = self.terrain_tier(id, tier) {
+                features.extend(terrain_lines(&terrain, min, max));
+            }
+        }
+        sorted_features(features)
     }
 }
 
@@ -684,7 +735,7 @@ impl std::error::Error for ChunkError {}
 #[derive(Debug, Clone)]
 pub struct ChunkSamples {
     key: ChunkKey,
-    tier: FeatureTier,
+    level: FeatureLevel,
     /// The vertex lattice with a one-sample ring around it: `(N + 3)²`
     /// samples, row by row along x, starting one step outside the smallest
     /// corner.
@@ -698,8 +749,8 @@ pub struct ChunkSamples {
 }
 
 impl ChunkSamples {
-    /// Reads the ground of chunk `key` from `source`, with its features
-    /// planned to `tier`.
+    /// Reads the ground of chunk `key` from `source`, carrying the features
+    /// of `level` (usually [`FeatureLevel::of`] `key`).
     ///
     /// # Errors
     ///
@@ -708,7 +759,7 @@ impl ChunkSamples {
     pub fn sample(
         source: &(impl ChunkSource + ?Sized),
         key: ChunkKey,
-        tier: FeatureTier,
+        level: FeatureLevel,
     ) -> Result<Self, ChunkError> {
         // Read the vertex lattice, normal ring and transition samples in
         // one batch, so a world holds each needed terrain only once.
@@ -728,7 +779,7 @@ impl ChunkSamples {
                 }
             }
         }
-        let surfaces = source.surfaces(&points, tier);
+        let surfaces = source.surfaces(&points, level);
         assert_eq!(surfaces.len(), points.len(), "one surface per point");
         for (p, surface) in points.iter().zip(&surfaces) {
             if !surface.height.is_finite() {
@@ -748,7 +799,7 @@ impl ChunkSamples {
 
         Ok(Self {
             key,
-            tier: source.tier(tier),
+            level: source.level(level),
             grid,
             sides,
         })
@@ -757,7 +808,7 @@ impl ChunkSamples {
     /// Samples of chunk `key` that show the ground of `parent`, a coarser
     /// chunk around it, exactly as `parent`'s own mesh shows it, with no
     /// detail of its own: a stand-in that can be drawn beside finer chunks
-    /// until `key` itself is read. Its tier is `parent`'s.
+    /// until `key` itself is read. Its level is `parent`'s.
     ///
     /// Where it meets a chunk read from the ground itself, its edge can
     /// stand apart from that chunk's by as much as `parent`'s mesh differs
@@ -772,7 +823,7 @@ impl ChunkSamples {
             "{key} is not inside {}",
             parent.key
         );
-        Self::sample(&ParentSurface(parent), key, parent.tier)
+        Self::sample(&ParentSurface(parent), key, parent.level)
             .expect("a parent's samples cover the chunks inside it")
     }
 
@@ -781,9 +832,10 @@ impl ChunkSamples {
         self.key
     }
 
-    /// The tier of the ground the samples were read from.
-    pub fn tier(&self) -> FeatureTier {
-        self.tier
+    /// The canonical level of the ground the samples were read from (see
+    /// [`ChunkSource::level`]).
+    pub fn level(&self) -> FeatureLevel {
+        self.level
     }
 
     /// The ground at vertex `(i, j)` of the chunk, each from 0 to
@@ -825,8 +877,9 @@ impl ChunkSamples {
     /// `skirt` metres down from every side (0 for none).
     ///
     /// A skirt hides small gaps where a neighbouring chunk was built from
-    /// other ground, such as a chunk of an earlier tier beside a fine one.
-    /// Chunks of the same tier, at the same level or one level apart,
+    /// other ground, such as a chunk read with fewer features beside one
+    /// read with all of them. Chunks read at the same canonical
+    /// [`FeatureLevel`], at the same chunk level or one level apart,
     /// join without gaps when each is meshed with its own transitions.
     ///
     /// A chunk at level 0 has no finer neighbours, so its transitions are
@@ -842,7 +895,7 @@ impl ChunkSamples {
         let mut mesh = ChunkMesh {
             key: self.key,
             transitions,
-            tier: self.tier,
+            level: self.level,
             origin: self.key.min_corner(),
             positions: Vec::new(),
             normals: Vec::new(),
@@ -1152,8 +1205,9 @@ pub struct ChunkMesh {
     pub key: ChunkKey,
     /// The finer neighbours it was meshed to join.
     pub transitions: Transitions,
-    /// The tier of the ground it was built from.
-    pub tier: FeatureTier,
+    /// The canonical level of the ground it was built from (see
+    /// [`ChunkSource::level`]).
+    pub level: FeatureLevel,
     /// World x and z of the chunk's smallest corner.
     pub origin: DVec2,
     /// Vertex positions.
@@ -1473,7 +1527,7 @@ impl ChunkSelection {
 struct ParentSurface<'a>(&'a ChunkSamples);
 
 impl ChunkSource for ParentSurface<'_> {
-    fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
+    fn surface(&self, p: DVec2, _: FeatureLevel) -> SurfacePoint {
         let samples = self.0;
 
         // The cell holding `p`, and where in it `p` lies, from 0 to 1.
@@ -1514,11 +1568,11 @@ impl ChunkSource for ParentSurface<'_> {
         SurfacePoint { height, water }
     }
 
-    fn tier(&self, _: FeatureTier) -> FeatureTier {
-        self.0.tier
+    fn level(&self, _: FeatureLevel) -> FeatureLevel {
+        self.0.level
     }
 
-    fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+    fn level_difference(&self, _: DVec2, _: DVec2, _: FeatureLevel) -> f32 {
         0.0
     }
 }

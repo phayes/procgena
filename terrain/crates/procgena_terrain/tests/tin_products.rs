@@ -12,24 +12,24 @@ use procgena_terrain::tin::{
     TinTolerance, TinVertex, build_chunk, triangulate,
 };
 use procgena_terrain::{
-    ChunkKey, ChunkMesh, ChunkSamples, ChunkSide, ChunkSource, FeatureTier, SurfacePoint,
+    ChunkKey, ChunkMesh, ChunkSamples, ChunkSide, ChunkSource, FeatureLevel, SurfacePoint,
     Transitions,
 };
 
-/// Ground given by a function, at the fine tier.
+/// Ground given by a function, at the finest level.
 struct Analytic<F>(F);
 
 impl<F: Fn(DVec2) -> f64 + Sync> ChunkSource for Analytic<F> {
-    fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
+    fn surface(&self, p: DVec2, _: FeatureLevel) -> SurfacePoint {
         SurfacePoint {
             height: (self.0)(p) as f32,
             water: None,
         }
     }
-    fn tier(&self, _: FeatureTier) -> FeatureTier {
-        FeatureTier::Fine
+    fn level(&self, _: FeatureLevel) -> FeatureLevel {
+        FeatureLevel::FINEST
     }
-    fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+    fn level_difference(&self, _: DVec2, _: DVec2, _: FeatureLevel) -> f32 {
         0.0
     }
 }
@@ -358,7 +358,7 @@ fn border_shading_matches_regular_chunks_where_they_share_vertices() {
     let source = Analytic(hills);
     let chunk = hill_chunk(0, 0);
     let normals = chunk.shading_normals(&source).unwrap();
-    let regular = ChunkSamples::sample(&source, chunk.key, FeatureTier::Fine)
+    let regular = ChunkSamples::sample(&source, chunk.key, FeatureLevel::FINEST)
         .unwrap()
         .mesh(Transitions::NONE, 0.0);
     let mut checked = 0;
@@ -438,21 +438,21 @@ fn shading_inside_a_chunk_reads_no_ground() {
 struct Counted<S>(S, AtomicUsize);
 
 impl<S: ChunkSource> ChunkSource for Counted<S> {
-    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
+    fn surface(&self, p: DVec2, level: FeatureLevel) -> SurfacePoint {
         self.1.fetch_add(1, Ordering::Relaxed);
-        self.0.surface(p, tier)
+        self.0.surface(p, level)
     }
-    fn tier(&self, tier: FeatureTier) -> FeatureTier {
-        self.0.tier(tier)
+    fn level(&self, level: FeatureLevel) -> FeatureLevel {
+        self.0.level(level)
     }
-    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
-        self.0.tier_difference(min, max, from)
+    fn level_difference(&self, min: DVec2, max: DVec2, from: FeatureLevel) -> f32 {
+        self.0.level_difference(min, max, from)
     }
 }
 
 /// The regular mesh of `key` over the hills, with `transitions`.
 fn regular(key: ChunkKey, transitions: Transitions, skirt: f32) -> ChunkMesh {
-    ChunkSamples::sample(&Analytic(hills), key, FeatureTier::Fine)
+    ChunkSamples::sample(&Analytic(hills), key, FeatureLevel::FINEST)
         .unwrap()
         .mesh(transitions, skirt)
 }

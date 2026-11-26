@@ -66,8 +66,8 @@ use bevy::winit::WinitPlugin;
 use glam::DVec2;
 use procgena_terrain::tin::TinTolerance;
 use procgena_terrain::{
-    ChunkDetail, ChunkKey, ChunkLevels, Elevation, RegionId, TerrainPreset, WorldTerrain,
-    WorldTerrainOptions,
+    ChunkDetail, ChunkKey, ChunkLevels, Elevation, RegionId, TerrainPreset, TierLevels,
+    WorldTerrain, WorldTerrainOptions,
 };
 use procgena_terrain_bevy::{
     CanonicalChunk, TerrainChunk, TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream,
@@ -136,8 +136,6 @@ struct Scene {
     world: Option<WorldTerrain>,
     eye: Vec3,
     target: Vec3,
-    rough_from: Option<u8>,
-    mid_from: Option<u8>,
     /// Draw the finest chunks from their canonical meshes (within the
     /// world's tolerance).
     tin: bool,
@@ -296,12 +294,13 @@ fn main() {
         })
         .insert_resource(ScreenshotPath(value("--screenshot")))
         .insert_resource(Scene {
-            world: Some(world),
+            world: Some(world.with_tier_levels(TierLevels {
+                rough_from:
+                    value("--rough-from").map(|v| v.parse().expect("--rough-from needs a level")),
+                mid_from: value("--mid-from").map(|v| v.parse().expect("--mid-from needs a level")),
+            })),
             eye,
             target,
-            rough_from: value("--rough-from")
-                .map(|v| v.parse().expect("--rough-from needs a level")),
-            mid_from: value("--mid-from").map(|v| v.parse().expect("--mid-from needs a level")),
             tin: tin.is_some(),
             headless,
         })
@@ -345,8 +344,6 @@ fn setup(
 ) {
     let world = scene.world.take().expect("set up once");
     commands.spawn(TerrainStream {
-        rough_from: scene.rough_from,
-        mid_from: scene.mid_from,
         tin: scene.tin,
         ..TerrainStream::world(world)
     });

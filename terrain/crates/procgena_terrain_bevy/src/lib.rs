@@ -69,7 +69,7 @@ use procgena_core_bevy::{LodPlugin, LodQuality};
 use procgena_terrain::tin::{ChunkEdgeKey, ContractCache, ResidentTins, TinError};
 use procgena_terrain::{
     ChunkDetail, ChunkKey, ChunkLevels, ChunkMesh, ChunkSamples, ChunkSelection,
-    ChunkSelectionError, ChunkSide, ChunkSource, FeatureTier, RegionStage, Transitions, WaterMesh,
+    ChunkSelectionError, ChunkSide, ChunkSource, FeatureLevel, RegionStage, Transitions, WaterMesh,
     WorldTerrain,
 };
 
@@ -200,88 +200,72 @@ impl<T: ChunkSource + Send + ?Sized> TerrainSource for T {}
 
 /// The ground a terrain is drawn from, and how.
 ///
-/// Replacing its source or tier policy reads every chunk again; the old
-/// chunks stay until replacements are ready. To signal changed contents of
-/// a source, replace its `Arc`.
+/// Replacing its source reads every chunk again; the old chunks stay until
+/// replacements are ready. To signal changed contents of a source, replace
+/// its `Arc`.
+///
+/// Each chunk is drawn with the features of its own chunk level (see
+/// [`FeatureLevel::of`]); which features that is, is the source's choice
+/// (for a world, [`WorldTerrain::with_tier_levels`]).
 #[derive(Component, Clone)]
 #[require(Transform, Visibility, TerrainProgress)]
 pub struct TerrainStream {
     /// Where the ground comes from.
     pub source: Arc<dyn TerrainSource>,
-    /// Chunk levels at and above this one are drawn only at the
-    /// [`Rough`](FeatureTier::Rough) tier, which a [`WorldTerrain`] builds
-    /// without its costly features (today the roads), so far ground
-    /// appears sooner. `None` draws no level at the rough tier.
-    pub rough_from: Option<u8>,
-    /// Chunk levels at and above this one, below
-    /// [`rough_from`](Self::rough_from), are drawn only at the
-    /// [`Mid`](FeatureTier::Mid) tier, with the costly features in outline
-    /// (today the roads on a coarse route), which is quicker to build than
-    /// the fine tier. `None` draws no level at the mid tier.
-    pub mid_from: Option<u8>,
     /// Counts the source's region builds, so [`TerrainProgress`] can
     /// include them; `None` counts chunks only.
     pub regions: Option<RegionTracker>,
-    /// Draw every chunk at the roughest tier first, then read each chunk
-    /// that wants a later tier (see [`tier`](Self::tier)) again in the
-    /// background and redraw it when ready. The view appears much sooner;
-    /// near chunks briefly lack their fine features. `false` waits for each
-    /// chunk's own tier before drawing anything.
+    /// Draw every chunk at [`FeatureLevel::COARSEST`] first, then read
+    /// each chunk whose own level carries more features (see
+    /// [`level`](Self::level)) again in the background and redraw it when
+    /// ready. The view appears much sooner; near chunks briefly lack their
+    /// costly features. `false` waits for each chunk's own level before
+    /// drawing anything.
     pub coarse_first: bool,
-    /// Draw finest-level chunks at the [`Fine`](FeatureTier::Fine) tier
-    /// from their canonical meshes (see [`procgena_terrain::tin`]), built
-    /// within the source's own
+    /// Draw finest-level chunks read at [`FeatureLevel::FINEST`] from their
+    /// canonical meshes (see [`procgena_terrain::tin`]), built within the
+    /// source's own
     /// [`tin_tolerance`](procgena_terrain::ChunkSource::tin_tolerance)
     /// (for a world, [`WorldTerrainOptions::tin`](procgena_terrain::WorldTerrainOptions::tin)),
-    /// and load them into the stream's [`CanonicalGround`]. Coarser levels
-    /// and tiers stay regular. Where the source can't give the fine tier,
+    /// and load them into the stream's [`CanonicalGround`]. Coarser chunk
+    /// levels stay regular. Where the source can't give the finest level,
     /// chunks stay regular too. `false`, the default, draws every chunk
     /// regular.
     pub tin: bool,
 }
 
 impl TerrainStream {
-    /// A stream of `source`'s fine ground at every level, loaded coarse
-    /// first, counting chunks only.
+    /// A stream of `source`'s ground at every level, loaded coarse first,
+    /// counting chunks only.
     pub fn new(source: Arc<dyn TerrainSource>) -> Self {
         Self {
             source,
-            rough_from: None,
-            mid_from: None,
             regions: None,
             coarse_first: true,
             tin: false,
         }
     }
 
-    /// A stream of `world`'s fine ground at every level, loaded coarse
-    /// first, with its region builds counted in [`TerrainProgress`]. This
-    /// replaces any progress hook `world` had; to keep your own as well,
-    /// make a [`RegionTracker`], call its hook from yours, and set
+    /// A stream of `world`'s ground at every level, loaded coarse first,
+    /// with its region builds counted in [`TerrainProgress`]. This replaces
+    /// any progress hook `world` had; to keep your own as well, make a
+    /// [`RegionTracker`], call its hook from yours, and set
     /// [`regions`](Self::regions) yourself.
     pub fn world(world: WorldTerrain) -> Self {
         let tracker = RegionTracker::default();
         let world = world.with_progress(tracker.hook());
         Self {
             source: Arc::new(world),
-            rough_from: None,
-            mid_from: None,
             regions: Some(tracker),
             coarse_first: true,
             tin: false,
         }
     }
 
-    /// The tier chunks at `level` end up drawn at.
-    pub fn tier(&self, level: u8) -> FeatureTier {
-        let from = |from: Option<u8>| from.is_some_and(|from| level >= from);
-        if from(self.rough_from) {
-            FeatureTier::Rough
-        } else if from(self.mid_from) {
-            FeatureTier::Mid
-        } else {
-            FeatureTier::Fine
-        }
+    /// The canonical feature level chunks at chunk level `level` end up
+    /// drawn at (see [`ChunkSource::level`]).
+    pub fn level(&self, level: u8) -> FeatureLevel {
+        self.source.level(FeatureLevel(level))
     }
 }
 
@@ -299,7 +283,7 @@ pub struct TerrainProgress {
     pub stage: Option<RegionStage>,
     /// Chunks drawn.
     pub drawn: usize,
-    /// Drawn chunks still at an earlier tier than they want, waiting to be
+    /// Drawn chunks still with fewer features than they want, waiting to be
     /// read again (see [`TerrainStream::coarse_first`]).
     pub refining: usize,
     /// Chunks wanted around the viewers now.
@@ -309,9 +293,9 @@ pub struct TerrainProgress {
     /// Chunks that could not be read since the stream last changed; they
     /// are left as holes.
     pub failed: usize,
-    /// Chunks sampled since the stream last changed, at any tier.
+    /// Chunks sampled since the stream last changed, at any feature level.
     pub sampled: usize,
-    /// Drawn chunks that a later tier left exactly as they were, so they
+    /// Drawn chunks that a finer feature level left exactly as they were, so they
     /// stand for it without being read again, since the stream last
     /// changed.
     pub promoted: usize,
@@ -332,8 +316,9 @@ pub struct TerrainChunk {
     pub key: ChunkKey,
     /// The finer chunks it is meshed to join.
     pub transitions: Transitions,
-    /// The tier of the ground it was read from.
-    pub tier: FeatureTier,
+    /// The canonical feature level of the ground it was read from (see
+    /// [`ChunkSource::level`]).
+    pub level: FeatureLevel,
 }
 
 /// Marks a [`TerrainChunk`] drawn from its canonical mesh (see
@@ -382,11 +367,11 @@ impl Geometry {
         }
     }
 
-    /// The tier of the ground read.
-    pub(crate) fn tier(&self) -> FeatureTier {
+    /// The canonical feature level of the ground read.
+    pub(crate) fn level(&self) -> FeatureLevel {
         match self {
-            Self::Regular(samples) => samples.tier(),
-            Self::Tin(_) => FeatureTier::Fine,
+            Self::Regular(samples) => samples.level(),
+            Self::Tin(_) => FeatureLevel::FINEST,
         }
     }
 }
@@ -394,65 +379,68 @@ impl Geometry {
 /// One chunk as read, ready to draw.
 pub(crate) struct ChunkRead {
     pub(crate) geometry: Geometry,
-    /// The tier the chunk stands for: the tier it was read at, or a later
-    /// one whose read it equals exactly (see [`promoted`](Self::promoted)).
-    stands_for: FeatureTier,
+    /// The canonical feature level the chunk stands for: the level it was
+    /// read at, or a finer one whose read it equals exactly (see
+    /// [`promoted`](Self::promoted)).
+    stands_for: FeatureLevel,
 }
 
 impl ChunkRead {
-    /// Reads chunk `key` of `source` at `tier`.
+    /// Reads chunk `key` of `source` at feature level `level`.
     #[cfg(test)]
     pub(crate) fn read(
         source: &(impl TerrainSource + ?Sized),
         key: ChunkKey,
-        tier: FeatureTier,
+        level: FeatureLevel,
     ) -> Result<Self, ReadError> {
-        Self::read_with(source, key, tier, None)
+        Self::read_with(source, key, level, None)
     }
 
-    /// Reads chunk `key` of `source` at `tier`: from its canonical mesh,
-    /// with edge contracts from `tin`, if given and the chunk is a fine
-    /// finest-level one.
+    /// Reads chunk `key` of `source` at feature level `level`: from its
+    /// canonical mesh, with edge contracts from `tin`, if given and the
+    /// chunk is a finest-level one read with every feature.
     fn read_with(
         source: &(impl TerrainSource + ?Sized),
         key: ChunkKey,
-        tier: FeatureTier,
+        level: FeatureLevel,
         tin: Option<&ContractCache>,
     ) -> Result<Self, ReadError> {
-        // A finest-level chunk is canonical at the fine tier, and at an
-        // earlier one the source already knows the fine tier changes
-        // nothing about (asked without building, so the earlier tier stays
-        // quick); its canonical mesh is then exactly the fine tier's.
-        let fine = source.tier(tier) == FeatureTier::Fine
-            || source.tier_change_known(key, tier, FeatureTier::Fine) == Some(false);
-        let canonical = tin.filter(|_| key.level == 0 && fine);
+        // A finest-level chunk is canonical at the finest feature level,
+        // and at a coarser one the source already knows the finest level
+        // changes nothing about (asked without building, so the coarser
+        // read stays quick); its canonical mesh is then exactly the finest
+        // level's.
+        let finest = source.level(level) == FeatureLevel::FINEST
+            || source.level_change_known(key, level, FeatureLevel::FINEST) == Some(false);
+        let canonical = tin.filter(|_| key.level == 0 && finest);
         let geometry = match canonical.map(|contracts| TinRead::build(source, key, contracts)) {
             Some(Ok(read)) => Geometry::Tin(read),
-            // A source without the fine tier has no canonical ground.
-            None | Some(Err(ReadError::Tin(TinError::NotFine(_)))) => {
-                Geometry::Regular(Arc::new(ChunkSamples::sample(source, key, tier)?))
+            // A source without the finest level has no canonical ground.
+            None | Some(Err(ReadError::Tin(TinError::NotFinest(_)))) => {
+                Geometry::Regular(Arc::new(ChunkSamples::sample(source, key, level)?))
             }
             Some(Err(error)) => return Err(error),
         };
         Ok(Self {
-            stands_for: geometry.tier(),
+            stands_for: geometry.level(),
             geometry,
         })
     }
 
-    /// The tier the chunk stands for: the tier it was read at, or a later
-    /// one it was promoted to.
-    pub(crate) fn tier(&self) -> FeatureTier {
+    /// The canonical feature level the chunk stands for: the level it was
+    /// read at, or a finer one it was promoted to.
+    pub(crate) fn level(&self) -> FeatureLevel {
         self.stands_for
     }
 
-    /// This read standing for tier `tier` as well, unchanged otherwise. Only
-    /// for a tier the source says changes nothing about the chunk (see
-    /// [`ChunkSource::tier_changes`]), so it is exactly that tier's read.
-    fn promoted(&self, tier: FeatureTier) -> Self {
+    /// This read standing for canonical feature level `level` as well,
+    /// unchanged otherwise. Only for a level the source says changes
+    /// nothing about the chunk (see [`ChunkSource::level_changes`]), so it
+    /// is exactly that level's read.
+    fn promoted(&self, level: FeatureLevel) -> Self {
         Self {
             geometry: self.geometry.clone(),
-            stands_for: tier,
+            stands_for: level,
         }
     }
 
@@ -491,7 +479,7 @@ impl ChunkRead {
                 for tin in &seams.tins {
                     tin.chunk().fit_neighbour(&mut mesh);
                 }
-                mesh.tier = self.stands_for;
+                mesh.level = self.stands_for;
                 mesh
             }
             Geometry::Tin(read) => read.mesh(&seams.split, skirt),
@@ -530,13 +518,14 @@ struct StreamState {
     unchanged_from: Option<(ChunkLevels, f32, Vec<DVec3>)>,
     /// Whether a read finished, or the drawn chunks changed, since drawn
     /// chunks were last checked for promotion. Only then can the answer
-    /// change: a later tier's region terrain is built inside a read.
+    /// change: a finer feature level's region terrain is built inside a
+    /// read.
     check_promotions: bool,
-    /// Drawn chunks the tier they want is known to change, so they need a
-    /// read; not checked for promotion again.
+    /// Drawn chunks the feature level they want is known to change, so
+    /// they need a read; not checked for promotion again.
     changes_known: HashSet<ChunkKey>,
-    /// Skirts deeper than [`skirt_depth`], for chunks beside a chunk of
-    /// another tier: how far that chunk's tier moved the ground.
+    /// Skirts deeper than [`skirt_depth`], for chunks beside a chunk read
+    /// at another feature level: how far that level moved the ground.
     skirts: HashMap<ChunkKey, f32>,
     /// How each drawn chunk was meshed to meet the canonical chunks
     /// beside it.
@@ -579,7 +568,7 @@ fn seams_for(stream: &Stream, key: ChunkKey, read: &ChunkRead) -> Seams {
 }
 
 /// The skirt hanging from each side of a chunk, in metres: deep enough to
-/// hide small gaps where chunks of different tiers meet, or rounding where
+/// hide small gaps where chunks of different feature levels meet, or rounding where
 /// chunks meet.
 pub fn skirt_depth(key: ChunkKey) -> f32 {
     (4.0 * key.step() as f32).max(8.0)
@@ -704,8 +693,6 @@ fn reset_streams(
             Some(mut state) if stream.is_changed() && !stream.is_added() => {
                 let same_ground = state.last.as_ref().is_some_and(|last| {
                     Arc::ptr_eq(&last.source, &stream.source)
-                        && last.rough_from == stream.rough_from
-                        && last.mid_from == stream.mid_from
                         && last.coarse_first == stream.coarse_first
                         && last.tin == stream.tin
                 });
@@ -797,7 +784,7 @@ fn stream_chunks(
             state.check_promotions = true;
             let current = generation == state.stream.generation;
             if let (true, Ok(read)) = (current, &result) {
-                if read.geometry.tier() < read.tier() {
+                if read.geometry.level() > read.level() {
                     state.promoted += 1;
                 } else {
                     state.sampled += 1;
@@ -807,7 +794,7 @@ fn stream_chunks(
                 Ok(read) => Some(Arc::new(read)),
                 // A failed upgrade keeps the ground already drawn.
                 Err(error) if current && state.stream.is_upgrade(key) => {
-                    warn!("terrain {key} keeps its earlier tier: {error}");
+                    warn!("terrain {key} keeps its coarser features: {error}");
                     None
                 }
                 Err(error) => {
@@ -830,29 +817,29 @@ fn stream_chunks(
             }
         }
 
-        // A drawn chunk a later tier is already known to leave alone
-        // stands for that tier as it is, at once and without a read. A
-        // canonical chunk always needs its own read.
-        let wanted = |key: ChunkKey| source.tier(key.level);
-        let canonical = |key: ChunkKey, tier: FeatureTier| {
-            source.tin && key.level == 0 && source.source.tier(tier) == FeatureTier::Fine
+        // A drawn chunk a finer feature level is already known to leave
+        // alone stands for that level as it is, at once and without a
+        // read. A canonical chunk always needs its own read.
+        let wanted = |key: ChunkKey| source.level(key.level);
+        let canonical = |key: ChunkKey, level: FeatureLevel| {
+            source.tin && key.level == 0 && source.source.level(level) == FeatureLevel::FINEST
         };
         if std::mem::take(&mut state.check_promotions) {
             let upgrades = state.stream.upgrades(&flat, wanted);
             state.changes_known.retain(|key| upgrades.contains(key));
             for key in upgrades {
-                let tier = wanted(key);
-                let Some(drawn) = state.stream.read_of(key).filter(|_| !canonical(key, tier))
+                let level = wanted(key);
+                let Some(drawn) = state.stream.read_of(key).filter(|_| !canonical(key, level))
                 else {
                     continue;
                 };
                 if state.changes_known.contains(&key) {
                     continue;
                 }
-                match source.source.tier_change_known(key, drawn.tier(), tier) {
+                match source.source.level_change_known(key, drawn.level(), level) {
                     Some(false) => {
                         state.stream.start(key);
-                        let promoted = Arc::new(drawn.promoted(tier));
+                        let promoted = Arc::new(drawn.promoted(level));
                         state.stream.finish(key, generation, Some(promoted));
                         state.promoted += 1;
                     }
@@ -864,19 +851,19 @@ fn stream_chunks(
             }
         }
 
-        // Queue the missing chunks, nearest first: at the roughest tier
-        // when the stream loads coarse first. Only when none is missing,
-        // queue drawn chunks to read again at the tier they want.
+        // Queue the missing chunks, nearest first: at the coarsest feature
+        // level when the stream loads coarse first. Only when none is
+        // missing, queue drawn chunks to read again at the level they want.
         let missing = state.stream.missing(&flat);
-        let mut reads: Vec<(ChunkKey, FeatureTier)> = missing
+        let mut reads: Vec<(ChunkKey, FeatureLevel)> = missing
             .iter()
             .map(|&key| {
-                let tier = if source.coarse_first {
-                    FeatureTier::ALL[0]
+                let level = if source.coarse_first {
+                    FeatureLevel::COARSEST
                 } else {
                     wanted(key)
                 };
-                (key, tier)
+                (key, level)
             })
             .collect();
         if missing.is_empty() {
@@ -884,16 +871,16 @@ fn stream_chunks(
             reads.extend(upgrades.into_iter().map(|k| (k, wanted(k))));
         }
         let mut jobs: Vec<((ChunkKey, u64), reads::Job<_>)> = Vec::with_capacity(reads.len());
-        for (key, tier) in reads {
-            // A drawn chunk being read again at a later tier: if that tier
-            // changes nothing about it, the drawn read stands for it as it
-            // is.
+        for (key, level) in reads {
+            // A drawn chunk being read again at a finer feature level: if
+            // that level changes nothing about it, the drawn read stands
+            // for it as it is.
             let drawn = state
                 .stream
                 .is_upgrade(key)
                 .then(|| state.stream.read_of(key))
                 .flatten()
-                .filter(|_| !canonical(key, tier));
+                .filter(|_| !canonical(key, level));
             state.stream.start(key);
             let ground = Arc::clone(&source.source);
             let tin = source.tin.then(|| {
@@ -906,11 +893,11 @@ fn stream_chunks(
             });
             let job = Box::new(move || {
                 if let Some(drawn) = drawn
-                    && !ground.tier_changes(key, drawn.tier(), tier)
+                    && !ground.level_changes(key, drawn.level(), level)
                 {
-                    return Ok(drawn.promoted(tier));
+                    return Ok(drawn.promoted(level));
                 }
-                ChunkRead::read_with(&*ground, key, tier, tin.as_deref())
+                ChunkRead::read_with(&*ground, key, level, tin.as_deref())
             });
             jobs.push(((key, generation), job));
         }
@@ -953,10 +940,10 @@ fn stream_chunks(
             state.seams.insert(key, seams);
         };
         // Every chunk drawn now, whether new to the view or read again at a
-        // later tier. Chunks touching at different tiers can stand apart
-        // by up to how far the later tier moved the ground: deepen both
-        // chunks' skirts to cover it, redrawing touching chunks whose
-        // skirts grow.
+        // finer feature level. Chunks touching at different levels can
+        // stand apart by up to how far the finer level moved the ground:
+        // deepen both chunks' skirts to cover it, redrawing touching
+        // chunks whose skirts grow.
         let mut drawn_now: Vec<(ChunkKey, Transitions, Read)> = Vec::new();
         if let Some(swap) = state.stream.swap() {
             for key in swap.remove {
@@ -972,22 +959,22 @@ fn stream_chunks(
         for (key, transitions, read) in drawn_now {
             near_changes.push(key);
             near_changes.extend(state.stream.touching(key).into_iter().map(|(k, _)| k));
-            let tier = read.as_ref().map(|r| r.tier());
+            let level = read.as_ref().map(|r| r.level());
             let mut deepest = 0.0f32;
             for (other, other_transitions) in state.stream.touching(key) {
-                let (Some(tier), Some(other_tier)) = (tier, state.stream.tier_of(other)) else {
+                let (Some(level), Some(other_level)) = (level, state.stream.level_of(other)) else {
                     continue;
                 };
-                if tier == other_tier {
+                if level == other_level {
                     continue;
                 }
-                // The ground of the later-tier chunk, against the earlier
-                // tier.
-                let later = if tier > other_tier { key } else { other };
-                let moved = source.source.tier_difference(
-                    later.min_corner(),
-                    later.max_corner(),
-                    tier.min(other_tier),
+                // The ground of the chunk with more features, against the
+                // coarser level.
+                let finer = if level < other_level { key } else { other };
+                let moved = source.source.level_difference(
+                    finer.min_corner(),
+                    finer.max_corner(),
+                    level.max(other_level),
                 );
                 if moved == 0.0 {
                     continue;
@@ -1043,7 +1030,7 @@ fn stream_chunks(
         }
 
         // Region work from the hook, and chunk reads, by their usual cost;
-        // chunks waiting for a later tier count as not read.
+        // chunks waiting for a finer feature level count as not read.
         let refining = state.stream.upgrades(&flat, wanted).len();
         let settled = state.stream.is_settled() && refining == 0;
         let regions = source
@@ -1090,7 +1077,7 @@ fn spawn_chunk(
             TerrainChunk {
                 key: mesh.key,
                 transitions: mesh.transitions,
-                tier: mesh.tier,
+                level: mesh.level,
             },
             Mesh3d(meshes.add(chunk_mesh(mesh))),
             MeshMaterial3d(material.clone()),
@@ -1382,14 +1369,14 @@ mod tests {
         assert_eq!(last.refining, 0);
         assert!(seen.iter().any(|p| p.stage.is_some() && p.fraction < 1.0));
 
-        // Coarse first: chunks were drawn rough while the fine tier was
-        // still being built, and all end fine.
+        // Coarse first: chunks were drawn rough while the finest level was
+        // still being built, and all end with every feature.
         assert!(seen.iter().any(|p| p.drawn > 0 && p.refining > 0));
         let mut chunks = app.world_mut().query::<&TerrainChunk>();
         assert!(
             chunks
                 .iter(app.world())
-                .all(|c| c.tier == FeatureTier::Fine)
+                .all(|c| c.level == FeatureLevel::FINEST)
         );
         assert!(seen.iter().all(|p| (0.0..=1.0).contains(&p.fraction)));
     }
@@ -1576,7 +1563,7 @@ mod tests {
         assert!(
             (f64::from(
                 source
-                    .surface(DVec2::new(10.0, 10.0), FeatureTier::Fine)
+                    .surface(DVec2::new(10.0, 10.0), FeatureLevel::FINEST)
                     .height
             ) - under.height)
                 .abs()
@@ -1619,7 +1606,7 @@ mod tests {
     }
 
     #[test]
-    fn chunks_a_later_tier_leaves_alone_are_promoted_not_read_again() {
+    fn chunks_a_finer_level_leaves_alone_are_promoted_not_read_again() {
         use std::collections::BTreeMap;
 
         use procgena_terrain::{Elevation, WorldTerrain, fixtures};
@@ -1643,12 +1630,12 @@ mod tests {
                 panic!("no canonical chunks without the switch");
             };
             let mut mesh = samples.mesh(Transitions::NONE, 0.0);
-            mesh.tier = read.tier();
+            mesh.level = read.level();
             format!("{mesh:?}")
         };
 
         // Each drawn chunk's ground once the stream settles, and how many
-        // chunks stand for a later tier than they were read at.
+        // chunks stand for a finer feature level than they were read at.
         let settled = |coarse_first: bool| {
             let _streaming = streaming();
             let mut app = app();
@@ -1669,8 +1656,8 @@ mod tests {
                 .materials
                 .iter()
                 .map(|(&key, (read, _))| {
-                    assert_eq!(read.tier(), FeatureTier::Fine, "{key:?}");
-                    promoted += usize::from(read.geometry.tier() < read.tier());
+                    assert_eq!(read.level(), FeatureLevel::FINEST, "{key:?}");
+                    promoted += usize::from(read.geometry.level() > read.level());
                     (key, text(read))
                 })
                 .collect();
@@ -1678,7 +1665,7 @@ mod tests {
         };
 
         // Read coarse first, some chunks are promoted; each is drawn exactly
-        // as when every chunk is read once at its own tier.
+        // as when every chunk is read once at its own level.
         let (coarse, promoted) = settled(true);
         let (direct, none) = settled(false);
         assert!(promoted > 0, "some chunks should be promoted");
@@ -1688,11 +1675,11 @@ mod tests {
             assert!(read == &direct[key], "{key:?} differs");
         }
 
-        // And each is exactly the chunk read on its own at its own tier,
+        // And each is exactly the chunk read on its own at its own level,
         // whatever order the stream read it in.
         let world = WorldTerrain::new(fixtures::world_medium(), Arc::new(featured)).unwrap();
         for (key, read) in &coarse {
-            let alone = ChunkRead::read(&world, *key, FeatureTier::Fine).unwrap();
+            let alone = ChunkRead::read(&world, *key, FeatureLevel::of(*key)).unwrap();
             assert!(read == &text(&alone), "{key:?} differs from its read alone");
         }
     }
@@ -1726,7 +1713,7 @@ mod tests {
             let site = world.site(origin);
             let eye = on_border + (site - on_border).normalize() * 200.0;
             if warm {
-                for tier in FeatureTier::ALL {
+                for tier in procgena_terrain::FeatureTier::ALL {
                     world.terrain_tier(origin, tier).unwrap();
                 }
             }
@@ -1745,7 +1732,7 @@ mod tests {
         let (cold, cold_reads) = settled(false);
         let (warm, warm_reads) = settled(true);
 
-        // With the fine tier kept, some finest chunks are canonical from
+        // With every tier kept, some finest chunks are canonical from
         // their first read and aren't read again; others still are.
         assert!(warm_reads < cold_reads, "{warm_reads} against {cold_reads}");
         let level0 = cold.len();

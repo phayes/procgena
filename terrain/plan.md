@@ -783,7 +783,7 @@ patches).
 - **Skirts between tiers.** Each terrain records how far each tier moved
   the ground (`Terrain::tier_difference`): measured along every road
   when roads are planned, on the centreline, both edges and 4 m beyond,
-  times 1.1 plus 1 m. `ChunkSource::tier_difference` gives it for an
+  times 1.1 plus 1 m. `ChunkSource::level_difference` gives it for an
   area. In Bevy, wherever two drawn chunks of different tiers touch, both
   get skirts at least that deep, kept per chunk across swaps. A test
   checks every shared side a road crosses: the gap is never more than the

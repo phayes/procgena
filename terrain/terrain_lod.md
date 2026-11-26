@@ -330,8 +330,10 @@ and the copy would then rest on ground that isn't drawn.
 - **Feature tiers** (`FeatureTier`, `WorldTerrain::terrain_tier`, `Rough`,
   `Mid`, `Fine`): superseded by each feature type's edge and carve levels
   (TF). A region still plans its features once; a level simply omits the
-  kinds above their levels. `tier_changes` and `tier_change_known` go,
-  with promotion (see "No promotion").
+  kinds above their levels. Until then, `ChunkSource` reads by
+  `FeatureLevel`, and a world maps levels onto today's tiers through
+  `TierLevels`. `level_changes` and `level_change_known` go, with
+  promotion (see "No promotion").
 - **CT-A** (adaptive sampling, contract cache): applies to every level as
   is; the lattice step and tolerance scale with the level.
 - **CT5** (products and streaming): `TinIndex`, `GroundSurface`,

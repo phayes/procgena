@@ -4,12 +4,13 @@
 //! Nothing here touches Bevy's renderer: the colours are RGBA8 texels in
 //! sRGB, ready to put in an image.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bevy::math::DVec2;
 use procgena_terrain::{
-    FeatureTier, Labels, Landform, MEASURE_REACH, Measures, RegionId, SampleDetail, Terrain,
-    WATER_HEIGHT_REACH, WorldTerrain,
+    FeatureLevel, Labels, Landform, MEASURE_REACH, Measures, RegionId, SampleDetail, Terrain,
+    WATER_HEIGHT_REACH, WorldError, WorldTerrain,
 };
 
 /// One way of colouring the land: an overlay mode.
@@ -247,17 +248,27 @@ pub trait OverlayGround: Sync {
     /// The region holding `p` (x and z, metres).
     fn region(&self, p: DVec2) -> RegionId;
 
-    /// The ground's height at `p` from the ground planned to `tier`, NaN
-    /// where there is no ground.
-    fn height(&self, p: DVec2, tier: FeatureTier) -> f32;
+    /// The ground's height at `p` from the ground read at feature level
+    /// `level`, NaN where there is no ground.
+    fn height(&self, p: DVec2, level: FeatureLevel) -> f32;
 
-    /// The measures at `p` from the ground planned to `tier`, `None` where
-    /// there is no ground.
-    fn measures(&self, p: DVec2, tier: FeatureTier) -> Option<Measures>;
+    /// The measures at `p` from the ground read at feature level `level`,
+    /// `None` where there is no ground.
+    fn measures(&self, p: DVec2, level: FeatureLevel) -> Option<Measures>;
 
-    /// The labels at `p` from the ground planned to `tier`, `None` where
-    /// the ground has none.
-    fn labels(&self, p: DVec2, tier: FeatureTier) -> Option<Labels>;
+    /// The labels at `p` from the ground read at feature level `level`,
+    /// `None` where the ground has none.
+    fn labels(&self, p: DVec2, level: FeatureLevel) -> Option<Labels>;
+}
+
+/// The terrain of the region of `world` holding `p`, at the tier the
+/// world reads at `level`.
+fn world_terrain(
+    world: &WorldTerrain,
+    p: DVec2,
+    level: FeatureLevel,
+) -> Result<Arc<Terrain>, WorldError> {
+    world.terrain_tier(world.region_at(p), world.tier_levels().tier(level))
 }
 
 impl OverlayGround for WorldTerrain {
@@ -265,24 +276,23 @@ impl OverlayGround for WorldTerrain {
         self.region_at(p)
     }
 
-    /// The height of the region holding `p`, at `tier`; NaN where the
-    /// region can't be built.
-    fn height(&self, p: DVec2, tier: FeatureTier) -> f32 {
-        self.terrain_tier(self.region_at(p), tier)
-            .map_or(f32::NAN, |terrain| terrain.height(p))
+    /// The height of the region holding `p`, at the tier read at `level`;
+    /// NaN where the region can't be built.
+    fn height(&self, p: DVec2, level: FeatureLevel) -> f32 {
+        world_terrain(self, p, level).map_or(f32::NAN, |terrain| terrain.height(p))
     }
 
-    /// The measures of the region holding `p`, at `tier`; `None` where the
-    /// region can't be built.
-    fn measures(&self, p: DVec2, tier: FeatureTier) -> Option<Measures> {
-        let terrain = self.terrain_tier(self.region_at(p), tier).ok()?;
+    /// The measures of the region holding `p`, at the tier read at
+    /// `level`; `None` where the region can't be built.
+    fn measures(&self, p: DVec2, level: FeatureLevel) -> Option<Measures> {
+        let terrain = world_terrain(self, p, level).ok()?;
         terrain.query(p, SampleDetail::Measures).measures
     }
 
-    /// The labels of the region holding `p`, at `tier`; `None` where the
-    /// region can't be built.
-    fn labels(&self, p: DVec2, tier: FeatureTier) -> Option<Labels> {
-        let terrain = self.terrain_tier(self.region_at(p), tier).ok()?;
+    /// The labels of the region holding `p`, at the tier read at `level`;
+    /// `None` where the region can't be built.
+    fn labels(&self, p: DVec2, level: FeatureLevel) -> Option<Labels> {
+        let terrain = world_terrain(self, p, level).ok()?;
         Some(terrain.annotate(p))
     }
 }
@@ -292,18 +302,18 @@ impl OverlayGround for Terrain {
         self.region().id
     }
 
-    /// The terrain's own height, whatever tier is asked for.
-    fn height(&self, p: DVec2, _: FeatureTier) -> f32 {
+    /// The terrain's own height, whatever level is asked for.
+    fn height(&self, p: DVec2, _: FeatureLevel) -> f32 {
         Terrain::height(self, p)
     }
 
-    /// The terrain's own measures, whatever tier is asked for.
-    fn measures(&self, p: DVec2, _: FeatureTier) -> Option<Measures> {
+    /// The terrain's own measures, whatever level is asked for.
+    fn measures(&self, p: DVec2, _: FeatureLevel) -> Option<Measures> {
         self.query(p, SampleDetail::Measures).measures
     }
 
-    /// The terrain's own labels, whatever tier is asked for.
-    fn labels(&self, p: DVec2, _: FeatureTier) -> Option<Labels> {
+    /// The terrain's own labels, whatever level is asked for.
+    fn labels(&self, p: DVec2, _: FeatureLevel) -> Option<Labels> {
         Some(self.annotate(p))
     }
 }
@@ -325,13 +335,13 @@ pub struct AreaValues {
 
 impl AreaValues {
     /// Samples `family` over the square from `min` with side `side`, from
-    /// `ground` planned to `tier`.
+    /// `ground` read at feature level `level`.
     pub fn sample(
         family: Family,
         ground: &(impl OverlayGround + ?Sized),
         min: DVec2,
         side: f64,
-        tier: FeatureTier,
+        level: FeatureLevel,
     ) -> Self {
         let start = Instant::now();
         let size = family.texels();
@@ -342,7 +352,7 @@ impl AreaValues {
         for j in -ring..n + ring {
             for i in -ring..n + ring {
                 let p = min + DVec2::new(i as f64, j as f64) * step;
-                values.push(sample_point(family, ground, p, tier));
+                values.push(sample_point(family, ground, p, level));
             }
         }
         Self {
@@ -398,12 +408,12 @@ pub fn sample_point(
     family: Family,
     ground: &(impl OverlayGround + ?Sized),
     p: DVec2,
-    tier: FeatureTier,
+    level: FeatureLevel,
 ) -> Value {
     match family {
         Family::Regions => Value::Region(ground.region(p)),
-        Family::Measures => Value::Measures(ground.measures(p, tier)),
-        Family::Labels => Value::Labels(ground.labels(p, tier)),
+        Family::Measures => Value::Measures(ground.measures(p, level)),
+        Family::Labels => Value::Labels(ground.labels(p, level)),
     }
 }
 
@@ -537,7 +547,7 @@ mod tests {
             &world,
             DVec2::splat(-2000.0),
             4000.0,
-            FeatureTier::Rough,
+            FeatureLevel::COARSEST,
         );
         let colours = values.colours(Overlay::Regions);
         let outline = [OUTLINE[0], OUTLINE[1], OUTLINE[2], 255];
@@ -550,7 +560,7 @@ mod tests {
     fn readout_and_colours_follow_the_measures() {
         let world = world();
         let p = DVec2::new(37.0, -12.0);
-        let value = sample_point(Family::Measures, &world, p, FeatureTier::Fine);
+        let value = sample_point(Family::Measures, &world, p, FeatureLevel::FINEST);
         let measures = world
             .terrain_at(p)
             .unwrap()
@@ -567,7 +577,7 @@ mod tests {
             Overlay::Slope.colour(&value)[..3],
             ramp(&SEQUENTIAL, measures.slope)
         );
-        let region = sample_point(Family::Regions, &world, p, FeatureTier::Fine);
+        let region = sample_point(Family::Regions, &world, p, FeatureLevel::FINEST);
         assert_eq!(
             Overlay::Regions.describe(&region),
             format!("region {}", world.region_at(p).0)
@@ -578,10 +588,9 @@ mod tests {
     fn landforms_are_the_terrains_own_labels() {
         let world = world();
         let p = DVec2::new(37.0, -12.0);
-        let tier = FeatureTier::Rough;
-        let value = sample_point(Family::Labels, &world, p, tier);
+        let value = sample_point(Family::Labels, &world, p, FeatureLevel::COARSEST);
         let labels = world
-            .terrain_tier(world.region_at(p), tier)
+            .terrain_tier(world.region_at(p), procgena_terrain::FeatureTier::Rough)
             .unwrap()
             .annotate(p);
         assert_eq!(value, Value::Labels(Some(labels)));

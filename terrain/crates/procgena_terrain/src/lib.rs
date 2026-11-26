@@ -135,7 +135,7 @@ pub use converge::{
     relief_target,
 };
 pub use elevation::{Elevation, ElevationError, ElevationOptions, HeightBump};
-pub use feature::{FeatureId, FeatureShape, FeatureTier, TerrainFeature};
+pub use feature::{FeatureId, FeatureLevel, FeatureShape, FeatureTier, TerrainFeature, TierLevels};
 pub use graph::{
     EdgePolicy, MAX_JITTER, MAX_SIZE, MIN_EDGE, RegionGraph, RegionGraphError, RegionGraphOptions,
     RegionKey,

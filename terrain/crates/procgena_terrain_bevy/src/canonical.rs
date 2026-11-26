@@ -11,7 +11,7 @@ use procgena_terrain::tin::{
 };
 use procgena_terrain::{
     ChunkError, ChunkFeature, ChunkKey, ChunkMesh, ChunkSamples, ChunkSide, ChunkSource,
-    FeatureKind, FeatureTier, Transitions, WaterMesh,
+    FeatureKind, FeatureLevel, Transitions, WaterMesh,
 };
 
 /// The canonical ground a [`TerrainStream`](crate::TerrainStream) has
@@ -57,11 +57,11 @@ impl TinRead {
         // comes from the regular samples, read only where a river or pond
         // reaches the chunk.
         let wet = source
-            .lines_within(key.min_corner(), key.max_corner(), FeatureTier::Fine)
+            .lines_within(key.min_corner(), key.max_corner(), FeatureLevel::FINEST)
             .iter()
             .any(|f| f.id.kind != FeatureKind::Road);
         let water = if wet {
-            ChunkSamples::sample(&source, key, FeatureTier::Fine)?
+            ChunkSamples::sample(&source, key, FeatureLevel::FINEST)?
                 .mesh(Transitions::NONE, 0.0)
                 .water
         } else {
@@ -99,20 +99,24 @@ impl TinRead {
 struct AsDyn<'a, S: ?Sized>(&'a S);
 
 impl<S: ChunkSource + ?Sized> ChunkSource for AsDyn<'_, S> {
-    fn surface(&self, p: DVec2, tier: FeatureTier) -> procgena_terrain::SurfacePoint {
-        self.0.surface(p, tier)
+    fn surface(&self, p: DVec2, level: FeatureLevel) -> procgena_terrain::SurfacePoint {
+        self.0.surface(p, level)
     }
-    fn surfaces(&self, points: &[DVec2], tier: FeatureTier) -> Vec<procgena_terrain::SurfacePoint> {
-        self.0.surfaces(points, tier)
+    fn surfaces(
+        &self,
+        points: &[DVec2],
+        level: FeatureLevel,
+    ) -> Vec<procgena_terrain::SurfacePoint> {
+        self.0.surfaces(points, level)
     }
-    fn tier(&self, tier: FeatureTier) -> FeatureTier {
-        self.0.tier(tier)
+    fn level(&self, level: FeatureLevel) -> FeatureLevel {
+        self.0.level(level)
     }
-    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
-        self.0.tier_difference(min, max, from)
+    fn level_difference(&self, min: DVec2, max: DVec2, from: FeatureLevel) -> f32 {
+        self.0.level_difference(min, max, from)
     }
-    fn lines_within(&self, min: DVec2, max: DVec2, tier: FeatureTier) -> Vec<ChunkFeature> {
-        self.0.lines_within(min, max, tier)
+    fn lines_within(&self, min: DVec2, max: DVec2, level: FeatureLevel) -> Vec<ChunkFeature> {
+        self.0.lines_within(min, max, level)
     }
     fn tin_tolerance(&self) -> TinTolerance {
         self.0.tin_tolerance()
@@ -213,7 +217,7 @@ mod tests {
     }
 
     impl ChunkSource for Field {
-        fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
+        fn surface(&self, p: DVec2, _: FeatureLevel) -> SurfacePoint {
             self.reads.fetch_add(1, Ordering::Relaxed);
             let wet = self.river && (p.y - 20.0).abs() < 3.0;
             SurfacePoint {
@@ -221,13 +225,13 @@ mod tests {
                 water: wet.then_some(10.0),
             }
         }
-        fn tier(&self, _: FeatureTier) -> FeatureTier {
-            FeatureTier::Fine
+        fn level(&self, _: FeatureLevel) -> FeatureLevel {
+            FeatureLevel::FINEST
         }
-        fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+        fn level_difference(&self, _: DVec2, _: DVec2, _: FeatureLevel) -> f32 {
             0.0
         }
-        fn lines_within(&self, _: DVec2, _: DVec2, _: FeatureTier) -> Vec<ChunkFeature> {
+        fn lines_within(&self, _: DVec2, _: DVec2, _: FeatureLevel) -> Vec<ChunkFeature> {
             if !self.river {
                 return Vec::new();
             }

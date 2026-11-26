@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 
 use glam::DVec2;
 use procgena_terrain::{
-    Boundary, ChunkSource, Elevation, FeatureKind, FeatureTier, RegionId, RegionProgress,
+    Boundary, ChunkSource, Elevation, FeatureKind, FeatureLevel, RegionId, RegionProgress,
     RegionStage, Terrain, TerrainPreset, WorldTerrain, WorldTerrainOptions,
 };
 
@@ -225,7 +225,7 @@ impl Fnv {
 
 /// Reads an `n` × `n` block of 64 m chunks round the middle of the
 /// longest river of `terrain` (or round the origin if it has none), each
-/// chunk on its own every metre at the fine tier, as chunks read their
+/// chunk on its own every metre at the finest level, as chunks read their
 /// ground, and prints the time.
 fn river_chunks(world: &WorldTerrain, terrain: &Terrain, n: i64) {
     let mid = terrain
@@ -246,7 +246,7 @@ fn river_chunks(world: &WorldTerrain, terrain: &Terrain, n: i64) {
     let started = Instant::now();
     let reads: Vec<_> = chunks
         .iter()
-        .map(|points| world.surfaces(points, FeatureTier::Fine))
+        .map(|points| world.surfaces(points, FeatureLevel::FINEST))
         .collect();
     let elapsed = started.elapsed().as_secs_f64();
     let mut hash = Fnv::default();

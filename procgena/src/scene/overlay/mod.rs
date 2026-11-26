@@ -27,7 +27,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::ui::{ComputedNode, UiGlobalTransform};
-use procgena_terrain::{ChunkKey, FeatureTier};
+use procgena_terrain::{ChunkKey, FeatureLevel};
 use procgena_terrain_bevy::{TerrainChunk, TerrainOverlay};
 
 pub use sample::{AreaValues, Family, Legend, Overlay, OverlayGround, Value};
@@ -77,7 +77,7 @@ impl OverlaySource {
 
 /// Marks a piece of ground the overlay is drawn over, other than a terrain
 /// chunk: the square from `min` with side `side` (x and z, metres), read at
-/// `tier`. Its entity needs a terrain material and UVs across that square,
+/// feature level `level`. Its entity needs a terrain material and UVs across that square,
 /// and is a descendant of the entity with the [`OverlaySource`].
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct OverlayArea {
@@ -85,8 +85,8 @@ pub struct OverlayArea {
     pub min: DVec2,
     /// The side, in metres.
     pub side: f64,
-    /// The tier its ground is read at.
-    pub tier: FeatureTier,
+    /// The feature level its ground is read at.
+    pub level: FeatureLevel,
 }
 
 /// What the overlay is doing, for the view frame: what the shown subject
@@ -141,20 +141,20 @@ pub struct Readout {
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
 pub(crate) struct OverlayPointer(pub Option<Vec2>);
 
-/// A piece of ground: where it is and the tier it is read at.
+/// A piece of ground: where it is and the feature level it is read at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct AreaKey {
     min: [u64; 2],
     side: u64,
-    tier: FeatureTier,
+    level: FeatureLevel,
 }
 
 impl AreaKey {
-    fn new(min: DVec2, side: f64, tier: FeatureTier) -> Self {
+    fn new(min: DVec2, side: f64, level: FeatureLevel) -> Self {
         Self {
             min: [min.x.to_bits(), min.y.to_bits()],
             side: side.to_bits(),
-            tier,
+            level,
         }
     }
 
@@ -241,13 +241,13 @@ fn areas(
                 let key: ChunkKey = chunk.key;
                 Some((
                     entity,
-                    AreaKey::new(key.min_corner(), key.size(), chunk.tier),
+                    AreaKey::new(key.min_corner(), key.size(), chunk.level),
                 ))
             } else {
                 marked
                     .get(entity)
                     .ok()
-                    .map(|a| (entity, AreaKey::new(a.min, a.side, a.tier)))
+                    .map(|a| (entity, AreaKey::new(a.min, a.side, a.level)))
             }
         })
         .collect()
@@ -365,7 +365,7 @@ fn draw_overlay(
                 if !busy && cache.tasks.len() < MAX_TASKS {
                     let ground = Arc::clone(&source.ground);
                     let task = AsyncComputeTaskPool::get().spawn(async move {
-                        AreaValues::sample(family, &*ground, key.min(), key.side(), key.tier)
+                        AreaValues::sample(family, &*ground, key.min(), key.side(), key.level)
                     });
                     cache.tasks.push(((key, family), task));
                 }
@@ -470,8 +470,8 @@ fn probe(
         let origin = ray.origin.as_dvec3();
         let direction = ray.direction.as_dvec3();
         let point = hit(&*source.ground, &pieces, origin, direction)?;
-        let tier = tier_at(&pieces, point)?;
-        let value = sample::sample_point(overlay.family(), &*source.ground, point, tier);
+        let level = level_at(&pieces, point)?;
+        let value = sample::sample_point(overlay.family(), &*source.ground, point, level);
         let text = overlay.describe(&value);
         Some(Readout { point, value, text })
     })();
@@ -480,19 +480,20 @@ fn probe(
     }
 }
 
-/// The tier of the drawn piece of ground holding `p`: the smallest piece's.
-fn tier_at(pieces: &[(Entity, AreaKey)], p: DVec2) -> Option<FeatureTier> {
+/// The feature level of the drawn piece of ground holding `p`: the
+/// smallest piece's.
+fn level_at(pieces: &[(Entity, AreaKey)], p: DVec2) -> Option<FeatureLevel> {
     pieces
         .iter()
         .filter(|(_, key)| key.contains(p))
         .min_by(|a, b| a.1.side().total_cmp(&b.1.side()))
-        .map(|(_, key)| key.tier)
+        .map(|(_, key)| key.level)
 }
 
 /// Where the ray from `origin` along `direction` first meets the ground
 /// drawn in `pieces` (x and z, metres), if it does within
 /// [`PROBE_REACH`]. Heights are read only inside drawn pieces, at their
-/// tier, so nothing new is built.
+/// feature level, so nothing new is built.
 fn hit(
     ground: &(impl OverlayGround + ?Sized),
     pieces: &[(Entity, AreaKey)],
@@ -503,8 +504,8 @@ fn hit(
     let above = |t: f64| -> Option<f64> {
         let p = origin + direction * t;
         let flat = DVec2::new(p.x, p.z);
-        let tier = tier_at(pieces, flat)?;
-        let h = ground.height(flat, tier);
+        let level = level_at(pieces, flat)?;
+        let h = ground.height(flat, level);
         h.is_finite().then(|| p.y - f64::from(h))
     };
 
@@ -581,7 +582,7 @@ mod tests {
                     TerrainChunk {
                         key,
                         transitions: Transitions::NONE,
-                        tier: FeatureTier::Rough,
+                        level: FeatureLevel::COARSEST,
                     },
                     ChildOf(root),
                 ))
@@ -696,7 +697,7 @@ mod tests {
             .map(|key| {
                 (
                     Entity::PLACEHOLDER,
-                    AreaKey::new(key.min_corner(), key.size(), FeatureTier::Rough),
+                    AreaKey::new(key.min_corner(), key.size(), FeatureLevel::COARSEST),
                 )
             })
             .collect();
@@ -704,7 +705,7 @@ mod tests {
 
         // Looking down at an angle from above `p`, the ray meets the ground
         // where its height is.
-        let height = f64::from(OverlayGround::height(&*world, p, FeatureTier::Rough));
+        let height = f64::from(OverlayGround::height(&*world, p, FeatureLevel::COARSEST));
         let direction = DVec3::new(0.3, -1.0, 0.2).normalize();
         let origin = DVec3::new(p.x, height, p.y) - direction * 1000.0;
         let found = hit(&*world, &pieces, origin, direction).expect("the ray meets the ground");
@@ -712,7 +713,7 @@ mod tests {
         // What one probe costs when the whole ray runs over drawn ground.
         let wide = [(
             Entity::PLACEHOLDER,
-            AreaKey::new(p - DVec2::splat(1500.0), 3000.0, FeatureTier::Rough),
+            AreaKey::new(p - DVec2::splat(1500.0), 3000.0, FeatureLevel::COARSEST),
         )];
         let start = Instant::now();
         let far = hit(&*world, &wide, origin, direction).expect("the ray meets the ground");
@@ -725,8 +726,9 @@ mod tests {
         assert_eq!(hit(&*world, &pieces, far, DVec3::NEG_Y), None);
 
         // The readout's value is the ground's own.
-        let tier = tier_at(&pieces, found).unwrap();
-        let value = sample::sample_point(Family::Measures, &*world, found, tier);
+        let level = level_at(&pieces, found).unwrap();
+        let value = sample::sample_point(Family::Measures, &*world, found, level);
+        let tier = world.tier_levels().tier(level);
         let terrain = world.terrain_tier(world.region_at(found), tier).unwrap();
         let expected = terrain.query(found, SampleDetail::Measures).measures;
         assert_eq!(value, Value::Measures(expected));

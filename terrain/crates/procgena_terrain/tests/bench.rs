@@ -295,7 +295,7 @@ fn warm_tiles() {
 #[ignore]
 fn chunks() {
     use procgena_terrain::{
-        ChunkKey, ChunkSamples, Elevation, FeatureTier, RegionId, Transitions, WorldTerrain,
+        ChunkKey, ChunkSamples, Elevation, FeatureLevel, RegionId, Transitions, WorldTerrain,
         WorldTerrainOptions, fixtures,
     };
     use std::sync::Arc;
@@ -313,7 +313,7 @@ fn chunks() {
                 for p in points_in(terrain, 3) {
                     let key = ChunkKey::containing(p, level);
                     let started = Instant::now();
-                    let samples = ChunkSamples::sample(terrain, key, FeatureTier::Fine)
+                    let samples = ChunkSamples::sample(terrain, key, FeatureLevel::FINEST)
                         .expect("ground everywhere");
                     read.push(ms(started.elapsed()));
                     let started = Instant::now();
@@ -342,9 +342,9 @@ fn chunks() {
     // Cold: the first chunk of a fresh world, which builds the regions it
     // touches and their neighbours' plans.
     for (stage, level) in [
-        (FeatureTier::Fine, 0),
-        (FeatureTier::Rough, 0),
-        (FeatureTier::Rough, 5),
+        (FeatureLevel::FINEST, 0),
+        (FeatureLevel::COARSEST, 0),
+        (FeatureLevel::COARSEST, 5),
     ] {
         let mut cold = Vec::new();
         for seed in 1..=4 {
@@ -362,7 +362,8 @@ fn chunks() {
             cold.push(ms(started.elapsed()));
         }
         eprintln!(
-            "  cold, {stage:?}, level {level}   {}",
+            "  cold, feature level {}, level {level}   {}",
+            stage.0,
             quantiles(&mut cold)
         );
     }

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use glam::{DVec2, DVec3, Vec3};
 
 use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkMesh, ChunkSide, ChunkSource, Transitions};
-use crate::feature::FeatureTier;
+use crate::feature::FeatureLevel;
 
 use super::contract::ChunkEdgeKey;
 use super::mesh::{TinChunk, TinVertex};
@@ -73,7 +73,7 @@ impl TinChunk {
     /// shading.
     ///
     /// A vertex on the chunk's border takes its normal from the ground of
-    /// `source` at the fine tier one metre either side of it along x and
+    /// `source` at the finest level one metre either side of it along x and
     /// z, as regular chunks shade their vertices. The chunks either side
     /// of a border hold the same vertices there and read the same ground,
     /// so their shading meets without a seam, and a regular neighbour
@@ -84,13 +84,13 @@ impl TinChunk {
     ///
     /// # Errors
     ///
-    /// [`TinError::NotFine`] if `source` can't give the fine tier, and
+    /// [`TinError::NotFinest`] if `source` can't give the finest level, and
     /// [`TinError::NoGround`] (at the vertex) if the ground is missing
     /// beside a border vertex.
     pub fn shading_normals(&self, source: &dyn ChunkSource) -> Result<Vec<Vec3>, TinError> {
-        let tier = source.tier(FeatureTier::Fine);
-        if tier != FeatureTier::Fine {
-            return Err(TinError::NotFine(tier));
+        let level = source.level(FeatureLevel::FINEST);
+        if level != FeatureLevel::FINEST {
+            return Err(TinError::NotFinest(level));
         }
 
         // Inside: the area-weighted normals of the triangles round each
@@ -139,7 +139,7 @@ impl TinChunk {
                 offsets.map(|o| at + o)
             })
             .collect();
-        let samples = source.surfaces(&points, FeatureTier::Fine);
+        let samples = source.surfaces(&points, FeatureLevel::FINEST);
         for (&i, s) in border.iter().zip(samples.as_chunks::<4>().0) {
             let [east, west, north, south] = s.map(|p| p.height);
             if [east, west, north, south].iter().any(|h| h.is_nan()) {
@@ -200,7 +200,7 @@ impl TinChunk {
     /// [`fit_neighbour`](Self::fit_neighbour) shares every vertex along
     /// that side. The surface is the canonical one either way. With `skirt`
     /// above zero, each side's edge is also copied `skirt` metres lower and
-    /// joined to it, to hide gaps against neighbours of another tier.
+    /// joined to it, to hide gaps against neighbours read at another feature level.
     ///
     /// The mesh has no water ([`ChunkMesh::water`] is `None`).
     ///
@@ -217,7 +217,7 @@ impl TinChunk {
         let mut mesh = ChunkMesh {
             key: self.key,
             transitions: Transitions::NONE,
-            tier: FeatureTier::Fine,
+            level: FeatureLevel::FINEST,
             origin: self.key.min_corner(),
             positions: Vec::with_capacity(self.vertices.len()),
             normals: normals.to_vec(),

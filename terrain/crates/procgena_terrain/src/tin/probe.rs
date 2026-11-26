@@ -5,7 +5,7 @@ use std::fmt;
 use glam::DVec2;
 
 use crate::chunk::ChunkSource;
-use crate::feature::FeatureTier;
+use crate::feature::FeatureLevel;
 
 use super::numeric::{Cm, CmHeight};
 
@@ -33,8 +33,8 @@ impl ProbeAddr {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TinError {
     /// The source can't give the ground at the
-    /// [`Fine`](FeatureTier::Fine) tier, only at this one.
-    NotFine(FeatureTier),
+    /// [`FeatureLevel::FINEST`], only at this canonical level.
+    NotFinest(FeatureLevel),
     /// There is no ground at this probe (for example, outside every
     /// region).
     NoGround(ProbeAddr),
@@ -46,7 +46,13 @@ pub enum TinError {
 impl fmt::Display for TinError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotFine(tier) => write!(f, "the ground is only available at the {tier:?} tier"),
+            Self::NotFinest(level) => {
+                write!(
+                    f,
+                    "the ground is only available at feature level {}",
+                    level.0
+                )
+            }
             Self::NoGround(p) => write!(f, "no ground at ({} m, {} m)", p.x.to_m(), p.z.to_m()),
             Self::OutOfRange(p) => write!(
                 f,
@@ -60,23 +66,23 @@ impl fmt::Display for TinError {
 
 impl std::error::Error for TinError {}
 
-/// The ground height at each of `probes`, from `source` at the
-/// [`Fine`](FeatureTier::Fine) tier, rounded to the nearest centimetre.
-/// The heights are the same in any order and on any number of threads.
+/// The ground height at each of `probes`, from `source` at
+/// [`FeatureLevel::FINEST`], rounded to the nearest centimetre. The
+/// heights are the same in any order and on any number of threads.
 ///
-/// Fails if `source` can't give the fine tier, or if a probe has no
+/// Fails if `source` can't give the finest level, or if a probe has no
 /// ground or a height out of range.
 pub fn sample_heights(
     source: &dyn ChunkSource,
     probes: &[ProbeAddr],
 ) -> Result<Vec<CmHeight>, TinError> {
-    let tier = source.tier(FeatureTier::Fine);
-    if tier != FeatureTier::Fine {
-        return Err(TinError::NotFine(tier));
+    let level = source.level(FeatureLevel::FINEST);
+    if level != FeatureLevel::FINEST {
+        return Err(TinError::NotFinest(level));
     }
     let points: Vec<DVec2> = probes.iter().map(|p| p.to_m()).collect();
     source
-        .surfaces(&points, FeatureTier::Fine)
+        .surfaces(&points, FeatureLevel::FINEST)
         .iter()
         .zip(probes)
         .map(|(s, &p)| {

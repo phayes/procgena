@@ -2483,7 +2483,7 @@ in a `tin` module of `procgena_terrain`.
     would read about 200 for normals instead of 1,344;
   - **follow-up for when features come back, TIN on the first read:** a
     finest chunk read at an earlier tier builds its TIN at once when
-    `ChunkSource::tier_change_known` says the fine tier changes nothing
+    `ChunkSource::level_change_known` says the fine tier changes nothing
     there, answered from tiers already built (so the coarse picture is
     never held up). On a cold load it helps once coarser chunks' upgrade
     checks have built the fine tier: at 4 km with features off,

@@ -5,7 +5,7 @@ use glam::DVec2;
 use procgena_core::ContentHasher;
 
 use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkSource};
-use crate::feature::{FeatureId, FeatureTier};
+use crate::feature::{FeatureId, FeatureLevel};
 
 use super::mesh::{ConstraintKind, TinVertex};
 use super::numeric::{CM_PER_M, Cm, CmHeight};
@@ -133,8 +133,8 @@ pub struct EdgeContract {
 }
 
 impl EdgeContract {
-    /// The contract for edge `key` over the ground of `source` at the fine
-    /// tier, within `tolerance`.
+    /// The contract for edge `key` over the ground of `source` at
+    /// [`FeatureLevel::FINEST`], within `tolerance`.
     ///
     /// The ground is sampled every metre along the edge, and where each
     /// river or pond line (see [`ChunkSource::lines_within`]) crosses it.
@@ -170,7 +170,7 @@ impl EdgeContract {
         let (start, end) = (key.start(), key.end());
         let corner_m = |(x, z): (Cm, Cm)| DVec2::new(x.to_m(), z.to_m());
         let (lo, hi) = (corner_m(start), corner_m(end));
-        let features = source.lines_within(lo, hi, FeatureTier::Fine);
+        let features = source.lines_within(lo, hi, FeatureLevel::FINEST);
         let water = Water::new(&features, tolerance, lo, hi);
 
         // Where the lines cross, unless a water's edge is inside water.

@@ -12,24 +12,24 @@ use procgena_terrain::tin::{
 };
 use procgena_terrain::{
     ChunkFeature, ChunkFeatureShape, ChunkKey, ChunkSource, Elevation, FeatureId, FeatureKind,
-    FeatureLine, FeatureTier, Pond, RegionGraphOptions, RegionId, SurfacePoint, WorldTerrain,
+    FeatureLevel, FeatureLine, Pond, RegionGraphOptions, RegionId, SurfacePoint, WorldTerrain,
     WorldTerrainOptions, fixtures,
 };
 
-/// Ground given by a function, at the fine tier.
+/// Ground given by a function, at the finest level.
 struct Analytic<F>(F);
 
 impl<F: Fn(DVec2) -> f64 + Sync> ChunkSource for Analytic<F> {
-    fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
+    fn surface(&self, p: DVec2, _: FeatureLevel) -> SurfacePoint {
         SurfacePoint {
             height: (self.0)(p) as f32,
             water: None,
         }
     }
-    fn tier(&self, _: FeatureTier) -> FeatureTier {
-        FeatureTier::Fine
+    fn level(&self, _: FeatureLevel) -> FeatureLevel {
+        FeatureLevel::FINEST
     }
-    fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+    fn level_difference(&self, _: DVec2, _: DVec2, _: FeatureLevel) -> f32 {
         0.0
     }
 }
@@ -39,14 +39,14 @@ impl<F: Fn(DVec2) -> f64 + Sync> ChunkSource for Analytic<F> {
 struct Pointwise<'a>(&'a WorldTerrain);
 
 impl ChunkSource for Pointwise<'_> {
-    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
-        self.0.surface(p, tier)
+    fn surface(&self, p: DVec2, level: FeatureLevel) -> SurfacePoint {
+        self.0.surface(p, level)
     }
-    fn tier(&self, tier: FeatureTier) -> FeatureTier {
-        self.0.tier(tier)
+    fn level(&self, level: FeatureLevel) -> FeatureLevel {
+        self.0.level(level)
     }
-    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
-        self.0.tier_difference(min, max, from)
+    fn level_difference(&self, min: DVec2, max: DVec2, from: FeatureLevel) -> f32 {
+        self.0.level_difference(min, max, from)
     }
 }
 
@@ -299,19 +299,19 @@ struct Counted<S> {
 }
 
 impl<S: ChunkSource> ChunkSource for Counted<S> {
-    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
+    fn surface(&self, p: DVec2, level: FeatureLevel) -> SurfacePoint {
         self.reads
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.ground.surface(p, tier)
+        self.ground.surface(p, level)
     }
-    fn tier(&self, tier: FeatureTier) -> FeatureTier {
-        self.ground.tier(tier)
+    fn level(&self, level: FeatureLevel) -> FeatureLevel {
+        self.ground.level(level)
     }
-    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
-        self.ground.tier_difference(min, max, from)
+    fn level_difference(&self, min: DVec2, max: DVec2, from: FeatureLevel) -> f32 {
+        self.ground.level_difference(min, max, from)
     }
-    fn lines_within(&self, min: DVec2, max: DVec2, tier: FeatureTier) -> Vec<ChunkFeature> {
-        self.ground.lines_within(min, max, tier)
+    fn lines_within(&self, min: DVec2, max: DVec2, level: FeatureLevel) -> Vec<ChunkFeature> {
+        self.ground.lines_within(min, max, level)
     }
 }
 
@@ -491,19 +491,19 @@ struct Featured {
 }
 
 impl ChunkSource for Featured {
-    fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
+    fn surface(&self, p: DVec2, _: FeatureLevel) -> SurfacePoint {
         SurfacePoint {
             height: hills(p) as f32,
             water: None,
         }
     }
-    fn tier(&self, _: FeatureTier) -> FeatureTier {
-        FeatureTier::Fine
+    fn level(&self, _: FeatureLevel) -> FeatureLevel {
+        FeatureLevel::FINEST
     }
-    fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+    fn level_difference(&self, _: DVec2, _: DVec2, _: FeatureLevel) -> f32 {
         0.0
     }
-    fn lines_within(&self, min: DVec2, max: DVec2, _: FeatureTier) -> Vec<ChunkFeature> {
+    fn lines_within(&self, min: DVec2, max: DVec2, _: FeatureLevel) -> Vec<ChunkFeature> {
         self.features
             .iter()
             .filter(|f| {
@@ -637,7 +637,7 @@ fn build_block(
                     );
                     if crossing.kind == ConstraintKind::RiverThalweg {
                         let at = DVec2::new(crossing.at.0.to_m(), crossing.at.1.to_m());
-                        let lines = source.lines_within(at, at, FeatureTier::Fine);
+                        let lines = source.lines_within(at, at, FeatureLevel::FINEST);
                         for m in [mesh, other] {
                             if !enters(&lines, crossing.feature, at, m.key) {
                                 continue;
@@ -940,19 +940,19 @@ fn a_river_ending_in_a_pond_on_a_corner() {
 struct Rippled(ChunkFeature);
 
 impl ChunkSource for Rippled {
-    fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
+    fn surface(&self, p: DVec2, _: FeatureLevel) -> SurfacePoint {
         SurfacePoint {
             height: (10.0 + 0.4 * (p.x / 2.0).sin()) as f32,
             water: None,
         }
     }
-    fn tier(&self, _: FeatureTier) -> FeatureTier {
-        FeatureTier::Fine
+    fn level(&self, _: FeatureLevel) -> FeatureLevel {
+        FeatureLevel::FINEST
     }
-    fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+    fn level_difference(&self, _: DVec2, _: DVec2, _: FeatureLevel) -> f32 {
         0.0
     }
-    fn lines_within(&self, _: DVec2, _: DVec2, _: FeatureTier) -> Vec<ChunkFeature> {
+    fn lines_within(&self, _: DVec2, _: DVec2, _: FeatureLevel) -> Vec<ChunkFeature> {
         vec![self.0.clone()]
     }
 }
@@ -978,7 +978,7 @@ fn river_lines_follow_the_ground_along_their_length() {
             let ground = source
                 .surface(
                     DVec2::new(mid.0 as f64, mid.1 as f64) / 100.0,
-                    FeatureTier::Fine,
+                    FeatureLevel::FINEST,
                 )
                 .height;
             let height = mesh_height(mesh, mid).unwrap() / 100.0;
@@ -1010,7 +1010,7 @@ fn rippled_banks_stay_within_the_water_tolerance_everywhere() {
             for col in 0..=64 {
                 let p = (x * 6_400 + col * 100, z * 6_400 + row * 100);
                 let at = DVec2::new(p.0 as f64, p.1 as f64) / 100.0;
-                let ground = f64::from(source.surface(at, FeatureTier::Fine).height);
+                let ground = f64::from(source.surface(at, FeatureLevel::FINEST).height);
                 let height = mesh_height(mesh, p).expect("the mesh covers its chunk");
                 let limit = if water_gap(&features, at, None) < tolerance.water_band {
                     near += 1;
@@ -1046,11 +1046,11 @@ fn a_world_lists_each_feature_in_a_box_once() {
         (DVec2::new(-300.0, -300.0), DVec2::new(300.0, 300.0)),
         (DVec2::new(-2000.0, -2000.0), DVec2::new(2000.0, 2000.0)),
     ] {
-        let lines = world.lines_within(min, max, FeatureTier::Fine);
+        let lines = world.lines_within(min, max, FeatureLevel::FINEST);
         // Sorted by id, each once.
         assert!(lines.windows(2).all(|w| w[0].id <= w[1].id && w[0] != w[1]));
         // Every feature of the region at the centre is there.
-        for feature in terrain.lines_within(min, max, FeatureTier::Fine) {
+        for feature in terrain.lines_within(min, max, FeatureLevel::FINEST) {
             assert!(lines.contains(&feature), "{:?} is missing", feature.id);
         }
     }
@@ -1079,7 +1079,7 @@ fn world_rivers_are_lines_in_the_ground() {
         ChunkKey::new(x + 1, z + 1, 0).max_corner(),
     );
     let water: Vec<ChunkFeature> = world
-        .lines_within(lo, hi, FeatureTier::Fine)
+        .lines_within(lo, hi, FeatureLevel::FINEST)
         .into_iter()
         .filter(|f| f.id.kind != FeatureKind::Road)
         .collect();

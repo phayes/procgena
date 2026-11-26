@@ -11,9 +11,9 @@ use glam::{DVec2, DVec3};
 use procgena_core::chain::ViewScale;
 use procgena_terrain::{
     CHUNK_CELLS, ChunkDetail, ChunkKey, ChunkLevels, ChunkMesh, ChunkSamples, ChunkSelection,
-    ChunkSide, ChunkSource, EdgeAgreement, Elevation, FeatureTier, RegionGraphOptions, RegionId,
-    RegionProgress, RegionStage, RoadNodeId, RoadNodeKind, Terrain, Transitions, WorldTerrain,
-    WorldTerrainOptions, chunk_levels, fixtures,
+    ChunkSide, ChunkSource, EdgeAgreement, Elevation, FeatureLevel, FeatureTier,
+    RegionGraphOptions, RegionId, RegionProgress, RegionStage, RoadNodeId, RoadNodeKind, Terrain,
+    TierLevels, Transitions, WorldTerrain, WorldTerrainOptions, chunk_levels, fixtures,
 };
 
 /// Four chunk levels, switching at 96, 192 and 384 m, drawn out to
@@ -94,7 +94,7 @@ fn meshes(source: &impl ChunkSource, selection: &ChunkSelection) -> Vec<ChunkMes
     selection
         .iter()
         .map(|(key, transitions)| {
-            ChunkSamples::sample(source, key, FeatureTier::Fine)
+            ChunkSamples::sample(source, key, FeatureLevel::FINEST)
                 .expect("the terrain has ground everywhere")
                 .mesh(transitions, 0.0)
         })
@@ -413,13 +413,14 @@ fn a_blend_draws_the_ready_chunks_and_keeps_the_rest_whole() {
 #[test]
 fn a_stand_in_shows_its_parents_mesh() {
     let (full, _) = plains();
-    let parent = ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 2), FeatureTier::Fine).unwrap();
+    let parent =
+        ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 2), FeatureLevel::FINEST).unwrap();
     let child = ChunkKey::new(-5, 5, 1);
     let grandchild = ChunkKey::new(-9, 11, 0);
     assert!(grandchild.is_within(child) && child.is_within(parent.key()));
     let stand_in = ChunkSamples::stand_in(&parent, child);
     assert_eq!(stand_in.key(), child);
-    assert_eq!(stand_in.tier(), parent.tier());
+    assert_eq!(stand_in.level(), parent.level());
 
     // Where its vertices fall on the parent's, it has the parent's
     // heights; between them, it lies on the parent's triangles.
@@ -464,7 +465,8 @@ fn a_stand_in_shows_its_parents_mesh() {
 #[test]
 fn a_chunk_without_finer_neighbours_is_a_plain_grid() {
     let (full, _) = plains();
-    let samples = ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 1), FeatureTier::Fine).unwrap();
+    let samples =
+        ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 1), FeatureLevel::FINEST).unwrap();
     let cells = CHUNK_CELLS as usize;
     let plain = samples.mesh(Transitions::NONE, 0.0);
     assert_eq!(plain.positions.len(), (cells + 1) * (cells + 1));
@@ -486,7 +488,8 @@ fn a_chunk_without_finer_neighbours_is_a_plain_grid() {
     assert_eq!(v.height, full.height(at));
 
     // Level 0 has no finer level, so its transitions are ignored.
-    let finest = ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 0), FeatureTier::Fine).unwrap();
+    let finest =
+        ChunkSamples::sample(&full, ChunkKey::new(-3, 2, 0), FeatureLevel::FINEST).unwrap();
     let mesh = finest.mesh(Transitions::ALL, 0.0);
     assert_eq!(mesh.transitions, Transitions::NONE);
     assert_eq!(mesh, finest.mesh(Transitions::NONE, 0.0));
@@ -560,24 +563,24 @@ fn mid_tier_roads_outline_the_fine_ones() {
 fn rough_chunks_match_fine_ones_away_from_roads() {
     let (full, bare) = plains();
     assert_eq!(
-        ChunkSource::tier(&full, FeatureTier::Rough),
-        FeatureTier::Fine
+        ChunkSource::level(&full, FeatureLevel::COARSEST),
+        FeatureLevel::FINEST
     );
     assert_eq!(
-        ChunkSource::tier(&bare, FeatureTier::Fine),
-        FeatureTier::Rough
+        ChunkSource::level(&bare, FeatureLevel::FINEST),
+        FeatureLevel::COARSEST
     );
 
     // A level 2 chunk a road runs through.
     let road = &full.roads()[0].points;
     let key = ChunkKey::containing(road[road.len() / 2], 2);
-    let fine = ChunkSamples::sample(&full, key, FeatureTier::Fine).unwrap();
-    let rough = ChunkSamples::sample(&bare, key, FeatureTier::Fine).unwrap();
-    assert_eq!(fine.tier(), FeatureTier::Fine);
-    assert_eq!(rough.tier(), FeatureTier::Rough);
+    let fine = ChunkSamples::sample(&full, key, FeatureLevel::FINEST).unwrap();
+    let rough = ChunkSamples::sample(&bare, key, FeatureLevel::FINEST).unwrap();
+    assert_eq!(fine.level(), FeatureLevel::FINEST);
+    assert_eq!(rough.level(), FeatureLevel::COARSEST);
     let a = fine.mesh(Transitions::NONE, 0.0);
     let b = rough.mesh(Transitions::NONE, 0.0);
-    assert_eq!(b.tier, FeatureTier::Rough);
+    assert_eq!(b.level, FeatureLevel::COARSEST);
 
     // Outside every road's bounds, the ground is the same.
     let roads: Vec<[DVec2; 2]> = full
@@ -607,7 +610,8 @@ fn rough_chunks_match_fine_ones_away_from_roads() {
 #[test]
 fn skirts_sized_by_the_tier_difference_close_gaps_between_tiers() {
     let (full, bare) = plains();
-    let moved = ChunkSource::tier_difference(&full, DVec2::ZERO, DVec2::ZERO, FeatureTier::Rough);
+    let moved =
+        ChunkSource::level_difference(&full, DVec2::ZERO, DVec2::ZERO, FeatureLevel::COARSEST);
     assert!(moved > 1.0, "the roads move the ground: {moved} m");
     assert_eq!(full.tier_difference(FeatureTier::Fine), 0.0);
     assert_eq!(bare.tier_difference(FeatureTier::Rough), 0.0);
@@ -626,8 +630,8 @@ fn skirts_sized_by_the_tier_difference_close_gaps_between_tiers() {
                 if a == b || a.level != b.level || (a.x - b.x).abs() + (a.z - b.z).abs() != 1 {
                     continue;
                 }
-                let fine = ChunkSamples::sample(&full, a, FeatureTier::Fine).unwrap();
-                let rough = ChunkSamples::sample(&bare, b, FeatureTier::Fine).unwrap();
+                let fine = ChunkSamples::sample(&full, a, FeatureLevel::FINEST).unwrap();
+                let rough = ChunkSamples::sample(&bare, b, FeatureLevel::FINEST).unwrap();
                 let n = CHUNK_CELLS;
                 // The vertex pairs along the shared side.
                 let pairs: Vec<((u32, u32), (u32, u32))> = (0..=n)
@@ -663,7 +667,7 @@ fn rivers_get_a_water_surface() {
     let river = &full.rivers()[0].points;
     let p = river[river.len() / 2];
     let key = ChunkKey::containing(p, 0);
-    let mesh = ChunkSamples::sample(&full, key, FeatureTier::Fine)
+    let mesh = ChunkSamples::sample(&full, key, FeatureLevel::FINEST)
         .unwrap()
         .mesh(Transitions::NONE, 0.0);
     let water = mesh.water.as_ref().expect("the river is in the chunk");
@@ -679,7 +683,7 @@ fn rivers_get_a_water_surface() {
     }
     assert!(wet > 0);
     // A chunk far from water has none.
-    let dry = ChunkSamples::sample(&full, ChunkKey::new(400, 400, 0), FeatureTier::Fine)
+    let dry = ChunkSamples::sample(&full, ChunkKey::new(400, 400, 0), FeatureLevel::FINEST)
         .unwrap()
         .mesh(Transitions::NONE, 0.0);
     assert!(dry.water.is_none());
@@ -776,9 +780,12 @@ fn a_world_gives_provisional_and_canonical_chunks() {
     // A coarse chunk from each tier: the tier is what was asked for, and
     // the heights are each tier's own.
     let key = ChunkKey::containing(p, 3);
-    for (tier, terrain) in [(FeatureTier::Rough, &rough), (FeatureTier::Fine, &fine)] {
-        let samples = ChunkSamples::sample(&world, key, tier).unwrap();
-        assert_eq!(samples.tier(), tier);
+    for (level, terrain) in [
+        (FeatureLevel::COARSEST, &rough),
+        (FeatureLevel::FINEST, &fine),
+    ] {
+        let samples = ChunkSamples::sample(&world, key, level).unwrap();
+        assert_eq!(samples.level(), level);
         let v = samples.vertex(32, 32);
         let at = key.min_corner() + DVec2::splat(32.0 * key.step());
         if world.region_at(at) == region {
@@ -808,15 +815,19 @@ fn a_chunk_the_later_tier_leaves_alone_reads_the_same_at_rough() {
         options.features.rivers.density = 1.0;
         options
     };
-    let world = WorldTerrain::new(fixtures::world_medium(), Arc::new(featured)).unwrap();
+    let world = WorldTerrain::new(fixtures::world_medium(), Arc::new(featured))
+        .unwrap()
+        .with_tier_levels(TierLevels::ONE_EACH);
 
-    // Everything a read gives but its tier label, as text that tells apart
-    // any two bit patterns of its numbers.
-    let read = |key: ChunkKey, tier: FeatureTier| {
-        let mesh = ChunkSamples::sample(&world, key, tier)
+    // Everything a read gives but its level label, as text that tells
+    // apart any two bit patterns of its numbers.
+    let read = |key: ChunkKey, level: FeatureLevel| {
+        let mesh = ChunkSamples::sample(&world, key, level)
             .unwrap()
             .mesh(Transitions::NONE, 0.0);
-        let mesh = format!("{mesh:?}").replacen(&format!("tier: {tier:?}"), "tier: _", 1);
+        let label = format!("level: {:?}", world.level(level));
+        let mesh = format!("{mesh:?}").replacen(&label, "level: _", 1);
+        let tier = world.tier_levels().tier(level);
         let step = key.size() / f64::from(2 * CHUNK_CELLS);
         let labelled: Vec<_> = (0..=2 * CHUNK_CELLS)
             .flat_map(|j| (0..=2 * CHUNK_CELLS).map(move |i| (i, j)))
@@ -834,13 +845,13 @@ fn a_chunk_the_later_tier_leaves_alone_reads_the_same_at_rough() {
     for z in -3..2 {
         for x in -3..2 {
             let key = ChunkKey { x, z, level: 3 };
-            for to in [FeatureTier::Mid, FeatureTier::Fine] {
-                if world.tier_changes(key, FeatureTier::Rough, to) {
+            for to in [FeatureLevel(1), FeatureLevel::FINEST] {
+                if world.level_changes(key, FeatureLevel::COARSEST, to) {
                     changed += 1;
                 } else {
                     same += 1;
                     assert!(
-                        read(key, FeatureTier::Rough) == read(key, to),
+                        read(key, FeatureLevel::COARSEST) == read(key, to),
                         "{key:?} differs at {to:?}"
                     );
                 }

@@ -7,7 +7,8 @@ use bevy::app::TaskPoolThreadAssignmentPolicy;
 use bevy::math::DVec2;
 use bevy::prelude::*;
 use procgena_terrain::{
-    ChunkDetail, Elevation, RegionId, TerrainOptions, WorldError, WorldTerrain, WorldTerrainOptions,
+    ChunkDetail, Elevation, RegionId, TerrainOptions, TierLevels, WorldError, WorldTerrain,
+    WorldTerrainOptions,
 };
 use procgena_terrain_bevy::{
     RegionTracker, TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream,
@@ -154,10 +155,15 @@ pub(crate) fn add_subject(app: &mut App) {
 /// reads the regions the stream has built.
 fn stream(world: WorldTerrain) -> (TerrainStream, OverlaySource) {
     let tracker = RegionTracker::default();
-    let world = Arc::new(world.with_progress(tracker.hook()));
+    let world = Arc::new(
+        world
+            .with_progress(tracker.hook())
+            .with_tier_levels(TierLevels {
+                rough_from: Some(ROUGH_FROM),
+                mid_from: Some(MID_FROM),
+            }),
+    );
     let stream = TerrainStream {
-        rough_from: Some(ROUGH_FROM),
-        mid_from: Some(MID_FROM),
         regions: Some(tracker),
         ..TerrainStream::new(world.clone())
     };

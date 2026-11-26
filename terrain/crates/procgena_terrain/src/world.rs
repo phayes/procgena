@@ -13,7 +13,7 @@ use crate::converge::{
     BorderTarget, Convergence, EdgeTarget, relief_meeting_is_valid, relief_target,
 };
 use crate::elevation::{Elevation, ElevationError, ElevationOptions};
-use crate::feature::FeatureTier;
+use crate::feature::{FeatureTier, TierLevels};
 use crate::graph::{EdgePolicy, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey};
 use crate::label::Labels;
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
@@ -196,6 +196,8 @@ pub struct WorldTerrain {
     plans: Cache<Plan>,
     /// Terrains at each tier, in [`FeatureTier::ALL`] order.
     tiers: [Cache<Terrain>; FeatureTier::ALL.len()],
+    /// Which tier each chunk level reads.
+    tier_levels: TierLevels,
     /// Told when each region's stages start and finish.
     progress: Option<ProgressHook>,
 }
@@ -349,6 +351,7 @@ impl WorldTerrain {
             settings: Cache::new(cache.saturating_mul(16)),
             plans: Cache::new(cache.saturating_mul(4)),
             tiers: std::array::from_fn(|_| Cache::new(cache)),
+            tier_levels: TierLevels::default(),
             progress: None,
             options,
             source,
@@ -374,6 +377,23 @@ impl WorldTerrain {
     pub fn with_progress(mut self, hook: ProgressHook) -> Self {
         self.progress = Some(hook);
         self
+    }
+
+    /// This world, reading each chunk level at the tier `levels` gives it
+    /// (see [`ChunkSource`](crate::ChunkSource)). The default,
+    /// [`TierLevels::default`], reads every level at the fine tier. The
+    /// regions and their terrains don't change, only which tier a chunk
+    /// read asks for.
+    #[must_use]
+    pub fn with_tier_levels(mut self, levels: TierLevels) -> Self {
+        self.tier_levels = levels;
+        self
+    }
+
+    /// Which tier each chunk level reads (see
+    /// [`with_tier_levels`](Self::with_tier_levels)).
+    pub fn tier_levels(&self) -> TierLevels {
+        self.tier_levels
     }
 
     /// The settings.

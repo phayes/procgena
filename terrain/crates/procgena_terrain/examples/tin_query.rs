@@ -24,7 +24,7 @@ use std::time::Instant;
 use glam::DVec2;
 use procgena_terrain::tin::{GroundSurface, ResidentTins, TinIndex, TinTolerance, build_chunk};
 use procgena_terrain::{
-    ChunkKey, ChunkSource, Elevation, FeatureTier, RegionId, TerrainPreset, WorldTerrain,
+    ChunkKey, ChunkSource, Elevation, FeatureLevel, RegionId, TerrainPreset, WorldTerrain,
     WorldTerrainOptions,
 };
 
@@ -120,12 +120,12 @@ fn main() {
         let h_one = |points: &[DVec2]| {
             points
                 .iter()
-                .filter(|&&p| !world.surface(p, FeatureTier::Fine).height.is_nan())
+                .filter(|&&p| !world.surface(p, FeatureLevel::FINEST).height.is_nan())
                 .count()
         };
         let h_batch = |points: &[DVec2]| {
             world
-                .surfaces(points, FeatureTier::Fine)
+                .surfaces(points, FeatureLevel::FINEST)
                 .iter()
                 .filter(|s| !s.height.is_nan())
                 .count()

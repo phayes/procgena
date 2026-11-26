@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use glam::DVec2;
-use procgena_terrain::{CHUNK_CELLS, ChunkKey, ChunkSelection, FeatureTier, Transitions};
+use procgena_terrain::{CHUNK_CELLS, ChunkKey, ChunkSelection, FeatureLevel, Transitions};
 
 use crate::{ChunkRead, Geometry};
 
@@ -21,8 +21,8 @@ pub(crate) type Read = Option<Arc<ChunkRead>>;
 /// stand-ins, and the drawn chunks always tile the ground and fit their
 /// neighbours (see [`ChunkSelection::blend`]). After a reset they change
 /// all at once, when the whole new selection is read. A drawn chunk read
-/// at an earlier feature tier than it wants can then be read again at its
-/// own tier and replaced on its own ([`upgrades`](Self::upgrades)), since
+/// with fewer features than it wants can then be read again at its own
+/// feature level and replaced on its own ([`upgrades`](Self::upgrades)), since
 /// that changes its heights but not the tiling.
 #[derive(Default)]
 pub(crate) struct Stream {
@@ -164,9 +164,10 @@ impl Stream {
         self.drawn_generation == self.generation && self.drawn.get(key).is_some()
     }
 
-    /// The tier the ground drawn, or kept, for `key` stands for, if any.
-    pub(crate) fn tier_of(&self, key: ChunkKey) -> Option<FeatureTier> {
-        Some(self.read_of(key)?.tier())
+    /// The canonical feature level the ground drawn, or kept, for `key`
+    /// stands for, if any.
+    pub(crate) fn level_of(&self, key: ChunkKey) -> Option<FeatureLevel> {
+        Some(self.read_of(key)?.level())
     }
 
     /// The ground drawn for `key`: its stand-in if it is drawn as one, or
@@ -191,12 +192,12 @@ impl Stream {
             .collect()
     }
 
-    /// Drawn chunks read at an earlier tier than `wanted` gives them, and
-    /// not being read, nearest to `viewers` first.
+    /// Drawn chunks read at a coarser canonical feature level than `wanted`
+    /// gives them, and not being read, nearest to `viewers` first.
     pub(crate) fn upgrades(
         &self,
         viewers: &[DVec2],
-        wanted: impl Fn(ChunkKey) -> FeatureTier,
+        wanted: impl Fn(ChunkKey) -> FeatureLevel,
     ) -> Vec<ChunkKey> {
         let mut wanted_keys: Vec<(f64, ChunkKey)> = self
             .drawn
@@ -207,7 +208,7 @@ impl Stream {
                     && !self.stand_ins.contains_key(&key)
                     && !self.reading.contains(&key)
                     && !self.no_upgrade.contains(&key)
-                    && self.tier_of(key).is_some_and(|tier| tier < wanted(key))
+                    && self.level_of(key).is_some_and(|level| level > wanted(key))
             })
             .map(|key| {
                 let d = viewers
@@ -370,30 +371,43 @@ mod tests {
         }
     }
 
-    /// Flat ground at height 1 from rough reads and 2 from fine ones.
+    /// Flat ground at height 2 from reads at the finest feature level and 1
+    /// from any other.
     struct TwoTiers;
 
     impl procgena_terrain::ChunkSource for TwoTiers {
-        fn surface(&self, _: DVec2, tier: FeatureTier) -> procgena_terrain::SurfacePoint {
+        fn surface(&self, _: DVec2, level: FeatureLevel) -> procgena_terrain::SurfacePoint {
             procgena_terrain::SurfacePoint {
-                height: if tier == FeatureTier::Fine { 2.0 } else { 1.0 },
+                height: if level == FeatureLevel::FINEST {
+                    2.0
+                } else {
+                    1.0
+                },
                 water: None,
             }
         }
 
-        fn tier(&self, tier: FeatureTier) -> FeatureTier {
-            tier
+        fn level(&self, level: FeatureLevel) -> FeatureLevel {
+            if level == FeatureLevel::FINEST {
+                level
+            } else {
+                FeatureLevel::COARSEST
+            }
         }
 
-        fn tier_difference(&self, _: DVec2, _: DVec2, from: FeatureTier) -> f32 {
-            if from == FeatureTier::Fine { 0.0 } else { 1.0 }
+        fn level_difference(&self, _: DVec2, _: DVec2, from: FeatureLevel) -> f32 {
+            if from == FeatureLevel::FINEST {
+                0.0
+            } else {
+                1.0
+            }
         }
     }
 
-    /// Reads `key` from [`TwoTiers`] at `tier`, and finishes it.
-    fn read(stream: &mut Stream, key: ChunkKey, tier: FeatureTier) {
+    /// Reads `key` from [`TwoTiers`] at `level`, and finishes it.
+    fn read(stream: &mut Stream, key: ChunkKey, level: FeatureLevel) {
         stream.start(key);
-        let read = ChunkRead::read(&TwoTiers, key, tier).unwrap();
+        let read = ChunkRead::read(&TwoTiers, key, level).unwrap();
         let generation = stream.generation;
         stream.finish(key, generation, Some(Arc::new(read)));
     }
@@ -403,16 +417,16 @@ mod tests {
         let mut stream = Stream::default();
         stream.retarget(select(0.0, None));
         for key in stream.missing(&[DVec2::ZERO]) {
-            read(&mut stream, key, FeatureTier::Rough);
+            read(&mut stream, key, FeatureLevel::COARSEST);
         }
         assert!(stream.swap().is_some());
 
         // Only chunks wanted fine are upgraded, nearest first.
         let fine = |key: ChunkKey| {
             if key.level == 0 {
-                FeatureTier::Fine
+                FeatureLevel::FINEST
             } else {
-                FeatureTier::Rough
+                FeatureLevel::COARSEST
             }
         };
         let upgrades = stream.upgrades(&[DVec2::ZERO], fine);
@@ -423,7 +437,7 @@ mod tests {
         // An upgraded chunk is redrawn alone, with fine ground; a failed
         // upgrade keeps the rough ground and isn't retried.
         assert!(stream.is_upgrade(upgrades[0]));
-        read(&mut stream, upgrades[0], FeatureTier::Fine);
+        read(&mut stream, upgrades[0], FeatureLevel::FINEST);
         stream.start(upgrades[1]);
         let generation = stream.generation;
         stream.finish(upgrades[1], generation, None);
@@ -435,8 +449,8 @@ mod tests {
         let Geometry::Regular(samples) = &samples.as_ref().unwrap().geometry else {
             panic!("read from regular samples");
         };
-        assert_eq!(samples.tier(), FeatureTier::Fine);
-        assert_eq!(stream.tier_of(upgrades[1]), Some(FeatureTier::Rough));
+        assert_eq!(samples.level(), FeatureLevel::FINEST);
+        assert_eq!(stream.level_of(upgrades[1]), Some(FeatureLevel::COARSEST));
         assert_eq!(samples.vertex(3, 3).height, 2.0);
         let left = stream.upgrades(&[DVec2::ZERO], fine);
         assert_eq!(left.len(), upgrades.len() - 2);
@@ -514,7 +528,7 @@ mod tests {
         let mut stream = Stream::default();
         stream.retarget(select(0.0, None));
         for key in stream.missing(&[DVec2::ZERO]) {
-            read(&mut stream, key, FeatureTier::Fine);
+            read(&mut stream, key, FeatureLevel::FINEST);
         }
         stream.swap().unwrap();
 
@@ -529,7 +543,7 @@ mod tests {
             .filter(|key| key.distance_to(viewer) < 100.0)
             .collect();
         for &key in &near {
-            read(&mut stream, key, FeatureTier::Fine);
+            read(&mut stream, key, FeatureLevel::FINEST);
         }
 
         // The ground under the viewer is drawn from its own read, beside
@@ -542,12 +556,16 @@ mod tests {
             let read = read.as_ref().expect("every chunk has ground");
             assert_eq!(read.geometry.key(), *key);
         }
-        assert!(stream.upgrades(&[viewer], |_| FeatureTier::Fine).is_empty());
+        assert!(
+            stream
+                .upgrades(&[viewer], |_| FeatureLevel::FINEST)
+                .is_empty()
+        );
 
         // Reading a few more, one swap at a time, keeps the stand-ins not
         // yet read, with their ground.
         for key in stream.missing(&[viewer]).into_iter().take(6) {
-            read(&mut stream, key, FeatureTier::Fine);
+            read(&mut stream, key, FeatureLevel::FINEST);
             if let Some(swap) = stream.swap() {
                 assert!(swap.add.iter().all(|(_, _, read)| read.is_some()));
             }
@@ -558,7 +576,7 @@ mod tests {
 
         // Reading the rest replaces every stand-in.
         for key in stream.missing(&[viewer]) {
-            read(&mut stream, key, FeatureTier::Fine);
+            read(&mut stream, key, FeatureLevel::FINEST);
         }
         stream.swap().unwrap();
         assert_eq!(stream.drawn, stream.target);
@@ -601,18 +619,18 @@ mod tests {
 
         // So is a cancelled upgrade.
         for &key in &missing {
-            read(&mut stream, key, FeatureTier::Rough);
+            read(&mut stream, key, FeatureLevel::COARSEST);
         }
         stream.swap().unwrap();
-        let upgrades = stream.upgrades(&[DVec2::ZERO], |_| FeatureTier::Fine);
+        let upgrades = stream.upgrades(&[DVec2::ZERO], |_| FeatureLevel::FINEST);
         stream.start(upgrades[0]);
         assert_eq!(
-            stream.upgrades(&[DVec2::ZERO], |_| FeatureTier::Fine),
+            stream.upgrades(&[DVec2::ZERO], |_| FeatureLevel::FINEST),
             upgrades[1..]
         );
         stream.cancel(upgrades[0]);
         assert_eq!(
-            stream.upgrades(&[DVec2::ZERO], |_| FeatureTier::Fine),
+            stream.upgrades(&[DVec2::ZERO], |_| FeatureLevel::FINEST),
             upgrades
         );
     }

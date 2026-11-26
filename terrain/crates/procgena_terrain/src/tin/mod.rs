@@ -4,7 +4,7 @@
 //!
 //! Positions and heights are whole centimetres (see [`Cm`] and
 //! [`CmHeight`]). The ground is sampled at the
-//! [`Fine`](crate::FeatureTier::Fine) tier through a
+//! finest level ([`FeatureLevel::FINEST`](crate::FeatureLevel::FINEST)) through a
 //! [`ChunkSource`](crate::ChunkSource). Neighbouring chunks share the
 //! vertices along their common edge (see [`EdgeContract`]), so they meet
 //! exactly. Placement, masks and labels keep reading the terrain's own

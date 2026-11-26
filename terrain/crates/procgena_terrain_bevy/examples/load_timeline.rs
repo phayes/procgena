@@ -63,8 +63,8 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use glam::DVec2;
 use procgena_terrain::{
-    ChunkDetail, ChunkKey, ChunkSource, Elevation, FeatureKind, FeatureTier, RegionId,
-    RegionProgress, RegionStage, TerrainPreset, WorldTerrain, WorldTerrainOptions,
+    ChunkDetail, ChunkKey, Elevation, FeatureKind, FeatureLevel, FeatureTier, RegionId,
+    RegionProgress, RegionStage, TerrainPreset, TierLevels, WorldTerrain, WorldTerrainOptions,
 };
 use procgena_terrain_bevy::{
     CanonicalChunk, RegionTracker, TerrainChunk, TerrainPlugin, TerrainProgress, TerrainStream,
@@ -104,10 +104,8 @@ struct Timeline {
     long_total: f64,
     /// Longest recorded frame duration, in seconds.
     longest_frame: f64,
-    /// First chunk level that finishes at rough detail; overrides mid detail.
-    rough_from: Option<u8>,
-    /// First chunk level that finishes at mid detail unless rough applies.
-    mid_from: Option<u8>,
+    /// Which tier each chunk level finishes at.
+    tier_levels: TierLevels,
     /// Whether the finest-level milestone also requires adaptive meshes.
     tin: bool,
     /// World retained for the optional road count after recording ends.
@@ -224,13 +222,13 @@ fn main() {
     let target = on_ground(vector("--target").unwrap_or(Vec3::new(900.0, 0.0, -300.0)));
     println!("camera placed at {:.2} s", now());
 
-    let rough_from = value("--rough-from").map(|v| v.parse().expect("--rough-from needs a level"));
-    let mid_from = value("--mid-from").map(|v| v.parse().expect("--mid-from needs a level"));
+    let tier_levels = TierLevels {
+        rough_from: value("--rough-from").map(|v| v.parse().expect("--rough-from needs a level")),
+        mid_from: value("--mid-from").map(|v| v.parse().expect("--mid-from needs a level")),
+    };
     let tin = has("--tin");
-    let world = Arc::new(world);
+    let world = Arc::new(world.with_tier_levels(tier_levels));
     let stream = TerrainStream {
-        rough_from,
-        mid_from,
         tin,
         regions: Some(tracker),
         ..TerrainStream::new(world.clone())
@@ -267,8 +265,7 @@ fn main() {
             long_frames: 0,
             long_total: 0.0,
             longest_frame: 0.0,
-            rough_from,
-            mid_from,
+            tier_levels,
             tin,
             footprint: has("--footprint").then_some(world),
         })
@@ -318,22 +315,13 @@ fn record(
     // Count chunks at their requested feature detail; with --tin, also require
     // an adaptive mesh for the finest-level milestone.
     let finest_level = chunks.iter().map(|(c, _)| c.key.level).min();
-    let final_tier = |level: u8| {
-        let from = |from: Option<u8>| from.is_some_and(|from| level >= from);
-        if from(timeline.rough_from) {
-            FeatureTier::Rough
-        } else if from(timeline.mid_from) {
-            FeatureTier::Mid
-        } else {
-            FeatureTier::Fine
-        }
-    };
+    let final_level = |level: u8| timeline.tier_levels.canonical(FeatureLevel(level));
     let (mut finest, mut finest_final, mut canonical) = (0, 0, 0);
     for (chunk, is_canonical) in &chunks {
         canonical += usize::from(is_canonical);
         if Some(chunk.key.level) == finest_level {
             finest += 1;
-            let tier_done = chunk.tier == final_tier(chunk.key.level);
+            let tier_done = chunk.level == final_level(chunk.key.level);
             if tier_done && (!timeline.tin || is_canonical) {
                 finest_final += 1;
             }
@@ -400,7 +388,7 @@ fn count_road_chunks(world: &WorldTerrain, keys: &[ChunkKey]) {
     for key in keys {
         let roads = |tier| {
             world
-                .lines_within(key.min_corner(), key.max_corner(), tier)
+                .lines_within_tier(key.min_corner(), key.max_corner(), tier)
                 .iter()
                 .any(|f| f.id.kind == FeatureKind::Road)
         };

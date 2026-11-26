@@ -44,7 +44,7 @@ use procgena_terrain::tin::{
     TinTolerance, TinTriangle, build_chunk, build_chunk_with, sample_heights,
 };
 use procgena_terrain::{
-    ChunkFeature, ChunkFeatureShape, ChunkKey, ChunkSource, Elevation, FeatureKind, FeatureTier,
+    ChunkFeature, ChunkFeatureShape, ChunkKey, ChunkSource, Elevation, FeatureKind, FeatureLevel,
     RegionId, SurfacePoint, TerrainPreset, WorldTerrain, WorldTerrainOptions, fixtures,
 };
 
@@ -83,7 +83,7 @@ impl<'a> Counting<'a> {
 }
 
 impl ChunkSource for Counting<'_> {
-    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
+    fn surface(&self, p: DVec2, tier: FeatureLevel) -> SurfacePoint {
         self.reads.fetch_add(1, AtomicOrdering::Relaxed);
         let started = Instant::now();
         let s = self.world.surface(p, tier);
@@ -93,7 +93,7 @@ impl ChunkSource for Counting<'_> {
         );
         s
     }
-    fn surfaces(&self, points: &[DVec2], tier: FeatureTier) -> Vec<SurfacePoint> {
+    fn surfaces(&self, points: &[DVec2], tier: FeatureLevel) -> Vec<SurfacePoint> {
         self.reads.fetch_add(points.len(), AtomicOrdering::Relaxed);
         let started = Instant::now();
         let s = self.world.surfaces(points, tier);
@@ -103,14 +103,14 @@ impl ChunkSource for Counting<'_> {
         );
         s
     }
-    fn tier(&self, tier: FeatureTier) -> FeatureTier {
-        self.world.tier(tier)
+    fn level(&self, level: FeatureLevel) -> FeatureLevel {
+        self.world.level(level)
     }
-    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
-        self.world.tier_difference(min, max, from)
+    fn level_difference(&self, min: DVec2, max: DVec2, from: FeatureLevel) -> f32 {
+        self.world.level_difference(min, max, from)
     }
-    fn lines_within(&self, min: DVec2, max: DVec2, tier: FeatureTier) -> Vec<ChunkFeature> {
-        self.world.lines_within(min, max, tier)
+    fn lines_within(&self, min: DVec2, max: DVec2, level: FeatureLevel) -> Vec<ChunkFeature> {
+        self.world.lines_within(min, max, level)
     }
 }
 
@@ -347,7 +347,7 @@ impl Stats {
         // Errors between the samples, for both meshes, in millimetres (the
         // meshes and points are in centimetres).
         let water: Vec<ChunkFeature> = world
-            .lines_within(key.min_corner(), key.max_corner(), FeatureTier::Fine)
+            .lines_within(key.min_corner(), key.max_corner(), FeatureLevel::FINEST)
             .into_iter()
             .filter(|f| f.id.kind != FeatureKind::Road)
             .collect();
@@ -508,7 +508,7 @@ fn between(world: &WorldTerrain, key: ChunkKey) -> (Vec<(i64, i64)>, Vec<f64>, V
         })
         .collect();
     let h: Vec<f64> = world
-        .surfaces(&at, FeatureTier::Fine)
+        .surfaces(&at, FeatureLevel::FINEST)
         .iter()
         .map(|s| f64::from(s.height))
         .collect();

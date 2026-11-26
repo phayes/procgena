@@ -9,21 +9,21 @@ use std::time::Instant;
 
 use glam::DVec2;
 use procgena_terrain::{
-    ChunkSource, Elevation, FeatureTier, RegionId, SurfacePoint, TerrainPreset, WorldTerrain,
+    ChunkSource, Elevation, FeatureLevel, RegionId, SurfacePoint, TerrainPreset, WorldTerrain,
     WorldTerrainOptions,
 };
 
 struct Pointwise<'a>(&'a WorldTerrain);
 
 impl ChunkSource for Pointwise<'_> {
-    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
-        self.0.surface(p, tier)
+    fn surface(&self, p: DVec2, level: FeatureLevel) -> SurfacePoint {
+        self.0.surface(p, level)
     }
-    fn tier(&self, tier: FeatureTier) -> FeatureTier {
-        tier
+    fn level(&self, level: FeatureLevel) -> FeatureLevel {
+        self.0.level(level)
     }
-    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
-        self.0.tier_difference(min, max, from)
+    fn level_difference(&self, min: DVec2, max: DVec2, from: FeatureLevel) -> f32 {
+        self.0.level_difference(min, max, from)
     }
 }
 
@@ -45,12 +45,12 @@ fn main() {
                     .map(move |x| centre + DVec2::new(f64::from(x - 64), f64::from(z - 64)) * 0.5)
             })
             .collect();
-        for tier in [FeatureTier::Rough, FeatureTier::Fine] {
-            world.surfaces(&points, tier);
+        for level in [FeatureLevel::COARSEST, FeatureLevel::FINEST] {
+            world.surfaces(&points, level);
             compare(
-                &format!("{name} {tier:?} surfaces"),
-                || pointwise.surfaces(&points, tier),
-                || world.surfaces(&points, tier),
+                &format!("{name} level {} surfaces", level.0),
+                || pointwise.surfaces(&points, level),
+                || world.surfaces(&points, level),
             );
         }
     }
