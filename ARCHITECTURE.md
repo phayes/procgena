@@ -299,13 +299,10 @@ ground.
   - Tree trunks clear a disc around themselves.
   - Canopy shade thins grass.
   - Boulders and logs clear the plants under them.
-- Its ground layers: materials such as needle litter, moss and mud, each
-  with a rule over slope, height, water and road distance, labels, noise
-  and its own Scatters (litter under trees), laid over its Biome's base
-  ground and weighted by its coverage. Designed in
-  [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md)
-  (milestones GM0–GM5 in the roadmap). The Ecotope's `ground` map is
-  painted from its placed copies; coverage is not built yet.
+- No ground paint: what the ground is made of is decided at the Biome
+  layer from labels and segmentation, independent of placement (see
+  4.1 and [ROADMAP BP](ROADMAP.md#bp-biome-ground-paint-from-labels-and-segmentation)).
+  Coverage is not built yet.
 
 **What it gets from above.** Its area, as a coverage function from 0 to 1
 that the Biome works out from Terrain labels and border noise. Also the
@@ -385,6 +382,15 @@ Ecotopes that cover it.
 - **Ecotope geometry**: the noise and shapes that keep Ecotope borders from
   following label borders exactly. Examples: patches of meadow inside a
   forest, ragged edges where scree meets grass, a fringe along a river.
+- **Ground paint** (planned, [ROADMAP BP](ROADMAP.md#bp-biome-ground-paint-from-labels-and-segmentation)):
+  what the ground is made of, from the Terrain's labels and segmentation
+  only, independent of placement (the user, 2026-11-26). Each TIN vertex
+  carries canonical neighbourhood facts (landform class weights,
+  curvature, the 12 m shape) from the same label definition placement
+  uses, and the fragment shader adds per-pixel slope, height bands,
+  aspect and noise breakup, and blends the textures. A coarse class
+  raster (4–8 m) only for patterns that follow neither geometry nor
+  simple fields. Until it lands, the terrain draws flat grey.
 
 **What it gets from above.** Its region (a polygon from the World), its
 seed (a hash of the World seed and its region; see "Seeds"), the sea
@@ -1145,7 +1151,8 @@ integrated GPU and on a discrete GPU is still owed.
 - **Unloading** turns promoted specimens back into copies (story 7). Where
   their state is kept is open question 10.
 - **Beyond the last impostor**, the Biome gives Terrain a far tint from its
-  Ecotopes' coverage, and Terrain's far material draws it (story 4).
+  Ecotopes' coverage, and Terrain's far material draws it (story 4), as
+  part of Biome ground paint (BP).
 
 ### Prior art
 
@@ -1188,7 +1195,8 @@ level is baked from the level before it: an impostor made of impostors.
 4. **Canopy layer:** per large tile, a small top-down height, colour and
    normal image, drawn as a raised surface with skirts down its sides.
 5. **Terrain far colour:** at the horizon the canopy folds into the
-   terrain chunk's far colour and height (GM1's far colour, extended).
+   terrain chunk's far colour and height (the far colour comes with
+   Biome ground paint, BP).
 
 **Rules:**
 
