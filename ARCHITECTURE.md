@@ -465,8 +465,11 @@ is in [terrain/features_plan_review.md](terrain/features_plan_review.md).
   crosses through an agreed port (as rivers and roads do), or comes from a
   field both sides share.
 - **Canonical ground.** Placement, masks, gameplay and queries read the
-  terrain's own height and labels. Drawing may use coarser meshes, but
-  never becomes what anything else reads.
+  canonical TIN of a chunk level (each Scatter its own placement level;
+  see "Canonical ground and roads" below and
+  [terrain/terrain_lod.md](terrain/terrain_lod.md)). Drawing picks which
+  level to show by size on screen, and never changes what anything else
+  reads.
 - **Reaching the cover.** A feature reaches Ecotopes and Scatters through
   the terrain's height and labels, including where a rock mesh stands.
   How a feature's footprint takes part in the exact exclusion tests of
@@ -494,7 +497,10 @@ Each ends with a review against today's code.
 
 - **A canonical TIN.** The physical ground becomes a chunk-conforming,
   feature-constrained adaptive triangulation (a constrained Delaunay
-  mesh), realized lazily per 64 m level-0 chunk. Large triangles cover
+  mesh), realized lazily per chunk at every chunk level (level `L`: 64 m
+  × 2^L, sampled every 1 m × 2^L, within the world's tolerance × 2^L;
+  decided by the user 2026-11-26, see
+  [terrain/terrain_lod.md](terrain/terrain_lod.md)). Large triangles cover
   smooth land, and roads, river banks, cuttings and embankments are
   explicit edges, so a narrow road no longer sets the resolution of a
   whole region. Regular grids stay as computation tools and derived
@@ -523,12 +529,17 @@ Each ends with a review against today's code.
 - **Decided (gate D6, 2026-11-25):**
   - **Profile:** bitwise identical on one platform first. Cross-platform
     identity (pinned maths) is a later milestone.
-  - **Authority:** `H*` decides spots, masks, slope and labels, at every
-    distance. The realized TIN gives collision and the rest heights of
-    near copies; far copies rest on `H*` (see "Placement does not depend
-    on distance").
-  - **Constraints:** only level-0 chunk borders are mesh constraints.
-    Region ownership comes from the region graph, not from triangles.
+  - **Authority (revised by the user 2026-11-26):** the TIN is the
+    ground. Every chunk level is a canonical TIN level; each Scatter
+    takes its spots, height, slope and labels from its placement level's
+    TIN at every distance, and near copies settle onto level 0. Level 0
+    gives collision. `H*` is only the generator the TINs sample. (Until
+    2026-11-26: `H*` decided spots, masks, slope and labels, and the TIN
+    gave only collision and near rest heights.) See
+    [terrain/terrain_lod.md](terrain/terrain_lod.md).
+  - **Constraints:** only chunk borders (at each level) are mesh
+    constraints. Region ownership comes from the region graph, not from
+    triangles.
   - **Units:** canonical integer centimetres, `i64` for x and z and
     `i32` for heights.
 
@@ -548,7 +559,9 @@ rivers, roads and ponds as features with stable ids and bounds. Roads
 are a planning stage of their own, so a distant view can skip them. It
 meshes the ground as heightfield chunks on the shared chunk grid (64 m,
 doubling per level), with crack-free transitions between levels and
-provisional feature tiers for far chunks; `procgena_terrain_bevy`
+provisional feature tiers for far chunks (both to be replaced by a
+canonical TIN at every level, with feature cut-off levels; ROADMAP
+CT-T); `procgena_terrain_bevy`
 streams them around the camera, and the studio edits Terrains as a kind. The
 labels (`annotate`: a `Landform` and `Flags` per point, from
 `Measures` and the ground's shape read at the World's scale) are built,
@@ -999,6 +1012,13 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   outline on a coarse grid, fine with each road planned along its outline
   (2026-11-25, TE7), with near chunks refined in the background and
   skirts sized by how far each tier moves the ground.
+  **Superseded as the direction (the user, 2026-11-26):** feature tiers
+  give way to a highest chunk level per feature type, above which the
+  canonical TIN of that level doesn't carry the feature (roads up to
+  level 1–2, rivers up to 3–4, say). A coarse level then isn't
+  provisional: it is canonical ground for the Scatters placed on it.
+  Keep-off rules read the feature lines, not the TIN. See
+  [terrain/terrain_lod.md](terrain/terrain_lod.md).
 - **Measured against the budget:** a region plan fits the "up to about a
   second" above. Road planning, once the one stage far over it, now takes
   well under it (ROADMAP milestones TE5, RB0 and RB1 hold the figures).
@@ -1015,8 +1035,11 @@ and per chunk, not per chunk.
 
 - **Draw range.** A Scatter's draw range is the cull distance of its
   specimens, scaled by their size and by the quality setting, with a
-  per-Scatter multiplier. It is worked out, not set by hand: about 2 km
-  for big trees, about 30 m for mushrooms.
+  per-Scatter multiplier. It is worked out, not set by hand: about 30 m
+  for mushrooms, and today about 20 km for big trees (the cull at 0.002
+  of the screen's height, about 1.4 px at 720p; measured 2026-11-26).
+  How far trees place is to be capped, with the far field (FF) tinting
+  beyond the cap; the cap is still to be chosen.
 - **Place range.** A Scatter masks every Scatter after it in priority, so
   it must be placed wherever any of them is. Its place range is the largest
   draw range of itself and every Scatter after it, including the Scatters
@@ -1055,15 +1078,19 @@ placement never depends on chunk size, load tier or load order.
   every spot has one owner even when the lattice spacing doesn't divide the
   chunk size. A copy may stand outside its chunk by up to the Scatter's
   displacement `J` (see "Masks and placement").
-- **Placement samples the true ground**, the terrain's analytic height and
-  slope, never a coarse chunk mesh. So far copies can float above or sink
-  into coarse terrain by that chunk's height error (open question 9).
-  With the canonical TIN (see "Canonical ground and roads" under 4.2),
-  "true ground" means the composed surface `H*` for spots, masks and
-  slope at every distance. Near copies rest on the realized TIN where
-  their chunk is realized, so their height can settle within the TIN
-  tolerance; a copy's identity never includes its rest height (gate D6,
-  open question 11).
+- **Placement samples its placement level's canonical TIN** (decided by
+  the user 2026-11-26; see [terrain/terrain_lod.md](terrain/terrain_lod.md)).
+  Each Scatter places on exactly one chunk level: by default level 0 for
+  grass, mushrooms, small stones and sticks, level 1 for boulders and
+  logs, level 2 for bushes and small trees, and level 3–4 for big trees.
+  Its spots, height and slope come from that level's TIN at every
+  distance, never from what is drawn. A level is built canonically out
+  to the longest place range of the Scatters on it. Near the player a
+  copy's rest height settles onto level 0; a copy's identity never
+  includes its rest height (gate D6, open question 11). Keep-off rules
+  ("no trees on roads") read the feature lines, not the TIN, so they
+  hold at every placement level. (Until 2026-11-26 placement read the
+  composed surface `H*`.)
 - **Hooks never see distance or load tier.** Remove, replace and reserve
   edits apply at placement, out to the place range, and stamps change the
   ground before placement (story 6).
@@ -2075,9 +2102,12 @@ scheduled as the CT and RB milestones in ROADMAP.md, behind gate D6.
   earthworks; river crossings as linked node pairs for a later pass to
   fill; breaklines for the ground.
 - [ ] **Canonical TIN chunks**: chunk edge contracts, constrained
-  triangulation and error-driven refinement per level-0 chunk, feature
-  composition (rivers, roads, stamps), then the products built from it:
-  render LODs, collision, height textures and spatial queries.
+  triangulation and error-driven refinement per chunk at every chunk
+  level (level 0 built; other levels per
+  [terrain/terrain_lod.md](terrain/terrain_lod.md)), feature composition
+  (rivers, roads, stamps) up to each feature type's highest level, then
+  the products built from it: drawing, collision, height textures and
+  spatial queries, and placement per placement level.
 - [ ] **GPU stages under parity**: batched sampling and error probes, and
   an integer GPU road cost field, each canonical only after bitwise parity
   with the CPU reference.
@@ -2143,11 +2173,11 @@ scheduled as the CT and RB milestones in ROADMAP.md, behind gate D6.
 8. ~~**Coordinates.**~~ Decided 2026-11-23 (D1): `Ground` takes World
    `f64` positions and returns `f32` heights and gradients. Scatters work
    relative to the chunk inside and convert at the call.
-9. **Far copies on coarse terrain.** Placement uses the true ground height,
-   but a coarse terrain chunk sits a little above or below it, so far
-   copies can float or sink by that chunk's height error. Snap them to the
-   drawn terrain in the shader, bound the error per terrain level, or
-   accept it?
+9. **Far copies on coarse terrain.** A copy rests on its placement
+   level's TIN (since 2026-11-26), but the level drawn there may be
+   coarser or finer, so a copy can float or sink by the difference
+   between the two levels. Snap copies to the drawn level in the shader,
+   bound the difference per pair of levels, or accept it?
 10. **State of promoted copies after unloading.** When a chunk unloads, a
     promoted tree turns back into a copy. Its game state (damage, a
     harvested fruit) has to live somewhere: a new edit kind next to remove,
@@ -2169,3 +2199,9 @@ scheduled as the CT and RB milestones in ROADMAP.md, behind gate D6.
     The third keeps placement independent of distance and fits lazy
     realization, so it is the review's recommendation. **Decided
     2026-11-25 (D6b): the third.** See the TIN design's section 21.2.
+    **Revised by the user 2026-11-26:** the TIN is the ground. Every
+    chunk level is a canonical TIN level, each Scatter places on one
+    level, and `H*` is only the generator
+    ([terrain/terrain_lod.md](terrain/terrain_lod.md)). Placement reads
+    the TIN everywhere without realizing level 0 out to the place range,
+    because a long-range Scatter places on a coarse level.
