@@ -1,0 +1,68 @@
+[package]
+name = "procgena_demo_lumberjack"
+version = "0.1.0"
+description = "A showcase demo built on procgena: a lumberjack wanders a forest and glides on the wind"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The studio's Bevy features, so both share one Bevy build, plus glTF and
+# animation for the character.
+bevy = { version = "0.20.1", default-features = false, features = [
+    "std",
+    "multi_threaded",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_mikktspace",
+    "tonemapping_luts",
+    "ktx2",
+    "zstd_rust",
+    "bevy_winit",
+    "bevy_window",
+    "custom_cursor",
+    "x11",
+    "wayland",
+    "bevy_ui",
+    "bevy_ui_render",
+    "bevy_text",
+    "bevy_picking",
+    "ui_picking",
+    "bevy_input_focus",
+    "bevy_feathers",
+    "bevy_scene",
+    "bevy_gltf",
+    "bevy_animation",
+    "gltf_animation",
+    "png",
+] }
+procgena_biome = { path = "../../../biome/crates/procgena_biome" }
+procgena_biome_bevy = { path = "../../../biome/crates/procgena_biome_bevy", features = ["gpu"] }
+procgena_core = { path = "../../../core/crates/procgena_core" }
+procgena_core_bevy = { path = "../../../core/crates/procgena_core_bevy" }
+procgena_deadwood_bevy = { path = "../../../deadwood/crates/procgena_deadwood_bevy" }
+procgena_mushroom_bevy = { path = "../../../mushroom/crates/procgena_mushroom_bevy" }
+procgena_plant_bevy = { path = "../../../plant/crates/procgena_plant_bevy", features = ["avian"] }
+procgena_stone_bevy = { path = "../../../stone/crates/procgena_stone_bevy", features = ["gpu"] }
+procgena_terrain = { path = "../../../terrain/crates/procgena_terrain" }
+procgena_terrain_bevy = { path = "../../../terrain/crates/procgena_terrain_bevy" }
+procgena_tree_bevy = { path = "../../../tree/crates/procgena_tree_bevy" }
+procgena_world = { path = "../../../world/crates/procgena_world" }
+avian3d = { version = "0.8", default-features = false, features = [
+    "3d",
+    "parry-f32",
+    "parallel",
+    "collider-from-mesh",
+] }
+bevy-tnua = "0.33.2"
+bevy-tnua-avian3d = "0.13.2"
+bevy_enhanced_input = "0.27.2"
+serde = { workspace = true }
+glam = { workspace = true }
+
+[lints.rust]
+missing_docs = "warn"

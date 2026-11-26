@@ -1,0 +1,6 @@
+# The lumberjack demo's tunables: only what differs from the built-in
+# `standard` set (see src/settings.rs for every value and its meaning).
+base: standard
+name: Lumberjack
+description: The tunables the demo plays with.
+demo: {}

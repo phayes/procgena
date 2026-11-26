@@ -1,0 +1,6 @@
+# The forest over the lumberjack demo's play area: the built-in pine forest
+# floor. Only what differs from it is listed.
+base: pine_forest_floor
+name: Lumberjack forest
+description: The pine forest the lumberjack walks in.
+ecotope: {}

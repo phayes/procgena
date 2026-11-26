@@ -1,0 +1,6 @@
+# The lumberjack demo's World: the built-in medium-small (Valheim-like)
+# scale class. Only what differs from it is listed.
+base: medium_small
+name: Lumberjack
+description: The World the lumberjack wanders.
+world: {}
