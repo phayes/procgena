@@ -235,21 +235,46 @@ counting every chunk a disc touches:
   are built for drawing alone. At the measured cost per chunk, a cold
   view is about 0.2 s on plains and 2.4–4.1 s on mountains, one thread.
 
+**Stand-ins while chunks are built.** Drawn chunks never overlap, so a
+coarse chunk can't stand in for just one of its children. The rule:
+
+- A chunk is drawn in place of its four children until every child can be
+  drawn: built, failed (drawn as a hole), or itself replaced the same way
+  by its own children.
+- Coarse chunks build about as fast as fine ones but cover 4^k times the
+  area. So a cold view first builds the top-level chunks covering it, and
+  then refines.
+- This replaces today's coarse-first Rough reads and
+  `ChunkSamples::stand_in`.
+
+**The cost of stand-ins.**
+- The top-level cover holds 60 chunks with the default detail. 44 of them
+  are drawn anyway, so 16 more are built as stand-ins only, near the
+  viewer, and dropped once everything under them is drawn. That makes 544
+  builds for a cold view.
+- The levels in between near the viewer are within their build radii, so
+  they cost nothing extra.
+
 **Order of building:**
-1. Missing drawn chunks first, nearest first, so the picture completes
-   before any placement-only chunk.
-2. Then chunks within a radius, nearest first.
 
-While a drawn chunk isn't built yet, its nearest built ancestor is drawn
-in its place. A coarse chunk costs about what a fine one does but covers
-4^k times the area, so a cold load can draw the top level first. Seams are
-skirts (below), so a stand-in never needs its neighbours split or its own
-mesh changed. This replaces today's coarse-first Rough reads and
-`ChunkSamples::stand_in`.
+1. The top-level cover, nearest first, for the first picture.
+2. Drawn chunks, together with those of their ancestors within a build
+   radius, coarse and near first: in order of distance divided by chunk
+   size.
+3. Then the remaining chunks within a radius, in the same order.
 
-**Seams between drawn levels** are skirts deep enough to cover the two
-levels' difference along the edge. There are no cross-level constraints,
-and no transition strips (`Transitions` no longer changes a TIN mesh).
+**Mixing old and new ground.** After the source changes, the old chunks
+stay drawn until the new top-level cover is built. From then on only new
+ground is drawn, and old and new are never drawn side by side.
+
+**Seams between drawn levels** are skirts.
+- **Depth:** each chunk's skirt is deep enough to cover the largest height
+  difference, along their shared edge, against the chunks drawn beside it
+  now. A stand-in can sit beside chunks more than one level finer.
+- **Depends only on what is drawn now,** never on load history, so a
+  settled view always meshes the same.
+- **No cross-level constraints,** and no transition strips (`Transitions`
+  no longer changes a TIN mesh).
 
 ### No promotion
 
