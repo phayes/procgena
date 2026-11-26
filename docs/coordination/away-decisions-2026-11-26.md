@@ -27,8 +27,9 @@ with the advisor where needed, for the user to review.
 3. **Adaptive TIN sampling's default tolerance (CT-A)** is chosen by the
    coordinator from the worker's trade-off curve. The user allowed "a
    slightly looser mesh if we get major speedups" and asked the coordinator
-   to choose. The rule: take the knee of the curve, with the max error
-   within about 2× today's. The river band, determinism and identical chunk
+   to choose. The rule: take the knee of the curve. About 2× today's max
+   error is a guide, not a cap: the user "might accept more if the tradeoff
+   is worth it". The river band, determinism and identical chunk
    edges are not loosened. The curve and the choice are in ROADMAP's CT-A
    block, for review.
 4. **How the speed-up options are being run**
