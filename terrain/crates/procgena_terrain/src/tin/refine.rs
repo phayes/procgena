@@ -12,7 +12,7 @@ use crate::feature::FeatureLevel;
 
 use super::cache::ContractCache;
 use super::cdt::ChunkCdt;
-use super::contract::{CHUNK_CM, ChunkEdgeKey, EdgeAxis};
+use super::contract::{CHUNK_CM, ChunkEdgeKey, EdgeAxis, chunk_cm, step_cm};
 use super::mesh::{TinChunk, TinVertex, UnmetTolerance};
 use super::numeric::{CM_PER_M, Cm, CmHeight};
 use super::probe::{ProbeAddr, TinError, sample_heights};
@@ -21,32 +21,38 @@ use super::sampling::{DenseNear, STEP_CM, SparseSquare, coarse_margin, detail_li
 use super::tolerance::{DomainTolerance, TinTolerance};
 use super::water::Water;
 
-/// How far apart lattice points are across a chunk, in centimetres: the
-/// points refinement vertices sit on. The same spacing as along chunk
-/// edges.
-const LATTICE_CM: i64 = STEP_CM;
+/// Lattice points along a chunk's side, both corners included: the same
+/// at every level, since a level's lattice step grows with its chunks.
+const SIDE: usize = (CHUNK_SIZE as i64 * CM_PER_M as i64 / STEP_CM) as usize + 1;
 
-/// Lattice points along a chunk's side, both corners included.
-const SIDE: usize = (CHUNK_SIZE as i64 * CM_PER_M as i64 / LATTICE_CM) as usize + 1;
+const _: () = assert!(CHUNK_CM / STEP_CM + 1 == SIDE as i64);
 
 /// Slope is not checked at samples this close to a water's edge, in
 /// metres: the ground creases there, and the lattice's slope estimate
 /// reaches a metre either side.
 const CREASE_CLEARANCE: f64 = 1.5;
 
-/// The canonical mesh of finest-level chunk `key` over the ground of
-/// `source` at [`FeatureLevel::FINEST`], within `tolerance`.
+/// The canonical mesh of chunk `key`, at any chunk level, over the ground
+/// of `source` at [`FeatureLevel::FINEST`], within `tolerance` as the
+/// chunk's level follows it ([`TinTolerance::at_level`]). Pass the
+/// world's own tolerance whatever the level.
+///
+/// A chunk at level `L` is 64 m × 2^L wide and is sampled on a lattice
+/// 2^L metres apart (65 points along a side at every level); below,
+/// "every metre" means every lattice step.
 ///
 /// The border is locked to the four [`EdgeContract`](super::EdgeContract)s, so the neighbours'
-/// meshes meet it exactly. The rivers' and ponds' lines in the chunk (see
-/// [`ChunkSource::lines_within`]) are kept as edges: each river's lowest
-/// line and the outline of its water, and each pond's shore, cut where
-/// they cross.
+/// meshes meet it exactly. At level 0, the rivers' and ponds' lines in the
+/// chunk (see [`ChunkSource::lines_within`]) are kept as edges: each
+/// river's lowest line and the outline of its water, and each pond's
+/// shore, cut where they cross. Above level 0 no feature line is kept and
+/// no ground is held to the water's tolerance, though the ground sampled
+/// is still the carved ground.
 ///
-/// Then the ground inside is sampled on the 1 m lattice, but only as
-/// densely as it needs: every 8 m where the ground is close to flat,
-/// down to every metre where it bends, and every metre within reach of
-/// water and roads, or everywhere if `tolerance.general` checks slope.
+/// Then the ground inside is sampled on the lattice, but only as densely
+/// as it needs: every 8 m where the ground is close to flat, down to
+/// every metre where it bends, and every metre within reach of water and
+/// roads, or everywhere if `tolerance.general` checks slope.
 /// While some triangle misses a sample by more than that sample's height
 /// tolerance, differs from its slope by more than its slope tolerance, or
 /// has an edge longer than allowed, the worst triangle gets a vertex at
@@ -67,7 +73,8 @@ const CREASE_CLEARANCE: f64 = 1.5;
 ///
 /// # Panics
 ///
-/// If `key` is not at level 0, or `tolerance` is not valid.
+/// If `key`'s level is above [`MAX_CHUNK_LEVEL`](crate::MAX_CHUNK_LEVEL),
+/// or `tolerance` is not valid.
 pub fn build_chunk(
     source: &dyn ChunkSource,
     key: ChunkKey,
@@ -92,13 +99,14 @@ pub fn build_chunk_with(
     tolerance: &TinTolerance,
     contracts: &ContractCache,
 ) -> Result<TinChunk, TinError> {
-    assert_eq!(key.level, 0, "canonical meshes are for level 0 chunks");
     assert!(tolerance.is_valid(), "invalid tolerance {tolerance:?}");
     let edges = ChunkEdgeKey::of_chunk(key);
     let built = edges
         .iter()
         .map(|&edge| contracts.get_or_build(source, edge, tolerance))
         .collect::<Result<Vec<_>, _>>()?;
+    let tolerance = &tolerance.at_level(key.level);
+    let (width, step) = (chunk_cm(key.level), step_cm(key.level));
     let contracts = [&built[0].0, &built[1].0, &built[2].0, &built[3].0];
     let mut chunk = ChunkCdt::new(key, contracts);
 
@@ -110,8 +118,8 @@ pub fn build_chunk_with(
         .flat_map(|(contract, edge)| {
             let samples = &contract.1;
             let (col, row) = (
-                ((edge.start().0.0 - key.x * CHUNK_CM) / LATTICE_CM) as usize,
-                ((edge.start().1.0 - key.z * CHUNK_CM) / LATTICE_CM) as usize,
+                ((edge.start().0.0 - key.x * width) / step) as usize,
+                ((edge.start().1.0 - key.z * width) / step) as usize,
             );
             samples.iter().map(move |&(i, h)| match edge.axis {
                 EdgeAxis::X => (col + i, row, h),
@@ -120,17 +128,20 @@ pub fn build_chunk_with(
         })
         .collect();
 
-    // The feature lines, cut to the chunk and where they cross.
+    // The feature lines, cut to the chunk and where they cross; kept as
+    // edges at level 0 only.
     let (lo, hi) = (key.min_corner(), key.max_corner());
-    let features = source.lines_within(lo, hi, FeatureLevel::FINEST);
+    let features = if key.level == 0 {
+        source.lines_within(lo, hi, FeatureLevel::FINEST)
+    } else {
+        Vec::new()
+    };
     let water = Water::new(&features, tolerance, lo, hi);
     let (x0, z0) = edges[0].start();
     let square = Square {
         lo: (x0.0, z0.0),
-        hi: (
-            x0.0 + (SIDE as i64 - 1) * LATTICE_CM,
-            z0.0 + (SIDE as i64 - 1) * LATTICE_CM,
-        ),
+        hi: (x0.0 + width, z0.0 + width),
+        level: key.level,
     };
     let resolved = resolve_chunk(
         water.pieces(),
@@ -169,7 +180,7 @@ pub fn build_chunk_with(
 }
 
 /// `pieces` (which cross nothing) cut further so each follows the ground
-/// along its length: each is sampled about every metre (at points rounded
+/// along its length: each is sampled about every lattice step (at points rounded
 /// to the centimetre, strictly inside `square`), and, like an edge
 /// contract, a stretch gets a vertex at the sample it misses most among
 /// those it misses by more than their height tolerance, or at its middle
@@ -190,7 +201,7 @@ fn follow_ground(
                 (piece.b.0 - piece.a.0) as f64,
                 (piece.b.1 - piece.a.1) as f64,
             );
-            let n = ((dx * dx + dz * dz).sqrt() / LATTICE_CM as f64)
+            let n = ((dx * dx + dz * dz).sqrt() / step_cm(square.level) as f64)
                 .ceil()
                 .max(1.0) as i128;
             let mut at = vec![piece.a];
@@ -273,11 +284,13 @@ fn follow_ground(
     Ok(out)
 }
 
-/// The ground sampled on part of the 1 m lattice over one chunk (see
+/// The ground sampled on part of the lattice over one chunk (see
 /// [`SparseSquare`]), with each sample's tolerance.
 pub(crate) struct Lattice {
     /// The chunk's smallest corner, in centimetres.
     origin: (i64, i64),
+    /// How far apart lattice points are, in centimetres.
+    step: i64,
     /// Heights, row by row along x, `SIDE` by `SIDE`; 0 where not sampled.
     heights: Vec<CmHeight>,
     /// Whether each point is sampled.
@@ -308,9 +321,11 @@ impl Lattice {
         tolerance: &TinTolerance,
     ) -> Result<Self, TinError> {
         let (x0, z0) = ChunkEdgeKey::of_chunk(key)[0].start();
+        let step = step_cm(key.level);
         let square = SparseSquare::sample(
             source,
             (x0.0, z0.0),
+            step,
             SIDE,
             border,
             dense,
@@ -324,10 +339,7 @@ impl Lattice {
         } = square;
         let at = |i: usize| {
             let (col, row) = ((i % SIDE) as i64, (i / SIDE) as i64);
-            DVec2::new(
-                Cm(x0.0 + col * LATTICE_CM).to_m(),
-                Cm(z0.0 + row * LATTICE_CM).to_m(),
-            )
+            DVec2::new(Cm(x0.0 + col * step).to_m(), Cm(z0.0 + row * step).to_m())
         };
         let gaps: Vec<f64> = (0..SIDE * SIDE)
             .map(|i| {
@@ -374,7 +386,7 @@ impl Lattice {
                 }
                 let (col, row) = (i % SIDE, i / SIDE);
                 let diff = |lo: usize, hi: usize, at: &dyn Fn(usize) -> f64| {
-                    (at(hi) - at(lo)) / ((hi - lo) as f64 * LATTICE_CM as f64)
+                    (at(hi) - at(lo)) / ((hi - lo) as f64 * step as f64)
                 };
                 let (cl, ch) = (col.saturating_sub(1), (col + 1).min(SIDE - 1));
                 let (rl, rh) = (row.saturating_sub(1), (row + 1).min(SIDE - 1));
@@ -386,6 +398,7 @@ impl Lattice {
             .collect();
         Ok(Self {
             origin: (x0.0, z0.0),
+            step,
             heights,
             sampled,
             limits,
@@ -397,8 +410,8 @@ impl Lattice {
     /// The vertex at lattice column `col` and row `row`.
     fn vertex(&self, col: usize, row: usize) -> TinVertex {
         TinVertex {
-            x: Cm(self.origin.0 + col as i64 * LATTICE_CM),
-            z: Cm(self.origin.1 + row as i64 * LATTICE_CM),
+            x: Cm(self.origin.0 + col as i64 * self.step),
+            z: Cm(self.origin.1 + row as i64 * self.step),
             h: self.heights[row * SIDE + col],
         }
     }
@@ -415,8 +428,8 @@ impl Lattice {
     /// The lattice column and row of `v`, if it sits on the lattice.
     fn lattice_of(&self, v: TinVertex) -> Option<(usize, usize)> {
         let (dx, dz) = (v.x.0 - self.origin.0, v.z.0 - self.origin.1);
-        (dx % LATTICE_CM == 0 && dz % LATTICE_CM == 0)
-            .then_some(((dx / LATTICE_CM) as usize, (dz / LATTICE_CM) as usize))
+        let step = self.step;
+        (dx % step == 0 && dz % step == 0).then_some(((dx / step) as usize, (dz / step) as usize))
     }
 }
 
@@ -568,10 +581,11 @@ impl Scorer<'_> {
         let heights = corners.map(|v| i128::from(v.h.0));
         let sum = (a.0 + b.0 + c.0, a.1 + b.1 + c.1);
         let last = (SIDE - 1) as i64;
+        let step = lattice.step;
         let cell = |lo: i64, hi: i64| {
             (
-                lo.div_euclid(LATTICE_CM) + i64::from(lo.rem_euclid(LATTICE_CM) != 0),
-                hi.div_euclid(LATTICE_CM),
+                lo.div_euclid(step) + i64::from(lo.rem_euclid(step) != 0),
+                hi.div_euclid(step),
             )
         };
         let (lo_x, hi_x) = cell(a.0.min(b.0).min(c.0), a.0.max(b.0).max(c.0));
@@ -585,7 +599,7 @@ impl Scorer<'_> {
         let mut steepest: Option<(f64, (usize, usize))> = None;
         for z in lo_z..=hi_z {
             for x in lo_x..=hi_x {
-                let p = (x * LATTICE_CM, z * LATTICE_CM);
+                let p = (x * step, z * step);
                 let (wa, wb, wc) = (orient(b, c, p), orient(c, a, p), orient(a, b, p));
                 if wa < 0 || wb < 0 || wc < 0 {
                     continue;

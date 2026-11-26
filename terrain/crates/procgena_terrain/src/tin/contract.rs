@@ -18,9 +18,17 @@ use super::water::Water;
 /// The width of a finest-level chunk in whole centimetres.
 pub(crate) const CHUNK_CM: i64 = (CHUNK_SIZE * CM_PER_M) as i64;
 
-/// How far apart the ground is sampled along a chunk edge, in centimetres:
-/// every lattice point. Contract vertices sit on these samples.
-const EDGE_PROBE_CM: i64 = STEP_CM;
+/// The width of a chunk at chunk level `level` in whole centimetres.
+pub(crate) fn chunk_cm(level: u8) -> i64 {
+    CHUNK_CM << level
+}
+
+/// How far apart lattice points are at chunk level `level`, in
+/// centimetres: the ground is sampled at these along a chunk edge, and
+/// contract vertices sit on them.
+pub(crate) fn step_cm(level: u8) -> i64 {
+    STEP_CM << level
+}
 
 /// Which way a chunk edge runs from its first corner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -31,70 +39,76 @@ pub enum EdgeAxis {
     Z,
 }
 
-/// One edge of the finest chunk grid: from the grid corner `(x, z)` (in
-/// chunks, so at `(x, z) * CHUNK_SIZE` metres) one chunk's width along
-/// `axis`. The two chunks either side of it name it the same way.
+/// One edge of the chunk grid at chunk level `level`: from the grid corner
+/// `(x, z)` (in that level's chunks, so at `(x, z)` times the level's
+/// chunk width) one chunk's width along `axis`. The two chunks either side
+/// of it name it the same way. Edges of different levels are different
+/// edges, even where they lie on the same line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ChunkEdgeKey {
     pub x: i64,
     pub z: i64,
     pub axis: EdgeAxis,
+    /// The chunk level, at most [`MAX_CHUNK_LEVEL`](crate::MAX_CHUNK_LEVEL).
+    pub level: u8,
 }
 
 impl ChunkEdgeKey {
-    /// The four edges of finest-level chunk `key`: its low-z, high-x,
-    /// high-z and low-x sides, in that order (round the chunk from its
-    /// smallest corner, towards +x first).
-    ///
-    /// # Panics
-    ///
-    /// If `key` is not at level 0.
+    /// The four edges of chunk `key`: its low-z, high-x, high-z and low-x
+    /// sides, in that order (round the chunk from its smallest corner,
+    /// towards +x first).
     pub fn of_chunk(key: ChunkKey) -> [Self; 4] {
-        assert_eq!(key.level, 0, "chunk edges are for level 0 chunks");
-        let (x, z) = (key.x, key.z);
+        let (x, z, level) = (key.x, key.z, key.level);
         [
             Self {
                 x,
                 z,
                 axis: EdgeAxis::X,
+                level,
             },
             Self {
                 x: x + 1,
                 z,
                 axis: EdgeAxis::Z,
+                level,
             },
             Self {
                 x,
                 z: z + 1,
                 axis: EdgeAxis::X,
+                level,
             },
             Self {
                 x,
                 z,
                 axis: EdgeAxis::Z,
+                level,
             },
         ]
     }
 
     /// The edge's first corner, in centimetres.
     pub fn start(self) -> (Cm, Cm) {
-        (Cm(self.x * CHUNK_CM), Cm(self.z * CHUNK_CM))
+        let width = chunk_cm(self.level);
+        (Cm(self.x * width), Cm(self.z * width))
     }
 
-    /// The edge from grid corner `corner` (centimetres, on the chunk grid)
-    /// along `axis`.
-    pub(crate) fn from_corner(corner: Pt, axis: EdgeAxis) -> Self {
-        debug_assert!(corner.0 % CHUNK_CM == 0 && corner.1 % CHUNK_CM == 0);
+    /// The edge at chunk level `level` from grid corner `corner`
+    /// (centimetres, on that level's chunk grid) along `axis`.
+    pub(crate) fn from_corner(corner: Pt, axis: EdgeAxis, level: u8) -> Self {
+        let width = chunk_cm(level);
+        debug_assert!(corner.0 % width == 0 && corner.1 % width == 0);
         Self {
-            x: corner.0.div_euclid(CHUNK_CM),
-            z: corner.1.div_euclid(CHUNK_CM),
+            x: corner.0.div_euclid(width),
+            z: corner.1.div_euclid(width),
             axis,
+            level,
         }
     }
 
     /// The edge's last corner, in centimetres.
     fn end(self) -> (Cm, Cm) {
-        self.at(CHUNK_CM)
+        self.at(chunk_cm(self.level))
     }
 
     /// The point `along` centimetres from the first corner.
@@ -134,22 +148,28 @@ pub struct EdgeContract {
 
 impl EdgeContract {
     /// The contract for edge `key` over the ground of `source` at
-    /// [`FeatureLevel::FINEST`], within `tolerance`.
+    /// [`FeatureLevel::FINEST`], within `tolerance` as the edge's level
+    /// follows it ([`TinTolerance::at_level`]). Pass the world's own
+    /// tolerance whatever the level.
     ///
-    /// The ground is sampled every metre along the edge, and where each
-    /// river or pond line (see [`ChunkSource::lines_within`]) crosses it.
-    /// The corners and the crossings are always vertices; a water's edge
-    /// crossing inside other water is not a crossing. Then a stretch between
-    /// two vertices gets a new vertex at the sample it misses most among
-    /// those it misses by more than their height tolerance, or at its middle
-    /// sample if it is longer than its longest edge allows. Samples within
-    /// `tolerance.water_band` of water follow `tolerance.water`, and a
-    /// stretch with any such sample takes the water's longest edge; the
+    /// The ground is sampled at every lattice point along the edge (every
+    /// metre at level 0, every 2^L metres at level `L`). At level 0 it is
+    /// also sampled where each river or pond line (see
+    /// [`ChunkSource::lines_within`]) crosses the edge; above level 0 no
+    /// feature line is kept, though the ground sampled is still the carved
+    /// ground. The corners and the crossings are always vertices; a water's
+    /// edge crossing inside other water is not a crossing. Then a stretch
+    /// between two vertices gets a new vertex at the sample it misses most
+    /// among those it misses by more than their height tolerance, or at its
+    /// middle sample if it is longer than its longest edge allows. Samples
+    /// within `tolerance.water_band` of water follow `tolerance.water`, and
+    /// a stretch with any such sample takes the water's longest edge; the
     /// rest follow `tolerance.general`.
     ///
     /// # Panics
     ///
-    /// If `tolerance` is not valid.
+    /// If `tolerance` is not valid, or the edge's level is above
+    /// [`MAX_CHUNK_LEVEL`](crate::MAX_CHUNK_LEVEL).
     pub fn build(
         source: &dyn ChunkSource,
         key: ChunkEdgeKey,
@@ -167,10 +187,16 @@ impl EdgeContract {
         tolerance: &TinTolerance,
     ) -> Result<(Self, Vec<(usize, CmHeight)>), TinError> {
         assert!(tolerance.is_valid(), "invalid tolerance {tolerance:?}");
+        let tolerance = &tolerance.at_level(key.level);
         let (start, end) = (key.start(), key.end());
         let corner_m = |(x, z): (Cm, Cm)| DVec2::new(x.to_m(), z.to_m());
         let (lo, hi) = (corner_m(start), corner_m(end));
-        let features = source.lines_within(lo, hi, FeatureLevel::FINEST);
+        // Feature lines are kept as edges at level 0 only.
+        let features = if key.level == 0 {
+            source.lines_within(lo, hi, FeatureLevel::FINEST)
+        } else {
+            Vec::new()
+        };
         let water = Water::new(&features, tolerance, lo, hi);
 
         // Where the lines cross, unless a water's edge is inside water.
@@ -189,11 +215,13 @@ impl EdgeContract {
         crossings.sort();
         crossings.dedup();
 
-        // Samples every metre, corners included, and at each crossing; the
-        // corners and crossings are kept.
+        // Samples at every lattice point, corners included, and at each
+        // crossing; the corners and crossings are kept.
         let along = |at: (Cm, Cm)| (at.0.0 - start.0.0) + (at.1.0 - start.1.0);
-        let mut stations: Vec<(i64, bool)> = (0..=CHUNK_CM / EDGE_PROBE_CM)
-            .map(|i| (i * EDGE_PROBE_CM, i == 0 || i == CHUNK_CM / EDGE_PROBE_CM))
+        let step = step_cm(key.level);
+        let last = chunk_cm(key.level) / step;
+        let mut stations: Vec<(i64, bool)> = (0..=last)
+            .map(|i| (i * step, i == 0 || i == last))
             .chain(crossings.iter().map(|c| (along(c.at), true)))
             .collect();
         stations.sort();
@@ -277,8 +305,8 @@ impl EdgeContract {
         let samples = stations
             .iter()
             .zip(&heights)
-            .filter(|((s, _), _)| s % EDGE_PROBE_CM == 0)
-            .map(|(&(s, _), &h)| ((s / EDGE_PROBE_CM) as usize, h))
+            .filter(|((s, _), _)| s % step == 0)
+            .map(|(&(s, _), &h)| ((s / step) as usize, h))
             .collect();
         Ok((
             Self {
@@ -301,6 +329,12 @@ impl EdgeContract {
             EdgeAxis::X => 0,
             EdgeAxis::Z => 1,
         });
+        // Written only above level 0, so level-0 contracts keep their
+        // hashes.
+        if self.key.level > 0 {
+            h.write_str("level");
+            h.write_u32(u32::from(self.key.level));
+        }
         h.write_usize(self.vertices.len());
         for v in &self.vertices {
             h.write_i64(v.x.0);

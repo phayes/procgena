@@ -243,6 +243,49 @@ fn loaded_chunks_answer_only_for_points_they_own() {
 }
 
 #[test]
+fn loaded_chunks_of_several_levels_answer_finest_first() {
+    let coarse = |x: i64, z: i64| {
+        let key = ChunkKey::new(x, z, 1);
+        Arc::new(build_chunk(&Analytic(hills), key, &TinTolerance::GENERAL).unwrap())
+    };
+    let mut tins = ResidentTins::new();
+    // Level-1 chunks (128 m) at x from -128 to 128 m, and a level-0 chunk
+    // over the first quarter of the eastern one.
+    tins.insert(Arc::new(TinIndex::new(coarse(-1, 0))));
+    tins.insert(Arc::new(TinIndex::new(coarse(0, 0))));
+    tins.insert(Arc::new(TinIndex::new(hill_chunk(0, 0))));
+    assert_eq!(tins.len(), 3);
+
+    // Each point gets the finest loaded chunk holding it.
+    let chunk_of =
+        |tins: &ResidentTins, x: f64, z: f64| tins.sample(DVec2::new(x, z)).map(|s| s.chunk);
+    let chunk = |x: f64, z: f64| chunk_of(&tins, x, z);
+    assert_eq!(chunk(10.0, 30.0), Some(ChunkKey::new(0, 0, 0)));
+    assert_eq!(chunk(100.0, 30.0), Some(ChunkKey::new(0, 0, 1)));
+    assert_eq!(chunk(10.0, 100.0), Some(ChunkKey::new(0, 0, 1)));
+    assert_eq!(chunk(-10.0, 30.0), Some(ChunkKey::new(-1, 0, 1)));
+    // x = 128 m belongs to the unloaded level-1 chunk east of them.
+    assert_eq!(chunk(128.0, 30.0), None);
+    // A level-1 chunk's height matches its own index's answer.
+    let p = DVec2::new(100.0, 30.0);
+    let own = TinIndex::new(coarse(0, 0)).sample(p).unwrap();
+    assert_eq!(tins.sample(p), Some(own));
+
+    // The batch agrees with single queries.
+    let points: Vec<DVec2> = (0..500)
+        .map(|i| DVec2::new(f64::from(i) * 0.6 - 140.0, f64::from(i % 37) * 3.4))
+        .collect();
+    let batch = tins.sample_batch(&points);
+    for (p, b) in points.iter().zip(&batch) {
+        assert_eq!(*b, tins.sample(*p), "at {p}");
+    }
+
+    // Unloading the level-0 chunk hands its points to the level-1 one.
+    tins.remove(ChunkKey::new(0, 0, 0));
+    assert_eq!(chunk_of(&tins, 10.0, 30.0), Some(ChunkKey::new(0, 0, 1)));
+}
+
+#[test]
 fn a_batch_answers_as_single_queries_do() {
     let mut tins = ResidentTins::new();
     for (x, z) in [(0, 0), (1, 0), (0, 1)] {

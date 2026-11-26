@@ -2,7 +2,9 @@
 //! finer only where the ground bends, and every metre near water and
 //! roads.
 //!
-//! Samples sit on the 1 m lattice of the chunk grid. A chunk's inside
+//! Samples sit on the lattice of the chunk grid: every metre at level 0,
+//! every 2^L metres at level `L` (all distances below are in lattice
+//! steps, and "every metre" means every step there). A chunk's inside
 //! starts from cells [`COARSEST`] lattice steps wide. A cell's *bend* is
 //! how far its middle and side midpoints stray from the flat (bilinear)
 //! surface through its corners. A cell is left coarse when its bend is
@@ -24,7 +26,7 @@ use super::probe::{ProbeAddr, TinError, sample_heights};
 use super::tolerance::{TinSampling, TinTolerance};
 use super::water::Water;
 
-/// How far apart lattice points are, in centimetres.
+/// How far apart lattice points are at level 0, in centimetres.
 pub(crate) const STEP_CM: i64 = 100;
 
 /// The widest a cell (or a stretch of a chunk edge) starts, in lattice
@@ -129,6 +131,8 @@ pub(crate) fn coarse_margin(tolerance: &TinTolerance) -> f64 {
 pub(crate) struct SparseSquare {
     /// The square's smallest corner, in centimetres.
     pub(crate) origin: (i64, i64),
+    /// How far apart lattice points are, in centimetres.
+    pub(crate) step: i64,
     /// Points along a side.
     pub(crate) side: usize,
     /// Heights, row by row along x; 0 where not sampled.
@@ -142,7 +146,8 @@ pub(crate) struct SparseSquare {
 
 impl SparseSquare {
     /// Samples the ground of `source` over the square from `origin`
-    /// (centimetres) `side` points across: first every [`COARSEST`] steps,
+    /// (centimetres) `side` points across, `step` centimetres apart: first
+    /// every [`COARSEST`] steps,
     /// then finer in each cell that bends more than `limit` centimetres or
     /// that `dense` needs, down to every step. `known` are points already
     /// sampled (lattice column, row and height), which aren't read again.
@@ -153,6 +158,7 @@ impl SparseSquare {
     pub(crate) fn sample(
         source: &dyn ChunkSource,
         origin: (i64, i64),
+        step: i64,
         side: usize,
         known: &[(usize, usize, CmHeight)],
         dense: &DenseNear,
@@ -161,6 +167,7 @@ impl SparseSquare {
         assert_eq!((side - 1) % COARSEST, 0, "side {side}");
         let mut square = Self {
             origin,
+            step,
             side,
             heights: vec![CmHeight(0); side * side],
             sampled: vec![false; side * side],
@@ -256,8 +263,8 @@ impl SparseSquare {
             .map(|&i| {
                 let (c, r) = ((i % self.side) as i64, (i / self.side) as i64);
                 ProbeAddr::new(
-                    Cm(self.origin.0 + c * STEP_CM),
-                    Cm(self.origin.1 + r * STEP_CM),
+                    Cm(self.origin.0 + c * self.step),
+                    Cm(self.origin.1 + r * self.step),
                 )
             })
             .collect();
@@ -292,8 +299,8 @@ impl SparseSquare {
     fn needs(&self, dense: &DenseNear, c: usize, r: usize, s: usize) -> bool {
         let at = |c: usize, r: usize| {
             DVec2::new(
-                Cm(self.origin.0 + c as i64 * STEP_CM).to_m(),
-                Cm(self.origin.1 + r as i64 * STEP_CM).to_m(),
+                Cm(self.origin.0 + c as i64 * self.step).to_m(),
+                Cm(self.origin.1 + r as i64 * self.step).to_m(),
             )
         };
         dense.needs(at(c, r), at(c + s, r + s))

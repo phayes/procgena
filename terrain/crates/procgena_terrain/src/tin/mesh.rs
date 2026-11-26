@@ -101,9 +101,9 @@ pub struct DroppedConstraint {
     pub feature: FeatureId,
 }
 
-/// The canonical mesh of one finest-level chunk: a triangulation of the
-/// chunk's square that keeps every edge in `constraints`, with every
-/// border edge shared exactly with the neighbour across it.
+/// The canonical mesh of one chunk, at any chunk level: a triangulation of
+/// the chunk's square that keeps every edge in `constraints`, with every
+/// border edge shared exactly with the same level's neighbour across it.
 ///
 /// Two meshes of the same chunk from the same ground under the same
 /// [`NumericProfile`] are equal and hash the same (see
@@ -111,7 +111,7 @@ pub struct DroppedConstraint {
 /// in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TinChunk {
-    /// The chunk, at level 0.
+    /// The chunk.
     pub key: ChunkKey,
     /// The numeric rules it was built under.
     pub profile: NumericProfile,

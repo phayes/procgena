@@ -180,7 +180,12 @@ as proper features):
   (`lines_within`) directly, never the TIN. So they hold at every
   placement level, including levels above the feature's edge level.
 - **Until TF lands,** roads and rivers stay embedded in the terrain plan
-  and carve, and stay off by default in the built-in presets.
+  and carve, and stay off by default in the built-in presets. Level-0
+  TINs keep river and pond lines as edges, as today. Above level 0 a TIN
+  keeps no feature line and holds no ground to the water's tolerance, but
+  samples the carved ground, so a river or road shows only as far as the
+  level's lattice and tolerance catch it. Feature edges, the water band
+  and dense sampling near roads and water above level 0 wait for TF.
 
 ## The stream: what is built, what is drawn, what copies rest on
 
@@ -339,7 +344,10 @@ and the copy would then rest on ground that isn't drawn.
 4. **Whether a parent must refine its children at shared edges**, so a
    coarser level's edges always lie on finer ground (exact containment,
    like a quadtree hierarchy). This is not required for placement; it would
-   help drawing and geomorphing.
+   help drawing and geomorphing. Coordinator's default, for the user's
+   review: no cross-level refinement constraint. Each level's edges are
+   its own (`ChunkEdgeKey` carries the level), and seams between drawn
+   levels are a drawing matter (skirts).
 5. **GPU placement (GP) reading the level TINs:** upload each level's
    compact chunks, sample height by integer barycentrics in cm, and take
    slope from quantized smoothed normals, so the CPU and the GPU agree bit

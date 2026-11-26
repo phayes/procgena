@@ -7,21 +7,13 @@ use std::collections::HashMap;
 
 use glam::{DVec2, DVec3, Vec3};
 
-use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkMesh, ChunkSide, ChunkSource, Transitions};
+use crate::chunk::{ChunkKey, ChunkMesh, ChunkSide, ChunkSource, Transitions};
 use crate::feature::FeatureLevel;
 
-use super::contract::ChunkEdgeKey;
+use super::contract::{ChunkEdgeKey, chunk_cm, step_cm};
 use super::mesh::{TinChunk, TinVertex};
 use super::numeric::{CM_PER_M, Cm};
 use super::probe::{ProbeAddr, TinError};
-
-/// The width of a finest-level chunk in whole centimetres.
-const CHUNK_CM: i64 = (CHUNK_SIZE * CM_PER_M) as i64;
-
-/// How far apart a split side's vertices are, in centimetres: the spacing
-/// of a regular chunk's vertices along a side it shares with a level-0
-/// chunk.
-const SPLIT_CM: i64 = 100;
 
 /// How far either side of a vertex the ground is read for its shading
 /// normal, in metres: the spacing regular level-0 chunks use, so the two
@@ -51,6 +43,11 @@ impl TinChunk {
     fn origin_cm(&self) -> (i64, i64) {
         let (x, z) = ChunkEdgeKey::of_chunk(self.key)[0].start();
         (x.0, z.0)
+    }
+
+    /// The chunk's width, in centimetres.
+    fn width_cm(&self) -> i64 {
+        chunk_cm(self.key.level)
     }
 
     /// The collision geometry of this chunk: exactly its canonical
@@ -119,8 +116,9 @@ impl TinChunk {
             .collect();
 
         // On the border: the ground's own slope, a metre either side.
+        let width = self.width_cm();
         let on_border = |v: &TinVertex| {
-            v.x.0 == x0 || v.x.0 == x0 + CHUNK_CM || v.z.0 == z0 || v.z.0 == z0 + CHUNK_CM
+            v.x.0 == x0 || v.x.0 == x0 + width || v.z.0 == z0 || v.z.0 == z0 + width
         };
         let border: Vec<usize> = (0..self.vertices.len())
             .filter(|&i| on_border(&self.vertices[i]))
@@ -163,9 +161,10 @@ impl TinChunk {
     pub fn border_height(&self, x: Cm, z: Cm) -> Option<f64> {
         let (x0, z0) = self.origin_cm();
         let (u, v) = (x.0 - x0, z.0 - z0);
+        let width = self.width_cm();
         let on = |side: ChunkSide| {
             let (across, along) = side_coordinates(side, u, v);
-            (across == side_offset(side) && (0..=CHUNK_CM).contains(&along)).then_some(along)
+            (across == side_offset(side, width) && (0..=width).contains(&along)).then_some(along)
         };
         ChunkSide::ALL
             .into_iter()
@@ -177,12 +176,13 @@ impl TinChunk {
     /// its low end, height in centimetres), in order along the side.
     fn side_line(&self, side: ChunkSide) -> Vec<(i64, i32)> {
         let (x0, z0) = self.origin_cm();
+        let width = self.width_cm();
         let mut line: Vec<(i64, i32)> = self
             .vertices
             .iter()
             .filter_map(|v| {
                 let (across, along) = side_coordinates(side, v.x.0 - x0, v.z.0 - z0);
-                (across == side_offset(side)).then_some((along, v.h.0))
+                (across == side_offset(side, width)).then_some((along, v.h.0))
             })
             .collect();
         line.sort_unstable();
@@ -194,8 +194,10 @@ impl TinChunk {
     /// `normals` (one per vertex, as [`shading_normals`](Self::shading_normals)
     /// gives).
     ///
-    /// Each side in `split` gets a vertex at every whole metre along it, at
-    /// the border's own height there ([`border_height`](Self::border_height)),
+    /// Each side in `split` gets a vertex at every lattice step along it
+    /// (every whole metre at level 0, every 2^L metres at level `L`, where
+    /// a regular chunk of the same level has its vertices), at the border's
+    /// own height there ([`border_height`](Self::border_height)),
     /// so a regular neighbour fitted with
     /// [`fit_neighbour`](Self::fit_neighbour) shares every vertex along
     /// that side. The surface is the canonical one either way. With `skirt`
@@ -214,6 +216,7 @@ impl TinChunk {
             "one normal for each vertex"
         );
         let (x0, z0) = self.origin_cm();
+        let (width, spacing) = (self.width_cm(), step_cm(self.key.level));
         let mut mesh = ChunkMesh {
             key: self.key,
             transitions: Transitions::NONE,
@@ -239,7 +242,7 @@ impl TinChunk {
         for (i, &(u, w)) in local.iter().enumerate() {
             for (s, side) in ChunkSide::ALL.into_iter().enumerate() {
                 let (across, along) = side_coordinates(side, u, w);
-                if across == side_offset(side) {
+                if across == side_offset(side, width) {
                     sides[s].push((along, i as u32));
                 }
             }
@@ -262,7 +265,7 @@ impl TinChunk {
                 ring.push(a);
                 let (pa, pb) = (local[a as usize], local[b as usize]);
                 let Some((side, line)) = lines.iter().find(|(side, _)| {
-                    let offset = side_offset(*side);
+                    let offset = side_offset(*side, width);
                     side_coordinates(*side, pa.0, pa.1).0 == offset
                         && side_coordinates(*side, pb.0, pb.1).0 == offset
                 }) else {
@@ -272,7 +275,7 @@ impl TinChunk {
                     side_coordinates(*side, pa.0, pa.1).1,
                     side_coordinates(*side, pb.0, pb.1).1,
                 );
-                let between = whole_metres_between(ta, tb);
+                let between = steps_between(ta, tb, spacing);
                 if between.is_empty() {
                     continue;
                 }
@@ -285,7 +288,7 @@ impl TinChunk {
                 for along in between {
                     let t = (along - ta) as f32 / (tb - ta) as f32;
                     let normal = normals[a as usize].lerp(normals[b as usize], t).normalize();
-                    let (u, w) = side_point(*side, along);
+                    let (u, w) = side_point(*side, along, width);
                     let index = mesh.positions.len() as u32;
                     mesh.positions
                         .push(local_position(u, w, polyline_height(line, along)));
@@ -432,29 +435,30 @@ fn side_coordinates(side: ChunkSide, u: i64, w: i64) -> (i64, i64) {
     }
 }
 
-/// Where `side`'s line is across it, in centimetres from the chunk's corner.
-fn side_offset(side: ChunkSide) -> i64 {
+/// Where `side`'s line is across it, in centimetres from the corner of a
+/// chunk `width` centimetres wide.
+fn side_offset(side: ChunkSide, width: i64) -> i64 {
     match side {
         ChunkSide::MinX | ChunkSide::MinZ => 0,
-        ChunkSide::MaxX | ChunkSide::MaxZ => CHUNK_CM,
+        ChunkSide::MaxX | ChunkSide::MaxZ => width,
     }
 }
 
 /// The point `along` centimetres along `side`, as `(u, w)` centimetres from
 /// the chunk's corner.
-fn side_point(side: ChunkSide, along: i64) -> (i64, i64) {
+fn side_point(side: ChunkSide, along: i64, width: i64) -> (i64, i64) {
     match side {
-        ChunkSide::MinX | ChunkSide::MaxX => (side_offset(side), along),
-        ChunkSide::MinZ | ChunkSide::MaxZ => (along, side_offset(side)),
+        ChunkSide::MinX | ChunkSide::MaxX => (side_offset(side, width), along),
+        ChunkSide::MinZ | ChunkSide::MaxZ => (along, side_offset(side, width)),
     }
 }
 
-/// The whole metres strictly between `a` and `b` (centimetres), in order
-/// from `a` to `b`.
-fn whole_metres_between(a: i64, b: i64) -> Vec<i64> {
+/// The multiples of `spacing` strictly between `a` and `b` (all in
+/// centimetres), in order from `a` to `b`.
+fn steps_between(a: i64, b: i64, spacing: i64) -> Vec<i64> {
     let (lo, hi) = (a.min(b), a.max(b));
-    let first = lo.div_euclid(SPLIT_CM) * SPLIT_CM + SPLIT_CM;
-    let mut points: Vec<i64> = (first..hi).step_by(SPLIT_CM as usize).collect();
+    let first = lo.div_euclid(spacing) * spacing + spacing;
+    let mut points: Vec<i64> = (first..hi).step_by(spacing as usize).collect();
     if a > b {
         points.reverse();
     }

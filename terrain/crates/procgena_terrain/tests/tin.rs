@@ -85,7 +85,8 @@ fn assert_tiles_its_chunk(mesh: &TinChunk) {
         assert!(twice < 0.0, "triangle {a:?} {b:?} {c:?} faces down");
         area -= twice / 2.0;
     }
-    assert_eq!(area, 6_400.0 * 6_400.0, "triangles cover the chunk once");
+    let width = 6_400.0 * f64::from(1u32 << mesh.key.level);
+    assert_eq!(area, width * width, "triangles cover the chunk once");
 }
 
 #[test]
@@ -573,12 +574,13 @@ fn pond(key: u64, centre: (f64, f64), radius: f64) -> ChunkFeature {
 /// The vertices of `mesh` on chunk edge `edge`, sorted.
 fn on_edge(mesh: &TinChunk, edge: ChunkEdgeKey) -> Vec<procgena_terrain::tin::TinVertex> {
     let (x0, z0) = edge.start();
+    let width = 6_400 << edge.level;
     let mut v: Vec<_> = mesh
         .vertices
         .iter()
         .filter(|v| match edge.axis {
-            EdgeAxis::X => v.z == z0 && (x0.0..=x0.0 + 6_400).contains(&v.x.0),
-            EdgeAxis::Z => v.x == x0 && (z0.0..=z0.0 + 6_400).contains(&v.z.0),
+            EdgeAxis::X => v.z == z0 && (x0.0..=x0.0 + width).contains(&v.x.0),
+            EdgeAxis::Z => v.x == x0 && (z0.0..=z0.0 + width).contains(&v.z.0),
         })
         .copied()
         .collect();
@@ -1115,4 +1117,147 @@ fn world_rivers_are_lines_in_the_ground() {
         }
     }
     assert!(checked > 0, "the lowest line crosses the block");
+}
+
+/// [`hills`] stretched by 2^`level` in every direction: at level `level`
+/// it looks to the lattice as [`hills`] looks at level 0.
+fn hills_at(level: u8) -> impl Fn(DVec2) -> f64 + Sync {
+    let scale = f64::from(1u32 << level);
+    move |p| hills(p / scale) * scale
+}
+
+#[test]
+fn chunks_at_every_level_share_their_edges_in_any_build_order() {
+    for level in [1, 3, 6] {
+        let ground = Analytic(hills_at(level));
+        let tolerance = TinTolerance::GENERAL;
+        let keys = BLOCK.map(|(x, z)| ChunkKey::new(x, z, level));
+        let alone = keys.map(|key| build_chunk(&ground, key, &tolerance).unwrap());
+
+        // Built backwards with one shared cache: the same meshes.
+        let cache = ContractCache::new(&tolerance);
+        let mut shared = keys.map(|key| key);
+        shared.reverse();
+        let shared = shared.map(|key| build_chunk_with(&ground, key, &tolerance, &cache).unwrap());
+        for mesh in &shared {
+            let same = alone.iter().find(|m| m.key == mesh.key).unwrap();
+            assert_eq!(mesh.content_hash(), same.content_hash(), "{:?}", mesh.key);
+        }
+        assert_eq!(cache.len(), 12);
+
+        // Neighbours have exactly the vertices of their shared edge's
+        // contract along it.
+        for (i, a) in alone.iter().enumerate() {
+            for b in &alone[i + 1..] {
+                let Some(edge) = ChunkEdgeKey::of_chunk(a.key)
+                    .into_iter()
+                    .find(|e| ChunkEdgeKey::of_chunk(b.key).contains(e))
+                else {
+                    continue;
+                };
+                let contract = EdgeContract::build(&ground, edge, &tolerance).unwrap();
+                assert_eq!(contract.key.level, level);
+                let mut along = contract.vertices.clone();
+                along.sort();
+                assert!(along.len() >= 2);
+                assert_eq!(on_edge(a, edge), along, "level {level}, {edge:?}");
+                assert_eq!(on_edge(b, edge), along, "level {level}, {edge:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn chunks_at_every_level_follow_the_ground_within_their_scaled_tolerance() {
+    for level in [1, 3, 6] {
+        let ground = hills_at(level);
+        let source = Analytic(&ground);
+        let tolerance = TinTolerance::GENERAL;
+        let scale = 1i64 << level;
+        for (x, z) in BLOCK {
+            let key = ChunkKey::new(x, z, level);
+            let mesh = build_chunk(&source, key, &tolerance).unwrap();
+            assert!(mesh.unmet.is_empty(), "chunk {key:?}");
+            assert_tiles_its_chunk(&mesh);
+            assert_eq!(
+                mesh.tolerance,
+                Some(tolerance.at_level(level).content_hash())
+            );
+
+            // Every lattice sample, 2^level metres apart, is within the
+            // level's tolerance (plus rounding).
+            for row in 0..=64 {
+                for col in 0..=64 {
+                    let p = (
+                        (x * 6_400 + col * 100) * scale,
+                        (z * 6_400 + row * 100) * scale,
+                    );
+                    let at = DVec2::new(p.0 as f64, p.1 as f64) / 100.0;
+                    let sample = (ground(at) as f32 as f64 * 100.0).round();
+                    let height = mesh_height(&mesh, p).expect("the mesh covers the chunk");
+                    assert!(
+                        (height - sample).abs() <= 50.0 * scale as f64 + 1.0,
+                        "chunk {key:?} at {p:?}: mesh {height} cm, ground {sample} cm"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn edges_and_tolerances_of_different_levels_are_their_own() {
+    let ground = Analytic(hills);
+    let tolerance = TinTolerance::GENERAL;
+    let edge = |level| ChunkEdgeKey {
+        x: 0,
+        z: 0,
+        axis: EdgeAxis::X,
+        level,
+    };
+    let fine = EdgeContract::build(&ground, edge(0), &tolerance).unwrap();
+    let coarse = EdgeContract::build(&ground, edge(1), &tolerance).unwrap();
+    assert_ne!(fine.content_hash(), coarse.content_hash());
+    // A level-1 edge runs 128 m, sampled every 2 m.
+    let last = coarse.vertices.last().unwrap();
+    assert_eq!((last.x, last.z), (Cm(12_800), Cm(0)));
+    assert!(coarse.vertices.iter().all(|v| v.x.0 % 200 == 0));
+
+    // Level 0 keeps the tolerance as it is; each level up doubles open
+    // land's height and longest edge, and nothing else.
+    assert_eq!(tolerance.at_level(0), tolerance);
+    let three = tolerance.at_level(3);
+    assert_eq!(three.general.height, 4.0);
+    assert_eq!(three.general.max_edge, 256.0);
+    assert_eq!(
+        TinTolerance {
+            general: tolerance.general,
+            ..three
+        },
+        tolerance
+    );
+}
+
+#[test]
+fn a_world_chunk_at_a_coarse_level_tiles_and_meets_its_neighbour() {
+    let source = |id: RegionId, _: DVec2, _: &Elevation| {
+        if id.0.is_multiple_of(2) {
+            fixtures::plains_medium().terrain.clone()
+        } else {
+            fixtures::rolling_hills_medium().terrain.clone()
+        }
+    };
+    let world = WorldTerrain::new(fixtures::world_medium(), Arc::new(source)).unwrap();
+    let tolerance = world.tin_tolerance();
+    let cache = ContractCache::new(&tolerance);
+    let key = ChunkKey::new(0, 0, 3);
+    let east = ChunkKey::new(1, 0, 3);
+    let mesh = build_chunk_with(&world, key, &tolerance, &cache).unwrap();
+    let neighbour = build_chunk(&world, east, &tolerance).unwrap();
+    assert_tiles_its_chunk(&mesh);
+    assert!(mesh.unmet.is_empty() && neighbour.unmet.is_empty());
+    let edge = ChunkEdgeKey::of_chunk(key)[1];
+    assert_eq!(on_edge(&mesh, edge), on_edge(&neighbour, edge));
+    let pointwise = build_chunk(&Pointwise(&world), key, &tolerance).unwrap();
+    assert_eq!(pointwise.content_hash(), mesh.content_hash());
 }

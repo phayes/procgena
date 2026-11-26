@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 
 use crate::feature::FeatureId;
 
-use super::contract::{CHUNK_CM, ChunkEdgeKey, EdgeAxis};
+use super::contract::{ChunkEdgeKey, EdgeAxis, chunk_cm};
 use super::mesh::ConstraintKind;
 
 /// A point across the ground, x and z in whole centimetres.
@@ -195,14 +195,17 @@ fn edge_crossing(a: Pt, b: Pt, carrier: (Pt, Pt), edge: ChunkEdgeKey) -> Option<
         let num = i128::from(v1 - v0) * i128::from(line - u0);
         v0 + i64::try_from(round_div(num, i128::from(u1 - u0))).expect("fits")
     };
-    (lo..=lo + CHUNK_CM).contains(&v).then(|| join(line, v))
+    (lo..=lo + chunk_cm(edge.level))
+        .contains(&v)
+        .then(|| join(line, v))
 }
 
-/// A finest-level chunk's square, in whole centimetres.
+/// A chunk's square, in whole centimetres, and its chunk level.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Square {
     pub lo: Pt,
     pub hi: Pt,
+    pub level: u8,
 }
 
 impl Square {
@@ -272,10 +275,10 @@ pub(crate) fn resolve_chunk(
     hidden_at: impl Fn(&Piece, Pt) -> bool,
 ) -> Resolved {
     let edges = [
-        ChunkEdgeKey::from_corner(square.lo, EdgeAxis::X),
-        ChunkEdgeKey::from_corner((square.hi.0, square.lo.1), EdgeAxis::Z),
-        ChunkEdgeKey::from_corner((square.lo.0, square.hi.1), EdgeAxis::X),
-        ChunkEdgeKey::from_corner(square.lo, EdgeAxis::Z),
+        ChunkEdgeKey::from_corner(square.lo, EdgeAxis::X, square.level),
+        ChunkEdgeKey::from_corner((square.hi.0, square.lo.1), EdgeAxis::Z, square.level),
+        ChunkEdgeKey::from_corner((square.lo.0, square.hi.1), EdgeAxis::X, square.level),
+        ChunkEdgeKey::from_corner(square.lo, EdgeAxis::Z, square.level),
     ];
 
     // Each piece cut to the square: between consecutive points where it
@@ -438,6 +441,7 @@ mod tests {
             x: 1,
             z: 0,
             axis: EdgeAxis::Z,
+            level: 0,
         };
         let own = |a: Pt, b: Pt| edge_crossing(a, b, (a, b), edge);
         // Across x = 6 400 cm.
@@ -458,6 +462,7 @@ mod tests {
             x: 1,
             z: 0,
             axis: EdgeAxis::Z,
+            level: 0,
         };
         let line = ((0, 0), (10_000, 400));
         let kind = ConstraintKind::RiverEdge;

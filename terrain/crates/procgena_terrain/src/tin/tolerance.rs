@@ -137,6 +137,33 @@ impl TinTolerance {
         }
     }
 
+    /// This tolerance as chunks at chunk level `level` follow it: open
+    /// land's [`height`](DomainTolerance::height) and
+    /// [`max_edge`](DomainTolerance::max_edge) times 2^`level`, as the
+    /// level's chunks and lattice step are. Slope limits, water, the chord,
+    /// the vertex budget and the sampling stay as they are. At level 0 it is
+    /// this tolerance, bit for bit.
+    ///
+    /// # Panics
+    ///
+    /// If `level` is above [`MAX_CHUNK_LEVEL`](crate::MAX_CHUNK_LEVEL).
+    pub fn at_level(&self, level: u8) -> Self {
+        assert!(
+            level <= crate::MAX_CHUNK_LEVEL,
+            "chunk level {level} is above {}",
+            crate::MAX_CHUNK_LEVEL
+        );
+        let scale = f64::from(1u32 << level);
+        Self {
+            general: DomainTolerance {
+                height: self.general.height * scale,
+                max_edge: self.general.max_edge * scale,
+                ..self.general
+            },
+            ..*self
+        }
+    }
+
     /// A hash of every value, equal on every platform for equal
     /// tolerances. Different tolerances hash differently.
     pub fn content_hash(&self) -> u64 {

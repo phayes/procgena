@@ -12,20 +12,14 @@ use std::sync::Arc;
 
 use glam::{DVec2, DVec3};
 
-use crate::chunk::{CHUNK_SIZE, ChunkKey};
+use crate::chunk::ChunkKey;
 
-use super::contract::ChunkEdgeKey;
+use super::contract::{ChunkEdgeKey, chunk_cm};
 use super::mesh::TinChunk;
 use super::numeric::{CM_PER_M, Cm};
 
-/// The width of a finest-level chunk in whole centimetres.
-const CHUNK_CM: i64 = (CHUNK_SIZE * CM_PER_M) as i64;
-
 /// Bins along each side of a chunk's triangle index.
 const BINS: i64 = 8;
-
-/// The width of one bin, in centimetres.
-const BIN_CM: i64 = CHUNK_CM / BINS;
 
 /// The ground under one point of a canonical mesh.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -62,10 +56,12 @@ fn to_cm(p: DVec2) -> Option<(i64, i64)> {
     Some((Cm::from_m(p.x)?.0, Cm::from_m(p.y)?.0))
 }
 
-/// The level-0 chunk owning the centimetre point `(x, z)`: each chunk owns
-/// its square including its low-x and low-z sides, but not its high ones.
-fn owner(x: i64, z: i64) -> ChunkKey {
-    ChunkKey::new(x.div_euclid(CHUNK_CM), z.div_euclid(CHUNK_CM), 0)
+/// The chunk at `level` owning the centimetre point `(x, z)`: each chunk
+/// owns its square including its low-x and low-z sides, but not its high
+/// ones.
+fn owner(x: i64, z: i64, level: u8) -> ChunkKey {
+    let width = chunk_cm(level);
+    ChunkKey::new(x.div_euclid(width), z.div_euclid(width), level)
 }
 
 /// Twice the signed area of `p`, `q`, `r` in the (x, z) plane: negative
@@ -82,6 +78,8 @@ pub struct TinIndex {
     chunk: Arc<TinChunk>,
     /// The chunk's smallest corner, in centimetres.
     origin: (i64, i64),
+    /// The chunk's width, in centimetres.
+    width: i64,
     /// Each vertex relative to `origin`, in centimetres.
     local: Vec<(i64, i64)>,
     /// Where each bin's triangles start in `items`, row by row along x,
@@ -92,20 +90,18 @@ pub struct TinIndex {
 }
 
 impl TinIndex {
-    /// An index over `chunk`'s triangles. Vertices may lie anywhere in the
-    /// chunk, on its whole-metre lattice or not.
+    /// An index over `chunk`'s triangles, at any chunk level. Vertices may
+    /// lie anywhere in the chunk, on its lattice or not.
     ///
     /// # Panics
     ///
-    /// If `chunk` is not at level 0, or a triangle refers to a missing
-    /// vertex.
+    /// If a triangle refers to a missing vertex, or the chunk's level is
+    /// above [`MAX_CHUNK_LEVEL`](crate::MAX_CHUNK_LEVEL).
     pub fn new(chunk: Arc<TinChunk>) -> Self {
-        assert_eq!(
-            chunk.key.level, 0,
-            "canonical meshes are for level 0 chunks"
-        );
         let (x0, z0) = ChunkEdgeKey::of_chunk(chunk.key)[0].start();
         let origin = (x0.0, z0.0);
+        let width = chunk_cm(chunk.key.level);
+        let bin_cm = width / BINS;
         let local: Vec<(i64, i64)> = chunk
             .vertices
             .iter()
@@ -113,7 +109,7 @@ impl TinIndex {
             .collect();
 
         // Each triangle goes in every bin its bounds touch, edges included.
-        let bin_of = |cm: i64| (cm / BIN_CM).clamp(0, BINS - 1);
+        let bin_of = |cm: i64| (cm / bin_cm).clamp(0, BINS - 1);
         let mut bins: Vec<Vec<u32>> = vec![Vec::new(); (BINS * BINS) as usize];
         for (t, triangle) in chunk.triangles.iter().enumerate() {
             let corners = triangle.0.map(|i| local[i as usize]);
@@ -142,6 +138,7 @@ impl TinIndex {
         Self {
             chunk,
             origin,
+            width,
             local,
             starts,
             items,
@@ -168,10 +165,10 @@ impl TinIndex {
     /// [`locate`](Self::locate) for a point already in centimetres.
     fn locate_cm(&self, x: i64, z: i64) -> Option<u32> {
         let q = (x - self.origin.0, z - self.origin.1);
-        if !(0..=CHUNK_CM).contains(&q.0) || !(0..=CHUNK_CM).contains(&q.1) {
+        if !(0..=self.width).contains(&q.0) || !(0..=self.width).contains(&q.1) {
             return None;
         }
-        let bin = |cm: i64| (cm / BIN_CM).min(BINS - 1);
+        let bin = |cm: i64| (cm / (self.width / BINS)).min(BINS - 1);
         let b = (bin(q.1) * BINS + bin(q.0)) as usize;
         let candidates = &self.items[self.starts[b] as usize..self.starts[b + 1] as usize];
         // Candidates are in increasing order, so the first hit is the
@@ -228,17 +225,22 @@ impl TinIndex {
     }
 }
 
-/// The canonical chunks loaded now, answering ground queries from them
-/// alone.
+/// The canonical chunks loaded now, at any chunk levels, answering ground
+/// queries from them alone.
 ///
-/// Each point belongs to one level-0 chunk: the chunk whose square holds
-/// it once rounded to whole centimetres, with its low-x and low-z sides
-/// but not its high ones. If that chunk isn't loaded the answer is
-/// `None`, even on a side shared with a loaded chunk. Nothing is built or
-/// sampled from the terrain to answer a query.
+/// At each level, a point belongs to one chunk: the chunk whose square
+/// holds it once rounded to whole centimetres, with its low-x and low-z
+/// sides but not its high ones. A point is answered by the loaded chunk
+/// it belongs to at the finest level that has one, so where loaded chunks
+/// of different levels overlap, the finer one answers. If no loaded chunk
+/// owns the point the answer is `None`, even on a side shared with a
+/// loaded chunk. Nothing is built or sampled from the terrain to answer a
+/// query.
 #[derive(Debug, Clone, Default)]
 pub struct ResidentTins {
     chunks: BTreeMap<ChunkKey, Arc<TinIndex>>,
+    /// How many chunks are loaded at each level.
+    per_level: BTreeMap<u8, usize>,
 }
 
 impl ResidentTins {
@@ -249,12 +251,29 @@ impl ResidentTins {
 
     /// Loads `index`'s chunk, replacing any already loaded at its key.
     pub fn insert(&mut self, index: Arc<TinIndex>) {
-        self.chunks.insert(index.chunk.key, index);
+        let key = index.chunk.key;
+        if self.chunks.insert(key, index).is_none() {
+            *self.per_level.entry(key.level).or_default() += 1;
+        }
     }
 
     /// Unloads chunk `key`, returning it if it was loaded.
     pub fn remove(&mut self, key: ChunkKey) -> Option<Arc<TinIndex>> {
-        self.chunks.remove(&key)
+        let removed = self.chunks.remove(&key)?;
+        let count = self.per_level.get_mut(&key.level).expect("counted");
+        *count -= 1;
+        if *count == 0 {
+            self.per_level.remove(&key.level);
+        }
+        Some(removed)
+    }
+
+    /// The loaded chunk owning the centimetre point `(x, z)` at the finest
+    /// level that has one.
+    fn owning(&self, x: i64, z: i64) -> Option<&Arc<TinIndex>> {
+        self.per_level
+            .keys()
+            .find_map(|&level| self.chunks.get(&owner(x, z, level)))
     }
 
     /// The loaded chunk `key`, if any.
@@ -281,17 +300,22 @@ impl ResidentTins {
 impl GroundSurface for ResidentTins {
     fn sample(&self, p: DVec2) -> Option<GroundSample> {
         let (x, z) = to_cm(p)?;
-        self.chunks.get(&owner(x, z))?.sample_cm(x, z)
+        self.owning(x, z)?.sample_cm(x, z)
     }
 
-    /// Looks each chunk up once for each run of points in the same chunk.
+    /// With chunks of one level loaded, looks each chunk up once for each
+    /// run of points in the same chunk.
     fn sample_batch(&self, points: &[DVec2]) -> Vec<Option<GroundSample>> {
+        let mut levels = self.per_level.keys();
+        let (Some(&level), None) = (levels.next(), levels.next()) else {
+            return points.iter().map(|&p| self.sample(p)).collect();
+        };
         let mut last: Option<(ChunkKey, Option<&Arc<TinIndex>>)> = None;
         points
             .iter()
             .map(|&p| {
                 let (x, z) = to_cm(p)?;
-                let key = owner(x, z);
+                let key = owner(x, z, level);
                 let index = match last {
                     Some((k, index)) if k == key => index,
                     _ => {

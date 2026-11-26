@@ -19,7 +19,7 @@ use super::resolve::{Piece, Pt, orient};
 /// Why an edge must be kept, and the feature it follows.
 type Label = (ConstraintKind, Option<FeatureId>);
 
-/// A constrained Delaunay triangulation of one finest-level chunk, with its
+/// A constrained Delaunay triangulation of one chunk, at any level, with its
 /// border locked to the chunk's edge contracts. Positions are kept in
 /// centimetres from the chunk's smallest corner, which `f64` holds
 /// exactly.
@@ -348,7 +348,7 @@ fn handle(i: u32) -> FixedVertexHandle {
     FixedVertexHandle::from_index(i as usize)
 }
 
-/// The canonical mesh of finest-level chunk `key` with its border locked to
+/// The canonical mesh of chunk `key`, at any level, with its border locked to
 /// `contracts` (its four edges, in [`ChunkEdgeKey::of_chunk`] order) and
 /// `interior` vertices added in canonical order (by z, then x).
 ///
@@ -363,7 +363,7 @@ pub fn triangulate(
     interior: &[TinVertex],
 ) -> TinChunk {
     let mut chunk = ChunkCdt::new(key, contracts);
-    let size = ChunkKey::size_at(0) * super::numeric::CM_PER_M;
+    let size = ChunkKey::size_at(key.level) * super::numeric::CM_PER_M;
     let mut sorted = interior.to_vec();
     sorted.sort_by_key(|v| (v.z, v.x));
     for v in sorted {
