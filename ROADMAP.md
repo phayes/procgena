@@ -2167,8 +2167,11 @@ in a `tin` module of `procgena_terrain`.
 - **Done when:** every mandatory constraint is present as edges, the
   feature suites' river checks pass on the TIN, and intersections are
   resolved by the shared resolver.
-- **Status: built 2026-11-25; the river banks wait on the user's
-  answer** (a tolerance band, or a bank-top line).
+- **Status: done 2026-11-25.**
+  - **Banks (decided by the user, 2026-11-25):** a tolerance band, not a
+    bank-top line. The ground has no crease at a bank top, so banks are
+    the ground within `TinTolerance::water_band` (5 m) of the water's
+    edge, which follows the water tolerance.
   - **Lines:** `ChunkSource::lines_within` (Terrain and WorldTerrain;
     a world merges the regions reaching into the box and lists a
     crossing piece once). Rivers' lowest lines, water's edges (the

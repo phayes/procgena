@@ -220,7 +220,7 @@ Do not simply offset a polyline and assume the result is valid. Tight curves can
 
 ### 8.2 Rivers and lakes
 
-Represent the river thalweg, bed edges, bank tops and shoreline as constraints where relevant. Use flow simulation outputs to determine channel layout and water levels. Ground geometry and water surfaces remain distinct: a water surface may be represented by a separate mesh or analytical surface. Ensure downstream continuity of channel elevation and water level according to the hydrology model.
+Represent the river thalweg, bed edges, bank tops and shoreline as constraints where relevant. *(Decided by the user 2026-11-25, in CT3: the composed surface has no crease at a bank top, so banks are a tolerance band beyond the water's edge, not a constraint line. The thalweg, the water's edge and pond shores are constraints.)* Use flow simulation outputs to determine channel layout and water levels. Ground geometry and water surfaces remain distinct: a water surface may be represented by a separate mesh or analytical surface. Ensure downstream continuity of channel elevation and water level according to the hydrology model.
 
 ### 8.3 Intersections and precedence
 
