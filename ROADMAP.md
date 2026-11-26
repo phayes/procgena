@@ -2299,8 +2299,12 @@ music).
   - new dependencies allowed;
   - macOS only for now;
   - a painterly-realistic look;
+  - the demo may make its own presets, starting from the built-in ones;
   - one shared wind (demo request R3) deferred, so wind may differ
     between assets at first.
+- **Character (chosen by the demo planner 2026-11-25):** the Quaternius
+  CC0 packs, which share one 65-bone skeleton and include a chopping
+  clip. The files live in `demo/assets/`, which git ignores.
 - **Needs:** nothing blocking to start. It uses IX (R1), EP (R2), ED's
   warm-up (R4), GM5's tint (R5), CT5's collision (R8), and later S1's
   slice (R6) and the chopping slice of R4 and X1 (R7).
