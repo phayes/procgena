@@ -52,7 +52,10 @@ use std::fmt;
 use glam::{DVec2, DVec3, Vec3};
 use procgena_core::chain::ViewScale;
 
-use crate::{ChunkLevels, ChunkLevelsError, FeatureTier, SampleDetail, Terrain, WorldTerrain};
+use crate::{
+    ChunkLevels, ChunkLevelsError, FeatureId, FeatureLine, FeatureShape, FeatureTier, Pond,
+    SampleDetail, Terrain, TerrainFeature, WorldTerrain,
+};
 
 /// Width in metres of a chunk at level 0. Each level up doubles it.
 pub const CHUNK_SIZE: f64 = 64.0;
@@ -328,6 +331,65 @@ pub struct SurfacePoint {
     pub water: Option<f32>,
 }
 
+/// A river, pond or road as a [`ChunkSource`] gives it (see
+/// [`ChunkSource::lines_within`]): its id and its whole shape.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChunkFeature {
+    /// Which feature it is.
+    pub id: FeatureId,
+    /// Its whole shape, not only the part inside the box asked about.
+    pub shape: ChunkFeatureShape,
+}
+
+/// The shape of a [`ChunkFeature`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChunkFeatureShape {
+    /// A river or road.
+    Line(FeatureLine),
+    /// A pond.
+    Pond(Pond),
+}
+
+impl ChunkFeature {
+    /// The feature `feature` of a terrain, copied.
+    fn of(feature: TerrainFeature<'_>) -> Self {
+        Self {
+            id: feature.id,
+            shape: match feature.shape {
+                FeatureShape::Line(line) => ChunkFeatureShape::Line(line.clone()),
+                FeatureShape::Pond(pond) => ChunkFeatureShape::Pond(*pond),
+            },
+        }
+    }
+
+    /// The order [`ChunkSource::lines_within`] lists features in: by id,
+    /// then by shape, so equal features are next to each other.
+    fn order(&self, other: &Self) -> std::cmp::Ordering {
+        fn bits(shape: &ChunkFeatureShape) -> Vec<u64> {
+            match shape {
+                ChunkFeatureShape::Line(line) => line
+                    .points
+                    .iter()
+                    .flat_map(|p| [p.x.to_bits(), p.y.to_bits()])
+                    .chain(line.levels.iter().map(|l| u64::from(l.to_bits())))
+                    .chain(line.widths.iter().map(|w| u64::from(w.to_bits())))
+                    .chain([u64::from(line.depth.to_bits())])
+                    .collect(),
+                ChunkFeatureShape::Pond(pond) => vec![
+                    pond.centre.x.to_bits(),
+                    pond.centre.y.to_bits(),
+                    u64::from(pond.level.to_bits()),
+                    pond.radius.to_bits(),
+                    u64::from(pond.depth.to_bits()),
+                ],
+            }
+        }
+        self.id
+            .cmp(&other.id)
+            .then_with(|| bits(&self.shape).cmp(&bits(&other.shape)))
+    }
+}
+
 /// Something chunks can be built from: a terrain, or a world of them.
 pub trait ChunkSource: Sync {
     /// The ground at world position `p` (x and z, metres), with its
@@ -351,6 +413,26 @@ pub trait ChunkSource: Sync {
     /// different tiers. Builds nothing: ground that isn't built yet counts
     /// as not moving, so ask after reading the area at the fine tier.
     fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32;
+
+    /// Every river, pond and road that can change the ground at `tier`
+    /// within the box from `min` to `max` (x and z, metres), whole, each
+    /// once, sorted by id. The same features as [`surface`](Self::surface)
+    /// cuts into the ground there, so a feature reaching into the box is
+    /// listed whatever box around it is asked about.
+    ///
+    /// The default lists nothing: a source without features, such as
+    /// ground given by a formula, keeps it.
+    fn lines_within(&self, min: DVec2, max: DVec2, tier: FeatureTier) -> Vec<ChunkFeature> {
+        let _ = (min, max, tier);
+        Vec::new()
+    }
+}
+
+/// `features` sorted by id, each once.
+fn sorted_features(mut features: Vec<ChunkFeature>) -> Vec<ChunkFeature> {
+    features.sort_by(ChunkFeature::order);
+    features.dedup();
+    features
 }
 
 impl ChunkSource for Terrain {
@@ -372,6 +454,18 @@ impl ChunkSource for Terrain {
     /// The terrain's own [`Terrain::tier_difference`], anywhere.
     fn tier_difference(&self, _: DVec2, _: DVec2, from: FeatureTier) -> f32 {
         Terrain::tier_difference(self, from)
+    }
+
+    /// The terrain's own features (at its own tier, whatever is asked for)
+    /// that can change the ground in the box.
+    fn lines_within(&self, min: DVec2, max: DVec2, _: FeatureTier) -> Vec<ChunkFeature> {
+        sorted_features(
+            self.features_within(min, max)
+                .into_iter()
+                .filter_map(|id| self.feature(id))
+                .map(ChunkFeature::of)
+                .collect(),
+        )
     }
 }
 
@@ -422,6 +516,59 @@ impl ChunkSource for WorldTerrain {
             .map(|terrain| terrain.tier_difference(from))
             .fold(0.0, f32::max)
     }
+
+    /// The features at `tier` of every region reaching into the box that
+    /// can change the ground there. A feature carved by two regions (a
+    /// river or road crossing their border) is listed once. Regions that
+    /// can't be built add nothing.
+    fn lines_within(&self, min: DVec2, max: DVec2, tier: FeatureTier) -> Vec<ChunkFeature> {
+        // The regions reaching into the box: the one at its centre, then
+        // each neighbour across a border edge that passes through the box.
+        let mut regions = BTreeSet::from([self.region_at((min + max) * 0.5)]);
+        let mut next: Vec<_> = regions.iter().copied().collect();
+        while let Some(id) = next.pop() {
+            for edge in &self.region(id).edges {
+                let Some(neighbour) = edge.neighbor else {
+                    continue;
+                };
+                let crosses = edge
+                    .polyline
+                    .windows(2)
+                    .any(|w| segment_meets_box(w[0], w[1], min, max));
+                if crosses && regions.insert(neighbour) {
+                    next.push(neighbour);
+                }
+            }
+        }
+
+        let mut features = Vec::new();
+        for id in regions {
+            if let Ok(terrain) = self.terrain_tier(id, tier) {
+                features.extend(terrain.lines_within(min, max, tier));
+            }
+        }
+        sorted_features(features)
+    }
+}
+
+/// Whether the segment from `a` to `b` touches the box from `min` to `max`
+/// (edges included).
+fn segment_meets_box(a: DVec2, b: DVec2, min: DVec2, max: DVec2) -> bool {
+    // Clip the segment's parameter range to each slab in turn.
+    let (mut lo, mut hi) = (0.0_f64, 1.0_f64);
+    let d = b - a;
+    for (start, step, low, high) in [(a.x, d.x, min.x, max.x), (a.y, d.y, min.y, max.y)] {
+        if step == 0.0 {
+            if start < low || start > high {
+                return false;
+            }
+            continue;
+        }
+        let (t0, t1) = ((low - start) / step, (high - start) / step);
+        lo = lo.max(t0.min(t1));
+        hi = hi.min(t0.max(t1));
+    }
+    lo <= hi
 }
 
 /// A chunk that could not be built.

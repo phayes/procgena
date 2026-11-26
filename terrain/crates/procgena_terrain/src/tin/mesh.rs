@@ -35,6 +35,12 @@ pub enum ConstraintKind {
     /// A piece of the chunk's own border, shared with the neighbour across
     /// it.
     ChunkBoundary,
+    /// A river's water's edge, where its bed meets its banks.
+    RiverEdge,
+    /// A pond's shore, where its bed meets its banks.
+    PondShore,
+    /// The lowest line along a river's bed.
+    RiverThalweg,
 }
 
 impl ConstraintKind {
@@ -42,6 +48,20 @@ impl ConstraintKind {
     pub fn code(self) -> u32 {
         match self {
             Self::ChunkBoundary => 1,
+            Self::RiverEdge => 2,
+            Self::PondShore => 3,
+            Self::RiverThalweg => 4,
+        }
+    }
+
+    /// Whether the ground creases along edges of this kind, so a drawn
+    /// mesh gives them hard shading normals: true for a river's water's
+    /// edge and a pond's shore, false for chunk borders and a river's
+    /// lowest line, where the ground is smooth.
+    pub fn is_breakline(self) -> bool {
+        match self {
+            Self::RiverEdge | Self::PondShore => true,
+            Self::ChunkBoundary | Self::RiverThalweg => false,
         }
     }
 }
@@ -63,6 +83,22 @@ pub struct UnmetTolerance {
     pub at: (Mm, Mm),
     /// How far the mesh is from the ground there.
     pub error: MmHeight,
+}
+
+/// A straight piece of a feature line that a chunk's mesh leaves out:
+/// it crossed a piece that takes precedence where the crossing couldn't be
+/// made a vertex, it reached the chunk's border away from its edge
+/// contracts' vertices, or the triangulation refused it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DroppedConstraint {
+    /// One end, x and z.
+    pub from: (Mm, Mm),
+    /// The other end, x and z.
+    pub to: (Mm, Mm),
+    /// What the piece was.
+    pub kind: ConstraintKind,
+    /// The feature it followed.
+    pub feature: FeatureId,
 }
 
 /// The canonical mesh of one finest-level chunk: a triangulation of the
@@ -87,4 +123,7 @@ pub struct TinChunk {
     pub constraints: Vec<TinConstraint>,
     /// Where the mesh misses its tolerance, if anywhere.
     pub unmet: Vec<UnmetTolerance>,
+    /// Feature line pieces the mesh had to leave out, sorted. Empty
+    /// unless feature lines cross in ways the mesh can't keep.
+    pub dropped: Vec<DroppedConstraint>,
 }

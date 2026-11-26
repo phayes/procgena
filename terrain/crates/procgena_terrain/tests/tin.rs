@@ -1,16 +1,18 @@
 //! Canonical chunk meshes: millimetre sampling, canonical order and
-//! hashes, chunk edge contracts, and refinement to a tolerance.
+//! hashes, chunk edge contracts, refinement to a tolerance, and river and
+//! pond lines kept as edges.
 
 use std::sync::Arc;
 
 use glam::DVec2;
 use procgena_terrain::tin::{
-    ChunkEdgeKey, EdgeContract, Mm, MmHeight, ProbeAddr, TinChunk, TinTolerance, TinTriangle,
-    build_chunk, sample_heights, triangulate,
+    ChunkEdgeKey, ConstraintKind, DomainTolerance, EdgeAxis, EdgeContract, Mm, MmHeight, ProbeAddr,
+    TinChunk, TinTolerance, TinTriangle, build_chunk, sample_heights, triangulate,
 };
 use procgena_terrain::{
-    ChunkKey, ChunkSource, Elevation, FeatureTier, RegionGraphOptions, RegionId, SurfacePoint,
-    WorldTerrain, WorldTerrainOptions, fixtures,
+    ChunkFeature, ChunkFeatureShape, ChunkKey, ChunkSource, Elevation, FeatureId, FeatureKind,
+    FeatureLine, FeatureTier, Pond, RegionGraphOptions, RegionId, SurfacePoint, WorldTerrain,
+    WorldTerrainOptions, fixtures,
 };
 
 /// Ground given by a function, at the fine tier.
@@ -108,7 +110,10 @@ fn probes_sample_the_ground_to_the_millimetre() {
 fn a_plane_needs_only_two_triangles() {
     let plane = Analytic(|p: DVec2| 5.0 + 0.01 * p.x + 0.02 * p.y);
     let tolerance = TinTolerance {
-        max_edge: 100.0,
+        general: DomainTolerance {
+            max_edge: 100.0,
+            ..TinTolerance::GENERAL.general
+        },
         ..TinTolerance::GENERAL
     };
     for (x, z) in BLOCK {
@@ -267,7 +272,10 @@ fn a_small_budget_stops_the_same_way_every_time() {
     let ground = Analytic(hills);
     // Five centimetres: far more than 40 vertices' worth on these hills.
     let tolerance = TinTolerance {
-        height: 0.05,
+        general: DomainTolerance {
+            height: 0.05,
+            ..TinTolerance::GENERAL.general
+        },
         vertex_budget: 40,
         ..TinTolerance::GENERAL
     };
@@ -361,4 +369,574 @@ fn a_world_chunk_across_a_region_border_tiles_and_ignores_batching() {
     a.sort();
     b.sort();
     assert_eq!(a, b);
+}
+
+/// Ground given by a function, with rivers and ponds lying on it, each
+/// listed for boxes its water's box widened by `margin` metres meets.
+struct Featured {
+    features: Vec<ChunkFeature>,
+    margin: f64,
+}
+
+impl ChunkSource for Featured {
+    fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
+        SurfacePoint {
+            height: hills(p) as f32,
+            water: None,
+        }
+    }
+    fn tier(&self, _: FeatureTier) -> FeatureTier {
+        FeatureTier::Fine
+    }
+    fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+        0.0
+    }
+    fn lines_within(&self, min: DVec2, max: DVec2, _: FeatureTier) -> Vec<ChunkFeature> {
+        self.features
+            .iter()
+            .filter(|f| {
+                let (lo, hi) = bounds(f);
+                let m = DVec2::splat(self.margin);
+                (lo - m).cmple(max).all() && (hi + m).cmpge(min).all()
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+/// The corners of the box round a feature's water.
+fn bounds(feature: &ChunkFeature) -> (DVec2, DVec2) {
+    match &feature.shape {
+        ChunkFeatureShape::Line(line) => {
+            let r = DVec2::splat(f64::from(line.widths[0]) / 2.0);
+            let lo = line.points.iter().fold(DVec2::INFINITY, |a, &p| a.min(p));
+            let hi = line
+                .points
+                .iter()
+                .fold(DVec2::NEG_INFINITY, |a, &p| a.max(p));
+            (lo - r, hi + r)
+        }
+        ChunkFeatureShape::Pond(pond) => {
+            let r = DVec2::splat(pond.radius);
+            (pond.centre - r, pond.centre + r)
+        }
+    }
+}
+
+/// A river `width` metres wide along `points` (metres), falling 1 m along
+/// its length, with key `key`.
+fn river(key: u64, points: &[(f64, f64)], width: f32) -> ChunkFeature {
+    let n = points.len();
+    ChunkFeature {
+        id: FeatureId {
+            kind: FeatureKind::River,
+            key,
+        },
+        shape: ChunkFeatureShape::Line(FeatureLine {
+            kind: FeatureKind::River,
+            points: points.iter().map(|&(x, z)| DVec2::new(x, z)).collect(),
+            levels: (0..n).map(|i| 20.0 - i as f32 / n as f32).collect(),
+            widths: vec![width; n],
+            depth: 1.0,
+        }),
+    }
+}
+
+/// A pond of `radius` metres round `centre`, with key `key`.
+fn pond(key: u64, centre: (f64, f64), radius: f64) -> ChunkFeature {
+    ChunkFeature {
+        id: FeatureId {
+            kind: FeatureKind::Pond,
+            key,
+        },
+        shape: ChunkFeatureShape::Pond(Pond {
+            centre: DVec2::new(centre.0, centre.1),
+            level: 18.0,
+            radius,
+            depth: 1.5,
+        }),
+    }
+}
+
+/// The vertices of `mesh` on chunk edge `edge`, sorted.
+fn on_edge(mesh: &TinChunk, edge: ChunkEdgeKey) -> Vec<procgena_terrain::tin::TinVertex> {
+    let (x0, z0) = edge.start();
+    let mut v: Vec<_> = mesh
+        .vertices
+        .iter()
+        .filter(|v| match edge.axis {
+            EdgeAxis::X => v.z == z0 && (x0.0..=x0.0 + 64_000).contains(&v.x.0),
+            EdgeAxis::Z => v.x == x0 && (z0.0..=z0.0 + 64_000).contains(&v.z.0),
+        })
+        .copied()
+        .collect();
+    v.sort();
+    v
+}
+
+/// Builds the 2 × 2 `block` of chunks over `source` in several orders,
+/// checks every order gives the same meshes, that neighbours share their
+/// edges (crossings included), and that every mesh tiles its chunk and
+/// keeps every feature line piece, and returns the meshes.
+fn build_block(
+    source: &dyn ChunkSource,
+    block: [(i64, i64); 4],
+    tolerance: &TinTolerance,
+) -> Vec<TinChunk> {
+    let build =
+        |(x, z): (i64, i64)| build_chunk(source, ChunkKey::new(x, z, 0), tolerance).unwrap();
+    let meshes: Vec<TinChunk> = block.iter().map(|&k| build(k)).collect();
+    for order in [[3, 1, 2, 0], [2, 0, 3, 1], [1, 3, 0, 2]] {
+        let mut again = vec![None; 4];
+        for k in order {
+            again[k] = Some(build(block[k]));
+        }
+        for (k, mesh) in again.into_iter().enumerate() {
+            assert_eq!(
+                mesh.unwrap().content_hash(),
+                meshes[k].content_hash(),
+                "chunk {:?}, order {order:?}",
+                block[k]
+            );
+        }
+    }
+    for (i, mesh) in meshes.iter().enumerate() {
+        assert_tiles_its_chunk(mesh);
+        assert!(
+            mesh.dropped.is_empty(),
+            "chunk {:?}: {:?}",
+            block[i],
+            mesh.dropped
+        );
+        for (j, other) in meshes.iter().enumerate() {
+            let shared = ChunkEdgeKey::of_chunk(mesh.key)
+                .into_iter()
+                .find(|e| ChunkEdgeKey::of_chunk(other.key).contains(e));
+            if let (true, Some(edge)) = (i != j, shared) {
+                assert_eq!(on_edge(mesh, edge), on_edge(other, edge), "{edge:?}");
+                // Each crossing of the lowest line has the line's edge on
+                // each side the line goes into.
+                let contract = EdgeContract::build(source, edge, tolerance).unwrap();
+                for crossing in &contract.crossings {
+                    assert!(
+                        on_edge(mesh, edge)
+                            .iter()
+                            .any(|v| (v.x, v.z) == crossing.at)
+                    );
+                    if crossing.kind == ConstraintKind::RiverThalweg {
+                        let at = DVec2::new(crossing.at.0.to_m(), crossing.at.1.to_m());
+                        let lines = source.lines_within(at, at, FeatureTier::Fine);
+                        for m in [mesh, other] {
+                            if !enters(&lines, crossing.feature, at, m.key) {
+                                continue;
+                            }
+                            let touches = m.constraints.iter().any(|c| {
+                                c.kind == ConstraintKind::RiverThalweg
+                                    && c.v.iter().any(|&v| {
+                                        let v = m.vertices[v as usize];
+                                        (v.x, v.z) == crossing.at
+                                    })
+                            });
+                            assert!(touches, "{crossing:?} in chunk {:?}", m.key);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    meshes
+}
+
+/// Whether the lowest line of river `feature` among `lines` goes into
+/// chunk `key` (more than a millimetre inside) within half a metre of `at`.
+fn enters(lines: &[ChunkFeature], feature: FeatureId, at: DVec2, key: ChunkKey) -> bool {
+    let (lo, hi) = (key.min_corner() + 0.001, key.max_corner() - 0.001);
+    lines
+        .iter()
+        .filter(|f| f.id == feature)
+        .filter_map(|f| match &f.shape {
+            ChunkFeatureShape::Line(line) => Some(line),
+            ChunkFeatureShape::Pond(_) => None,
+        })
+        .flat_map(|line| {
+            line.points
+                .windows(2)
+                .map(|w| (w[0], w[1]))
+                .collect::<Vec<_>>()
+        })
+        .any(|(a, b)| {
+            (0..=1000).any(|s| {
+                let p = a.lerp(b, f64::from(s) / 1000.0);
+                p.distance(at) <= 0.5 && p.cmpgt(lo).all() && p.cmplt(hi).all()
+            })
+        })
+}
+
+/// Distance from `p` to segment `a`–`b`, all in metres.
+fn segment_distance(p: DVec2, a: DVec2, b: DVec2) -> f64 {
+    let ab = b - a;
+    let t = ((p - a).dot(ab) / ab.length_squared().max(1e-18)).clamp(0.0, 1.0);
+    p.distance(a + ab * t)
+}
+
+/// How far `p` is from the water's edge of `features` (negative inside),
+/// leaving out feature `except`.
+fn water_gap(features: &[ChunkFeature], p: DVec2, except: Option<usize>) -> f64 {
+    let mut gap = f64::INFINITY;
+    for (i, f) in features.iter().enumerate() {
+        if Some(i) == except {
+            continue;
+        }
+        match &f.shape {
+            ChunkFeatureShape::Line(line) => {
+                for w in line.points.windows(2) {
+                    let hw = f64::from(line.widths[0]) / 2.0;
+                    gap = gap.min(segment_distance(p, w[0], w[1]) - hw);
+                }
+            }
+            ChunkFeatureShape::Pond(pond) => gap = gap.min(p.distance(pond.centre) - pond.radius),
+        }
+    }
+    gap
+}
+
+/// Checks that `p` (metres) lies within `within` metres of an edge of
+/// `mesh` kept for one of `kinds`, if it is inside the chunk away from its
+/// border.
+fn assert_kept_at(mesh: &TinChunk, p: DVec2, kinds: &[ConstraintKind], within: f64) {
+    let (lo, hi) = (mesh.key.min_corner(), mesh.key.max_corner());
+    let margin = 0.01;
+    if p.x <= lo.x + margin || p.x >= hi.x - margin || p.y <= lo.y + margin || p.y >= hi.y - margin
+    {
+        return;
+    }
+    let m = |i: u32| {
+        let v = mesh.vertices[i as usize];
+        DVec2::new(v.x.to_m(), v.z.to_m())
+    };
+    let nearest = mesh
+        .constraints
+        .iter()
+        .filter(|c| kinds.contains(&c.kind))
+        .map(|c| segment_distance(p, m(c.v[0]), m(c.v[1])))
+        .fold(f64::INFINITY, f64::min);
+    assert!(
+        nearest <= within,
+        "{kinds:?} at {p} is {nearest} m from the nearest kept edge in chunk {:?}",
+        mesh.key
+    );
+}
+
+/// Checks that every river's lowest line, and the outline of all the
+/// water together, are kept as edges in `meshes`.
+fn assert_lines_kept(features: &[ChunkFeature], meshes: &[TinChunk], tolerance: &TinTolerance) {
+    let chord = tolerance.chord + 0.002;
+    for (i, feature) in features.iter().enumerate() {
+        match &feature.shape {
+            ChunkFeatureShape::Line(line) => {
+                let hw = f64::from(line.widths[0]) / 2.0;
+                for w in line.points.windows(2) {
+                    let (a, b) = (w[0], w[1]);
+                    let n = (b - a).normalize().perp();
+                    let steps = ((b - a).length() / 0.5).ceil() as usize;
+                    for s in 0..=steps {
+                        let p = a.lerp(b, s as f64 / steps as f64);
+                        for mesh in meshes {
+                            assert_kept_at(mesh, p, &[ConstraintKind::RiverThalweg], 0.0015);
+                            // The water's edge, where no other water hides it.
+                            for side in [1.0, -1.0] {
+                                let q = p + n * (side * hw);
+                                let others = water_gap(features, q, Some(i));
+                                let own = water_gap(&features[i..=i], q, None);
+                                if others > 0.2 && own > -0.001 {
+                                    assert_kept_at(
+                                        mesh,
+                                        q,
+                                        &[ConstraintKind::RiverEdge, ConstraintKind::PondShore],
+                                        chord,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            ChunkFeatureShape::Pond(pond) => {
+                for s in 0..720 {
+                    let angle = std::f64::consts::TAU * f64::from(s) / 720.0;
+                    let q = pond.centre + DVec2::new(angle.cos(), angle.sin()) * pond.radius;
+                    if water_gap(features, q, Some(i)) > 0.2 {
+                        for mesh in meshes {
+                            assert_kept_at(mesh, q, &[ConstraintKind::PondShore], chord);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Builds [`BLOCK`] round `features` (each listed for boxes within 20 m of
+/// its water) and checks it (see [`build_block`] and
+/// [`assert_lines_kept`]).
+fn check_features(features: Vec<ChunkFeature>) -> Vec<TinChunk> {
+    check_listed(features, 20.0)
+}
+
+/// [`check_features`], with each feature listed for boxes within `margin`
+/// metres of its water.
+fn check_listed(features: Vec<ChunkFeature>, margin: f64) -> Vec<TinChunk> {
+    let tolerance = TinTolerance::GENERAL;
+    let source = Featured { features, margin };
+    let meshes = build_block(&source, BLOCK, &tolerance);
+    assert_lines_kept(&source.features, &meshes, &tolerance);
+    meshes
+}
+
+#[test]
+fn a_bending_river_keeps_its_lines_across_chunks() {
+    // A river winding across all four chunks, its points 3 m apart.
+    let points: Vec<(f64, f64)> = (0..=40)
+        .map(|i| {
+            let x = -60.0 + 3.0 * f64::from(i);
+            (x, 12.0 * (x / 17.0).sin() + 5.0)
+        })
+        .collect();
+    let meshes = check_features(vec![river(1, &points, 8.0)]);
+    // Its water reaches every chunk; its lowest line all but one.
+    for mesh in &meshes {
+        let kinds: Vec<_> = mesh.constraints.iter().map(|c| c.kind).collect();
+        assert!(kinds.contains(&ConstraintKind::RiverEdge), "{:?}", mesh.key);
+    }
+    let with_thalweg = meshes
+        .iter()
+        .filter(|m| {
+            m.constraints
+                .iter()
+                .any(|c| c.kind == ConstraintKind::RiverThalweg)
+        })
+        .count();
+    assert_eq!(with_thalweg, 3);
+}
+
+#[test]
+fn a_river_through_a_chunk_corner() {
+    check_features(vec![river(
+        1,
+        &[(-50.0, -50.0), (0.0, 0.0), (50.0, 50.0)],
+        6.0,
+    )]);
+}
+
+#[test]
+fn a_river_along_a_chunk_edge() {
+    check_features(vec![river(
+        1,
+        &[(0.0, -60.0), (0.0, 0.0), (0.0, 60.0)],
+        6.0,
+    )]);
+}
+
+#[test]
+fn rivers_crossing_on_a_chunk_edge() {
+    // Both lowest lines pass through (0, 20), on the edge x = 0.
+    check_features(vec![
+        river(1, &[(-30.0, 10.0), (30.0, 30.0)], 4.0),
+        river(2, &[(-30.0, 30.0), (30.0, 10.0)], 4.0),
+    ]);
+}
+
+#[test]
+fn a_tributary_ending_a_millimetre_from_its_trunk() {
+    // One stops a millimetre short of the trunk's lowest line, one a
+    // millimetre past it.
+    check_features(vec![
+        river(1, &[(-60.0, 20.0), (60.0, 20.0)], 8.0),
+        river(2, &[(10.0, -50.0), (10.0, 19.999)], 4.0),
+        river(3, &[(-20.0, 60.0), (-20.0, 19.999)], 4.0),
+        river(4, &[(-40.0, -50.0), (-40.0, 20.001)], 4.0),
+    ]);
+}
+
+#[test]
+fn a_crossing_a_millimetre_from_an_edge_sample() {
+    // The lowest line crosses x = 0 at z = 10.0008 m, a millimetre from the
+    // edge's sample at 10 m; the edges of its water likewise.
+    check_features(vec![river(1, &[(-40.0, 10.0008), (40.0, 10.0008)], 6.0)]);
+}
+
+#[test]
+fn rivers_carrying_on_into_each_other_near_an_edge() {
+    // One river ends where the next starts, bending there, near the edge
+    // x = 0. Each is listed only where its own water reaches, so the edge
+    // x = 0 sees the second river alone while the chunks see both.
+    for bend in [-0.6, -0.2, 0.3, 0.8] {
+        let joint = (-4.5, 10.0);
+        let end = (
+            joint.0 + 60.0 * f64::cos(bend),
+            joint.1 + 60.0 * f64::sin(bend),
+        );
+        check_listed(
+            vec![
+                river(1, &[(-60.0, 10.0), joint], 6.0),
+                river(2, &[joint, end], 6.0),
+            ],
+            0.0,
+        );
+    }
+}
+
+#[test]
+fn a_river_ending_in_a_pond_on_a_corner() {
+    check_features(vec![
+        river(1, &[(-50.0, 40.0), (-20.0, 20.0), (-3.0, 2.0)], 5.0),
+        pond(2, (1.0, -1.0), 9.0),
+    ]);
+}
+
+/// Ground with ripples about 12 m long along x, and a straight river
+/// across them.
+struct Rippled(ChunkFeature);
+
+impl ChunkSource for Rippled {
+    fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
+        SurfacePoint {
+            height: (10.0 + 0.4 * (p.x / 2.0).sin()) as f32,
+            water: None,
+        }
+    }
+    fn tier(&self, _: FeatureTier) -> FeatureTier {
+        FeatureTier::Fine
+    }
+    fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+        0.0
+    }
+    fn lines_within(&self, _: DVec2, _: DVec2, _: FeatureTier) -> Vec<ChunkFeature> {
+        vec![self.0.clone()]
+    }
+}
+
+#[test]
+fn river_lines_follow_the_ground_along_their_length() {
+    let source = Rippled(river(1, &[(-60.0, 7.3), (60.0, 7.3)], 6.0));
+    let tolerance = TinTolerance::GENERAL;
+    let meshes = build_block(&source, BLOCK, &tolerance);
+    let mut checked = 0;
+    for mesh in &meshes {
+        for c in mesh.constraints.iter().filter(|c| {
+            matches!(
+                c.kind,
+                ConstraintKind::RiverThalweg | ConstraintKind::RiverEdge
+            )
+        }) {
+            // Halfway along each kept edge, the mesh is within the water's
+            // tolerance of the ground, plus what the ripples bend between
+            // samples a metre apart.
+            let [a, b] = c.v.map(|i| mesh.vertices[i as usize]);
+            let mid = ((a.x.0 + b.x.0) / 2, (a.z.0 + b.z.0) / 2);
+            let ground = source
+                .surface(
+                    DVec2::new(mid.0 as f64, mid.1 as f64) / 1000.0,
+                    FeatureTier::Fine,
+                )
+                .height;
+            let height = mesh_height(mesh, mid).unwrap() / 1000.0;
+            assert!(
+                (height - f64::from(ground)).abs() <= tolerance.water.height + 0.02,
+                "{:?} at {mid:?}: mesh {height} m, ground {ground} m",
+                c.kind
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 100, "{checked} kept edges");
+}
+
+/// A world of medium-scale rolling hills, built once and shared.
+fn river_world() -> &'static WorldTerrain {
+    static WORLD: std::sync::OnceLock<WorldTerrain> = std::sync::OnceLock::new();
+    WORLD.get_or_init(|| {
+        let source =
+            |_: RegionId, _: DVec2, _: &Elevation| fixtures::rolling_hills_medium().terrain.clone();
+        WorldTerrain::new(fixtures::world_medium(), Arc::new(source)).unwrap()
+    })
+}
+
+#[test]
+fn a_world_lists_each_feature_in_a_box_once() {
+    let world = river_world();
+    let terrain = world.terrain(world.region_at(DVec2::ZERO)).unwrap();
+    for (min, max) in [
+        (DVec2::new(-300.0, -300.0), DVec2::new(300.0, 300.0)),
+        (DVec2::new(-2000.0, -2000.0), DVec2::new(2000.0, 2000.0)),
+    ] {
+        let lines = world.lines_within(min, max, FeatureTier::Fine);
+        // Sorted by id, each once.
+        assert!(lines.windows(2).all(|w| w[0].id <= w[1].id && w[0] != w[1]));
+        // Every feature of the region at the centre is there.
+        for feature in terrain.lines_within(min, max, FeatureTier::Fine) {
+            assert!(lines.contains(&feature), "{:?} is missing", feature.id);
+        }
+    }
+}
+
+#[test]
+fn world_rivers_are_lines_in_the_ground() {
+    let world = river_world();
+    let terrain = world.terrain(world.region_at(DVec2::ZERO)).unwrap();
+    let river = terrain
+        .rivers()
+        .iter()
+        .max_by_key(|r| r.points.len())
+        .expect("the region at the origin has a river");
+
+    // The four chunks from the one holding the river's middle point.
+    let mid = river.points[river.points.len() / 2];
+    let (x, z) = ((mid.x / 64.0).floor() as i64, (mid.y / 64.0).floor() as i64);
+    let block = [(x, z), (x + 1, z), (x, z + 1), (x + 1, z + 1)];
+    let tolerance = TinTolerance::GENERAL;
+    let meshes = build_block(world, block, &tolerance);
+
+    // The lowest line and the water's outline are kept.
+    let (lo, hi) = (
+        ChunkKey::new(x, z, 0).min_corner(),
+        ChunkKey::new(x + 1, z + 1, 0).max_corner(),
+    );
+    let water: Vec<ChunkFeature> = world
+        .lines_within(lo, hi, FeatureTier::Fine)
+        .into_iter()
+        .filter(|f| f.id.kind != FeatureKind::Road)
+        .collect();
+    assert!(water.iter().any(|f| f.id.kind == FeatureKind::River));
+    assert_lines_kept(&water, &meshes, &tolerance);
+
+    // The mesh's bed stays below the water, at the lowest line's vertices
+    // and halfway between them.
+    let mut checked = 0;
+    for mesh in &meshes {
+        for c in mesh
+            .constraints
+            .iter()
+            .filter(|c| c.kind == ConstraintKind::RiverThalweg)
+        {
+            let [a, b] = c.v.map(|i| mesh.vertices[i as usize]);
+            for (px, pz) in [
+                (a.x.0, a.z.0),
+                (b.x.0, b.z.0),
+                ((a.x.0 + b.x.0) / 2, (a.z.0 + b.z.0) / 2),
+            ] {
+                let at = DVec2::new(px as f64, pz as f64) / 1000.0;
+                let level = world
+                    .water_level(at)
+                    .unwrap_or_else(|| panic!("no water on the lowest line at {at}"));
+                let height = mesh_height(mesh, (px, pz)).expect("the mesh covers its chunk");
+                assert!(
+                    height <= f64::from(level) * 1000.0 + 1.0,
+                    "the bed at {at} is {height} mm, above the water at {level} m"
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 0, "the lowest line crosses the block");
 }

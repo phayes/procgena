@@ -19,13 +19,18 @@ mod mesh;
 mod numeric;
 mod probe;
 mod refine;
+mod resolve;
 mod tolerance;
+mod water;
 
 pub use cdt::triangulate;
-pub use contract::{ChunkEdgeKey, EdgeAxis, EdgeContract};
+pub use contract::{ChunkEdgeKey, EdgeAxis, EdgeContract, EdgeCrossing};
 pub use hash::probes_hash;
-pub use mesh::{ConstraintKind, TinChunk, TinConstraint, TinTriangle, TinVertex, UnmetTolerance};
+pub use mesh::{
+    ConstraintKind, DroppedConstraint, TinChunk, TinConstraint, TinTriangle, TinVertex,
+    UnmetTolerance,
+};
 pub use numeric::{MAX_MM, MM_PER_M, Mm, MmHeight, NumericProfile};
 pub use probe::{ProbeAddr, TinError, sample_heights};
 pub use refine::build_chunk;
-pub use tolerance::TinTolerance;
+pub use tolerance::{DomainTolerance, TinTolerance};

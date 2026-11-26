@@ -2167,6 +2167,43 @@ in a `tin` module of `procgena_terrain`.
 - **Done when:** every mandatory constraint is present as edges, the
   feature suites' river checks pass on the TIN, and intersections are
   resolved by the shared resolver.
+- **Status: built 2026-11-25; the river banks wait on the user's
+  answer** (a tolerance band, or a bank-top line).
+  - **Lines:** `ChunkSource::lines_within` (Terrain and WorldTerrain;
+    a world merges the regions reaching into the box and lists a
+    crossing piece once). Rivers' lowest lines, water's edges (the
+    outline of all water together: capsule edges, arcs at bends and
+    ends, sampled to a 5 cm chord) and pond shores are kept edges
+    (`src/tin/water.rs`).
+  - **Resolver:** one resolver in exact `i128` millimetres
+    (`src/tin/resolve.rs`). It cuts lines at chunk edges (edge
+    contracts carry the crossings), and where they cross each other.
+    A kept line is also sampled every metre along its length and split
+    where it misses the ground.
+  - **Tolerance:** `TinTolerance` has `general` and `water` domain
+    tolerances (`water` is 0.10 m, slope 0.03, 4 m edges, 5 m beyond
+    the water), with slope error in refinement.
+  - **Stamps:** none exist in the terrain yet, so there are none in the
+    mesh.
+  - **Tests:** with no features, meshes are bit-identical to CT2's.
+    `tests/tin.rs` covers a line through a chunk corner, a line along an
+    edge, lines crossing on an edge, tributaries ending 1 mm from their
+    trunk, a crossing 1 mm from an edge sample, and a river ending in a
+    pond on a corner, each built in shuffled orders. On a world it
+    checks that the bed stays below the water.
+  - **`tin_cost --along-river`** (seed 1, 16 chunks; error between
+    samples near water, p95 / max, against the 1 m grid):
+
+    | Preset | Triangles | Near water | Grid near water |
+    |---|---|---|---|
+    | plains | 408 | 50 / 187 mm | 51 / 172 mm |
+    | rolling hills | 447 | 67 / 239 mm | 91 / 271 mm |
+    | mountains | 1,405 | 84 / 377 mm | 122 / 485 mm |
+
+  - **Open-land slope:** checking it at §7's 0.05
+    (`tin_cost --gradient 0.05`) takes rolling hills from 66 to 2,923
+    triangles and mountains from 657 to 6,569, so `GENERAL` leaves it
+    unchecked until the user decides.
 
 #### RB4: Canonical road network and alignments
 

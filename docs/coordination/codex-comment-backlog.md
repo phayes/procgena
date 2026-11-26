@@ -652,3 +652,30 @@ in these files (`git show <commits> -- <file>` shows which).
   `MAX_ROAD_RADIUS`), `tests/features.rs` (`segment_distance`,
   `network_hashes`, `roads_leave_the_rivers_they_cross_open`,
   `road_networks_are_the_same_on_any_number_of_threads`, `along_river`).
+
+## procgena_terrain (CT3 rivers and ponds in the TIN, 2026-11-25)
+
+- `terrain/crates/procgena_terrain/src/tin/water.rs` (every item),
+  `src/tin/resolve.rs` (every item), `src/tin/tolerance.rs` (every item).
+- `src/tin/refine.rs`: `build_chunk`, `follow_ground`, `Lattice`,
+  `Lattice::sample`, `Lattice::domain`, `Lattice::lattice_of`,
+  `Candidate`, `refine`, `Scorer`, `Scorer::score`, `Scorer::slope`,
+  `CREASE_CLEARANCE`.
+- `src/tin/contract.rs`: `EdgeCrossing`, `EdgeContract`,
+  `EdgeContract::build`, `ChunkEdgeKey::from_corner`,
+  `ChunkEdgeKey::end`, `CHUNK_MM`.
+- `src/tin/cdt.rs`: `Label`, `ChunkCdt` (fields `labels`, `dropped`),
+  `ChunkCdt::border_positions`, `ChunkCdt::add_lines`,
+  `ChunkCdt::record_dropped`, `ChunkCdt::to_chunk`,
+  `ChunkCdt::split_from`.
+- `src/tin/mesh.rs`: `ConstraintKind` (new variants),
+  `ConstraintKind::is_breakline`, `DroppedConstraint`,
+  `TinChunk::dropped`. `src/tin/hash.rs`: the dropped block in
+  `content_hash`.
+- `src/chunk.rs`: `ChunkFeature`, `ChunkFeatureShape`,
+  `ChunkFeature::of`, `ChunkFeature::order`,
+  `ChunkSource::lines_within` and both implementations,
+  `sorted_features`, `segment_meets_box`.
+- `tests/tin.rs` (module docs and every item after
+  `a_world_chunk_across_a_region_border_tiles_and_ignores_batching`),
+  `examples/tin_cost.rs` (every item).

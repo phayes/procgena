@@ -55,6 +55,8 @@ impl TinChunk {
         constraints.sort();
         let mut unmet = self.unmet.clone();
         unmet.sort();
+        let mut dropped = self.dropped.clone();
+        dropped.sort();
         Self {
             key: self.key,
             profile: self.profile,
@@ -62,6 +64,7 @@ impl TinChunk {
             triangles,
             constraints,
             unmet,
+            dropped,
         }
     }
 
@@ -100,6 +103,20 @@ impl TinChunk {
             h.write_i64(u.at.0.0);
             h.write_i64(u.at.1.0);
             h.write_i32(u.error.0);
+        }
+        // Written only when there are some, so meshes without features
+        // keep the hashes they had before pieces could be dropped.
+        if !mesh.dropped.is_empty() {
+            h.write_str("dropped");
+            h.write_usize(mesh.dropped.len());
+            for d in &mesh.dropped {
+                for (x, z) in [d.from, d.to] {
+                    h.write_i64(x.0);
+                    h.write_i64(z.0);
+                }
+                h.write_u32(d.kind.code());
+                write_feature(&mut h, Some(d.feature));
+            }
         }
         h.finish()
     }

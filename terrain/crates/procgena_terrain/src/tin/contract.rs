@@ -1,17 +1,21 @@
 //! Chunk edge contracts: the vertices along a border between two chunks,
 //! which both chunks use, so independently built chunks meet exactly.
 
+use glam::DVec2;
 use procgena_core::ContentHasher;
 
 use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkSource};
+use crate::feature::{FeatureId, FeatureTier};
 
-use super::mesh::TinVertex;
+use super::mesh::{ConstraintKind, TinVertex};
 use super::numeric::{MM_PER_M, Mm};
 use super::probe::{ProbeAddr, TinError, sample_heights};
+use super::resolve::{Pt, edge_crossing};
 use super::tolerance::TinTolerance;
+use super::water::Water;
 
 /// The width of a finest-level chunk in whole millimetres.
-const CHUNK_MM: i64 = (CHUNK_SIZE * MM_PER_M) as i64;
+pub(crate) const CHUNK_MM: i64 = (CHUNK_SIZE * MM_PER_M) as i64;
 
 /// How far apart the ground is sampled along a chunk edge, in millimetres.
 /// Contract vertices sit on these samples.
@@ -76,6 +80,22 @@ impl ChunkEdgeKey {
         (Mm(self.x * CHUNK_MM), Mm(self.z * CHUNK_MM))
     }
 
+    /// The edge from grid corner `corner` (millimetres, on the chunk grid)
+    /// along `axis`.
+    pub(crate) fn from_corner(corner: Pt, axis: EdgeAxis) -> Self {
+        debug_assert!(corner.0 % CHUNK_MM == 0 && corner.1 % CHUNK_MM == 0);
+        Self {
+            x: corner.0.div_euclid(CHUNK_MM),
+            z: corner.1.div_euclid(CHUNK_MM),
+            axis,
+        }
+    }
+
+    /// The edge's last corner, in millimetres.
+    fn end(self) -> (Mm, Mm) {
+        self.at(CHUNK_MM)
+    }
+
     /// The point `along` millimetres from the first corner.
     fn at(self, along: i64) -> (Mm, Mm) {
         let (x, z) = self.start();
@@ -86,24 +106,45 @@ impl ChunkEdgeKey {
     }
 }
 
+/// Where a feature line crosses a chunk edge: a vertex of the edge's
+/// contract that the line's piece in each chunk ends at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EdgeCrossing {
+    /// Where, x and z.
+    pub at: (Mm, Mm),
+    /// What the line is.
+    pub kind: ConstraintKind,
+    /// The feature it follows.
+    pub feature: FeatureId,
+}
+
 /// The vertices along one chunk edge, from its first corner to its last,
-/// both corners included. Built only from the edge and the ground, so the
-/// chunks either side build the same contract.
+/// both corners included, and where feature lines cross it. Built only
+/// from the edge and the ground, so the chunks either side build the same
+/// contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EdgeContract {
     pub key: ChunkEdgeKey,
     pub vertices: Vec<TinVertex>,
+    /// The feature lines crossing the edge, sorted by position, then by
+    /// kind and feature. Each is at one of `vertices`.
+    pub crossings: Vec<EdgeCrossing>,
 }
 
 impl EdgeContract {
     /// The contract for edge `key` over the ground of `source` at the fine
     /// tier, within `tolerance`.
     ///
-    /// The ground is sampled every metre along the edge. Starting from the
-    /// two corners, a stretch between two vertices gets a new vertex where
-    /// the straight line between them misses the samples by the most, while
-    /// that is more than `tolerance.height` or the stretch is longer than
-    /// `tolerance.max_edge`.
+    /// The ground is sampled every metre along the edge, and where each
+    /// river or pond line (see [`ChunkSource::lines_within`]) crosses it.
+    /// The corners and the crossings are always vertices; a water's edge
+    /// crossing inside other water is not a crossing. Then a stretch between
+    /// two vertices gets a new vertex at the sample it misses most among
+    /// those it misses by more than their height tolerance, or at its middle
+    /// sample if it is longer than its longest edge allows. Samples within
+    /// `tolerance.water_band` of water follow `tolerance.water`, and a
+    /// stretch with any such sample takes the water's longest edge; the
+    /// rest follow `tolerance.general`.
     ///
     /// # Panics
     ///
@@ -114,38 +155,101 @@ impl EdgeContract {
         tolerance: &TinTolerance,
     ) -> Result<Self, TinError> {
         assert!(tolerance.is_valid(), "invalid tolerance {tolerance:?}");
-        // Samples every metre, corners included.
-        let count = (CHUNK_MM / EDGE_PROBE_MM) as usize + 1;
-        let probes: Vec<ProbeAddr> = (0..count)
-            .map(|i| {
-                let (x, z) = key.at(i as i64 * EDGE_PROBE_MM);
+        let (start, end) = (key.start(), key.end());
+        let corner_m = |(x, z): (Mm, Mm)| DVec2::new(x.to_m(), z.to_m());
+        let (lo, hi) = (corner_m(start), corner_m(end));
+        let water = Water::new(
+            &source.lines_within(lo, hi, FeatureTier::Fine),
+            tolerance,
+            lo,
+            hi,
+        );
+
+        // Where the lines cross, unless a water's edge is inside water.
+        let mut crossings: Vec<EdgeCrossing> = water
+            .pieces()
+            .iter()
+            .filter_map(|piece| {
+                let at = edge_crossing(piece.a, piece.b, key)?;
+                (!water.hidden_at(piece, at)).then_some(EdgeCrossing {
+                    at: (Mm(at.0), Mm(at.1)),
+                    kind: piece.kind,
+                    feature: piece.feature,
+                })
+            })
+            .collect();
+        crossings.sort();
+        crossings.dedup();
+
+        // Samples every metre, corners included, and at each crossing; the
+        // corners and crossings are kept.
+        let along = |at: (Mm, Mm)| (at.0.0 - start.0.0) + (at.1.0 - start.1.0);
+        let mut stations: Vec<(i64, bool)> = (0..=CHUNK_MM / EDGE_PROBE_MM)
+            .map(|i| (i * EDGE_PROBE_MM, i == 0 || i == CHUNK_MM / EDGE_PROBE_MM))
+            .chain(crossings.iter().map(|c| (along(c.at), true)))
+            .collect();
+        stations.sort();
+        stations.dedup_by(|later, earlier| {
+            let same = later.0 == earlier.0;
+            if same {
+                earlier.1 |= later.1;
+            }
+            same
+        });
+        let count = stations.len();
+        let probes: Vec<ProbeAddr> = stations
+            .iter()
+            .map(|&(s, _)| {
+                let (x, z) = key.at(s);
                 ProbeAddr::new(x, z)
             })
             .collect();
         let heights = sample_heights(source, &probes)?;
+        let near_water: Vec<bool> = probes
+            .iter()
+            .map(|p| water.gap(p.to_m()) < tolerance.water_band)
+            .collect();
+        let domain = |i: usize| {
+            if near_water[i] {
+                &tolerance.water
+            } else {
+                &tolerance.general
+            }
+        };
 
         // Split stretches until each is close enough and short enough.
-        let height_mm = tolerance.height * MM_PER_M;
-        let max_samples = ((tolerance.max_edge * MM_PER_M) as i64 / EDGE_PROBE_MM).max(1) as usize;
-        let mut kept = vec![false; count];
-        let mut stack = vec![(0, count - 1)];
-        kept[0] = true;
-        kept[count - 1] = true;
+        let mut kept: Vec<bool> = stations.iter().map(|&(_, k)| k).collect();
+        let mut stack: Vec<(usize, usize)> = Vec::new();
+        let ends: Vec<usize> = (0..count).filter(|&i| kept[i]).collect();
+        for w in ends.windows(2).rev() {
+            stack.push((w[0], w[1]));
+        }
         while let Some((a, b)) = stack.pop() {
             if b - a < 2 {
                 continue;
             }
             let (ha, hb) = (f64::from(heights[a].0), f64::from(heights[b].0));
-            // The worst sample between them, the first on a tie.
-            let (worst, error) = (a + 1..b)
-                .map(|i| {
-                    let t = (i - a) as f64 / (b - a) as f64;
-                    (i, (f64::from(heights[i].0) - (ha + (hb - ha) * t)).abs())
+            let (sa, sb) = (stations[a].0, stations[b].0);
+            // The worst sample missed by more than its tolerance, the first
+            // on a tie.
+            let worst = (a + 1..b)
+                .filter_map(|i| {
+                    let t = (stations[i].0 - sa) as f64 / (sb - sa) as f64;
+                    let error = (f64::from(heights[i].0) - (ha + (hb - ha) * t)).abs();
+                    (error > domain(i).height * MM_PER_M).then_some((i, error))
                 })
-                .fold((a + 1, -1.0), |best, c| if c.1 > best.1 { c } else { best });
-            let split = if error > height_mm {
+                .fold(None, |best: Option<(usize, f64)>, c| match best {
+                    Some(best) if c.1 <= best.1 => Some(best),
+                    _ => Some(c),
+                });
+            let max_edge = if (a..=b).any(|i| near_water[i]) {
+                tolerance.water.max_edge
+            } else {
+                tolerance.general.max_edge
+            };
+            let split = if let Some((worst, _)) = worst {
                 worst
-            } else if b - a > max_samples {
+            } else if (sb - sa) as f64 > max_edge * MM_PER_M {
                 (a + b) / 2
             } else {
                 continue;
@@ -162,7 +266,11 @@ impl EdgeContract {
                 h: heights[i],
             })
             .collect();
-        Ok(Self { key, vertices })
+        Ok(Self {
+            key,
+            vertices,
+            crossings,
+        })
     }
 
     /// A hash of the contract, equal on every platform for equal
@@ -181,6 +289,13 @@ impl EdgeContract {
             h.write_i64(v.x.0);
             h.write_i64(v.z.0);
             h.write_i32(v.h.0);
+        }
+        h.write_usize(self.crossings.len());
+        for c in &self.crossings {
+            h.write_i64(c.at.0.0);
+            h.write_i64(c.at.1.0);
+            h.write_u32(c.kind.code());
+            h.write_u64(c.feature.key);
         }
         h.finish()
     }

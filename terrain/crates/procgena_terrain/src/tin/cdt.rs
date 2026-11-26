@@ -1,15 +1,23 @@
 //! Triangulating one chunk against its four edge contracts.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use spade::handles::FixedVertexHandle;
 use spade::{ConstrainedDelaunayTriangulation, Point2, Triangulation};
 
 use crate::chunk::ChunkKey;
+use crate::feature::FeatureId;
 
 use super::contract::{ChunkEdgeKey, EdgeContract};
 use super::mesh::{
-    ConstraintKind, TinChunk, TinConstraint, TinTriangle, TinVertex, UnmetTolerance,
+    ConstraintKind, DroppedConstraint, TinChunk, TinConstraint, TinTriangle, TinVertex,
+    UnmetTolerance,
 };
-use super::numeric::NumericProfile;
+use super::numeric::{Mm, NumericProfile};
+use super::resolve::{Piece, Pt, orient};
+
+/// Why an edge must be kept, and the feature it follows.
+type Label = (ConstraintKind, Option<FeatureId>);
 
 /// A constrained Delaunay triangulation of one finest-level chunk, with its
 /// border locked to the chunk's edge contracts. Positions are kept in
@@ -26,6 +34,11 @@ pub(crate) struct ChunkCdt {
     /// The border's vertex indices, round the chunk from the smallest
     /// corner towards +x first.
     border: Vec<u32>,
+    /// Each kept edge as it was added (its vertex indices, smaller first),
+    /// with its label. A vertex added on one later splits it in the mesh.
+    labels: BTreeMap<(u32, u32), Label>,
+    /// Feature line pieces that couldn't be kept.
+    dropped: Vec<DroppedConstraint>,
 }
 
 impl ChunkCdt {
@@ -82,6 +95,8 @@ impl ChunkCdt {
             cdt: ConstrainedDelaunayTriangulation::new(),
             vertices: Vec::with_capacity(ring.len()),
             border: Vec::with_capacity(ring.len()),
+            labels: BTreeMap::new(),
+            dropped: Vec::new(),
         };
         let mut sorted = ring.clone();
         sorted.sort_by_key(|v| (v.z, v.x));
@@ -95,8 +110,81 @@ impl ChunkCdt {
         for k in 0..chunk.border.len() {
             let (a, b) = (chunk.border[k], chunk.border[(k + 1) % chunk.border.len()]);
             chunk.cdt.add_constraint(handle(a), handle(b));
+            chunk
+                .labels
+                .insert((a.min(b), a.max(b)), (ConstraintKind::ChunkBoundary, None));
         }
         chunk
+    }
+
+    /// The positions of the border's vertices.
+    pub(crate) fn border_positions(&self) -> BTreeSet<Pt> {
+        self.border
+            .iter()
+            .map(|&i| {
+                let v = self.vertices[i as usize];
+                (v.x.0, v.z.0)
+            })
+            .collect()
+    }
+
+    /// Adds feature line `pieces` (which cross nothing and meet the border
+    /// only at its vertices) as kept edges, with `vertices` at their ends
+    /// strictly inside the chunk. Vertices are added in canonical order (by
+    /// z, then x), then pieces in their order. A piece the triangulation
+    /// refuses is recorded as dropped.
+    ///
+    /// # Panics
+    ///
+    /// If a piece's end is not a border vertex or one of `vertices`.
+    pub(crate) fn add_lines(&mut self, pieces: &[Piece], vertices: &[TinVertex]) {
+        let mut sorted = vertices.to_vec();
+        sorted.sort_by_key(|v| (v.z, v.x));
+        let mut at: BTreeMap<Pt, u32> = self
+            .border
+            .iter()
+            .map(|&i| {
+                let v = self.vertices[i as usize];
+                ((v.x.0, v.z.0), i)
+            })
+            .collect();
+        for v in sorted {
+            let index = self.insert(v);
+            at.insert((v.x.0, v.z.0), index);
+        }
+        for piece in pieces {
+            let (a, b) = (at[&piece.a], at[&piece.b]);
+            let added = self.cdt.try_add_constraint(handle(a), handle(b));
+            if added.is_empty() {
+                self.dropped.push(DroppedConstraint {
+                    from: (Mm(piece.a.0), Mm(piece.a.1)),
+                    to: (Mm(piece.b.0), Mm(piece.b.1)),
+                    kind: piece.kind,
+                    feature: piece.feature,
+                });
+                continue;
+            }
+            for edge in added {
+                let edge = self.cdt.directed_edge(edge);
+                let (u, v) = (
+                    edge.from().fix().index() as u32,
+                    edge.to().fix().index() as u32,
+                );
+                self.labels
+                    .insert((u.min(v), u.max(v)), (piece.kind, Some(piece.feature)));
+            }
+        }
+    }
+
+    /// Records pieces left out before they reached the triangulation.
+    pub(crate) fn record_dropped(&mut self, pieces: &[Piece]) {
+        self.dropped
+            .extend(pieces.iter().map(|piece| DroppedConstraint {
+                from: (Mm(piece.a.0), Mm(piece.a.1)),
+                to: (Mm(piece.b.0), Mm(piece.b.1)),
+                kind: piece.kind,
+                feature: piece.feature,
+            }));
     }
 
     /// Adds `vertex` inside the chunk, keeping the border, and returns its
@@ -173,18 +261,34 @@ impl ChunkCdt {
     /// If a border edge has been lost (which spade's constraints prevent).
     pub(crate) fn to_chunk(&self, unmet: Vec<UnmetTolerance>) -> TinChunk {
         let n = self.border.len();
-        let constraints = (0..n)
-            .map(|k| {
-                let (a, b) = (self.border[k], self.border[(k + 1) % n]);
-                assert!(
-                    self.cdt.exists_constraint(handle(a), handle(b)),
-                    "border edge {a}–{b} of chunk {:?} is lost",
-                    self.key
-                );
+        for k in 0..n {
+            let (a, b) = (self.border[k], self.border[(k + 1) % n]);
+            assert!(
+                self.cdt.exists_constraint(handle(a), handle(b)),
+                "border edge {a}–{b} of chunk {:?} is lost",
+                self.key
+            );
+        }
+
+        // Every kept edge, labelled as added or as the added edge a later
+        // vertex split it from.
+        let constraints = self
+            .cdt
+            .undirected_edges()
+            .filter(|edge| self.cdt.is_constraint_edge(edge.fix()))
+            .map(|edge| {
+                let [a, b] = edge.vertices().map(|v| v.fix().index() as u32);
+                let key = (a.min(b), a.max(b));
+                let (kind, feature) = self
+                    .labels
+                    .get(&key)
+                    .copied()
+                    .or_else(|| self.split_from(key))
+                    .unwrap_or_else(|| panic!("kept edge {a}–{b} was never added"));
                 TinConstraint {
                     v: [a, b],
-                    kind: ConstraintKind::ChunkBoundary,
-                    feature: None,
+                    kind,
+                    feature,
                 }
             })
             .collect();
@@ -195,8 +299,30 @@ impl ChunkCdt {
             triangles: self.triangles().map(TinTriangle).collect(),
             constraints,
             unmet,
+            dropped: self.dropped.clone(),
         }
         .normalized()
+    }
+
+    /// The label of the added edge that edge `(a, b)` lies along, split
+    /// from it by vertices added on it.
+    fn split_from(&self, (a, b): (u32, u32)) -> Option<Label> {
+        let pos = |i: u32| {
+            let v = self.vertices[i as usize];
+            (v.x.0, v.z.0)
+        };
+        let (pa, pb) = (pos(a), pos(b));
+        let within = |p: Pt, (s, t): (Pt, Pt)| {
+            orient(s, t, p) == 0
+                && p.0 >= s.0.min(t.0)
+                && p.0 <= s.0.max(t.0)
+                && p.1 >= s.1.min(t.1)
+                && p.1 <= s.1.max(t.1)
+        };
+        self.labels.iter().find_map(|(&(s, t), &label)| {
+            let added = (pos(s), pos(t));
+            (within(pa, added) && within(pb, added)).then_some(label)
+        })
     }
 
     /// The index of the vertex at `vertex`'s position, if any.
