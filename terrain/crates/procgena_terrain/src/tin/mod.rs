@@ -12,6 +12,7 @@
 //!
 //! [`build_chunk`] builds one chunk's mesh.
 
+mod cache;
 mod cdt;
 mod contract;
 mod hash;
@@ -26,6 +27,7 @@ mod surface;
 mod tolerance;
 mod water;
 
+pub use cache::ContractCache;
 pub use cdt::triangulate;
 pub use contract::{ChunkEdgeKey, EdgeAxis, EdgeContract, EdgeCrossing};
 pub use hash::probes_hash;
@@ -36,6 +38,6 @@ pub use mesh::{
 pub use numeric::{CM_PER_M, Cm, CmHeight, MAX_CM, NumericProfile};
 pub use probe::{ProbeAddr, TinError, sample_heights};
 pub use product::TinCollider;
-pub use refine::build_chunk;
+pub use refine::{build_chunk, build_chunk_with};
 pub use surface::{GroundSample, GroundSurface, ResidentTins, TinIndex};
 pub use tolerance::{DomainTolerance, TinSampling, TinTolerance};

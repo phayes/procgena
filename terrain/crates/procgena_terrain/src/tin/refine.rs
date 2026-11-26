@@ -10,8 +10,9 @@ use glam::DVec2;
 use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkSource};
 use crate::feature::FeatureTier;
 
+use super::cache::ContractCache;
 use super::cdt::ChunkCdt;
-use super::contract::{CHUNK_CM, ChunkEdgeKey, EdgeAxis, EdgeContract};
+use super::contract::{CHUNK_CM, ChunkEdgeKey, EdgeAxis};
 use super::mesh::{TinChunk, TinVertex, UnmetTolerance};
 use super::numeric::{CM_PER_M, Cm, CmHeight};
 use super::probe::{ProbeAddr, TinError, sample_heights};
@@ -36,7 +37,7 @@ const CREASE_CLEARANCE: f64 = 1.5;
 /// The canonical mesh of finest-level chunk `key` over the ground of
 /// `source` at the fine tier, within `tolerance`.
 ///
-/// The border is locked to the four [`EdgeContract`]s, so the neighbours'
+/// The border is locked to the four [`EdgeContract`](super::EdgeContract)s, so the neighbours'
 /// meshes meet it exactly. The rivers' and ponds' lines in the chunk (see
 /// [`ChunkSource::lines_within`]) are kept as edges: each river's lowest
 /// line and the outline of its water, and each pond's shore, cut where
@@ -72,12 +73,31 @@ pub fn build_chunk(
     key: ChunkKey,
     tolerance: &TinTolerance,
 ) -> Result<TinChunk, TinError> {
+    build_chunk_with(source, key, tolerance, &ContractCache::new(tolerance))
+}
+
+/// [`build_chunk`], taking the chunk's edge contracts from `contracts`
+/// where it holds them, and keeping those it builds there. The mesh is
+/// the same either way; neighbours built with one cache sample each
+/// shared edge once.
+///
+/// # Panics
+///
+/// As [`build_chunk`], or if `contracts` was made for another tolerance.
+/// `contracts` must hold only contracts from `source` (see
+/// [`ContractCache`]).
+pub fn build_chunk_with(
+    source: &dyn ChunkSource,
+    key: ChunkKey,
+    tolerance: &TinTolerance,
+    contracts: &ContractCache,
+) -> Result<TinChunk, TinError> {
     assert_eq!(key.level, 0, "canonical meshes are for level 0 chunks");
     assert!(tolerance.is_valid(), "invalid tolerance {tolerance:?}");
     let edges = ChunkEdgeKey::of_chunk(key);
     let built = edges
         .iter()
-        .map(|&edge| EdgeContract::build_sampled(source, edge, tolerance))
+        .map(|&edge| contracts.get_or_build(source, edge, tolerance))
         .collect::<Result<Vec<_>, _>>()?;
     let contracts = [&built[0].0, &built[1].0, &built[2].0, &built[3].0];
     let mut chunk = ChunkCdt::new(key, contracts);
@@ -87,7 +107,8 @@ pub fn build_chunk(
     let border: Vec<(usize, usize, CmHeight)> = built
         .iter()
         .zip(edges)
-        .flat_map(|((_, samples), edge)| {
+        .flat_map(|(contract, edge)| {
+            let samples = &contract.1;
             let (col, row) = (
                 ((edge.start().0.0 - key.x * CHUNK_CM) / LATTICE_CM) as usize,
                 ((edge.start().1.0 - key.z * CHUNK_CM) / LATTICE_CM) as usize,

@@ -2265,8 +2265,8 @@ in a `tin` module of `procgena_terrain`.
   | mountains | 657 | 0.38 / 0.79 m (grid 1.04 m) | 6.1 ms |
 
   Gradient error, per-domain tolerance profiles and
-  `ChunkSource::lines_within` were built in CT3. A contract cache is still
-  not built.
+  `ChunkSource::lines_within` were built in CT3; the contract cache in
+  CT-A.
 
 #### CT3: Rivers, ponds and stamps in the ground
 
@@ -2377,10 +2377,17 @@ in a `tin` module of `procgena_terrain`.
   11 ms; mountains 42 against 69 ms (noise). Four edge contracts (260
   reads) take 0.4 ms, about 1.5 µs a read, so outside plains the build's
   other work (lines, triangulation, scoring) weighs as much as the reads.
-- **Left:** a contract cache (edges are 260 of 354 reads on plains; both
-  neighbours read each edge); the bend limit scales with the level, so
-  low-poly mountains still read most of the lattice; the tolerance is not
-  in `TinChunk`'s hash; quiet-machine timing.
+- **Contract cache:** `ContractCache` with `build_chunk_with` builds each
+  edge contract once for the chunks either side (a plain map behind a
+  mutex; two tasks asking for one new edge may both build it). Over an
+  8 × 8 block of the shipped presets (seed 1) reads per chunk fall from
+  356 to 242 (plains), 2,334 to 2,220 (rolling hills) and 3,634 to 3,520
+  (mountains). The tolerance's hash is part of each chunk's hash.
+- **Left:** the stream doesn't share a cache yet, and each streamed TIN
+  chunk still reads the full regular 65 × 65 samples for its water and
+  four heights a vertex for its shading normals, which outweigh what
+  CT-A saved; the bend limit scales with the level, so low-poly
+  mountains still read most of the lattice; quiet-machine timing.
 
 #### RB4: Canonical road network and alignments
 

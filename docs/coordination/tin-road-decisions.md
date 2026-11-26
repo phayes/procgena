@@ -109,4 +109,4 @@ lives in ROADMAP.md ("Canonical ground and roads track").
   checked only in the water band. At 0.05 on general terrain, rolling hills
   would go from 66 to 2,923 triangles per chunk. Placement, labels and shading
   read the exact ground, so they don't need it.
-- **Not yet done:** a contract cache.
+- **Contract cache:** built in CT-A (`ContractCache`, `build_chunk_with`).

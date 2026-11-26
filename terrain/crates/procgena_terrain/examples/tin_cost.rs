@@ -40,8 +40,8 @@ use std::time::Instant;
 
 use glam::DVec2;
 use procgena_terrain::tin::{
-    CM_PER_M, ChunkEdgeKey, Cm, DomainTolerance, EdgeContract, ProbeAddr, TinChunk, TinTolerance,
-    TinTriangle, build_chunk, sample_heights,
+    CM_PER_M, ChunkEdgeKey, Cm, ContractCache, DomainTolerance, EdgeContract, ProbeAddr, TinChunk,
+    TinTolerance, TinTriangle, build_chunk, build_chunk_with, sample_heights,
 };
 use procgena_terrain::{
     ChunkFeature, ChunkFeatureShape, ChunkKey, ChunkSource, Elevation, FeatureKind, FeatureTier,
@@ -213,6 +213,23 @@ fn main() {
             }
         }
         stats.print(&preset.key);
+
+        // The block again, all through one contract cache, so neighbours
+        // sample their shared edges once.
+        let counting = Counting::new(&world);
+        let cache = ContractCache::new(&tolerance);
+        let mut built = 0;
+        for z in -n / 2..n - n / 2 {
+            for x in -n / 2..n - n / 2 {
+                let key = ChunkKey::new(centre.0 + x, centre.1 + z, 0);
+                built += usize::from(build_chunk_with(&counting, key, &tolerance, &cache).is_ok());
+            }
+        }
+        println!(
+            "{:<16} {:>8.0} reads per chunk with a contract cache over the block",
+            "",
+            counting.take() as f64 / built.max(1) as f64
+        );
     }
     println!("(the regular 1 m chunk mesh has 8192 triangles and 4225 vertices; errors in mm)");
 }

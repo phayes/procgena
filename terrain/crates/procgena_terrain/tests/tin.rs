@@ -6,8 +6,9 @@ use std::sync::Arc;
 
 use glam::DVec2;
 use procgena_terrain::tin::{
-    ChunkEdgeKey, Cm, CmHeight, ConstraintKind, DomainTolerance, EdgeAxis, EdgeContract, ProbeAddr,
-    TinChunk, TinTolerance, TinTriangle, build_chunk, sample_heights, triangulate,
+    ChunkEdgeKey, Cm, CmHeight, ConstraintKind, ContractCache, DomainTolerance, EdgeAxis,
+    EdgeContract, ProbeAddr, TinChunk, TinTolerance, TinTriangle, build_chunk, build_chunk_with,
+    sample_heights, triangulate,
 };
 use procgena_terrain::{
     ChunkFeature, ChunkFeatureShape, ChunkKey, ChunkSource, Elevation, FeatureId, FeatureKind,
@@ -349,6 +350,33 @@ fn gentle_ground_is_sampled_sparsely_and_stays_within_the_tolerance() {
             }
         }
     }
+}
+
+#[test]
+fn a_contract_cache_shares_edges_and_changes_nothing() {
+    let ground = Counted {
+        ground: Analytic(swells),
+        reads: Default::default(),
+    };
+    let reads = || ground.reads.swap(0, std::sync::atomic::Ordering::Relaxed);
+    let tolerance = TinTolerance::GENERAL;
+    let keys = BLOCK.map(|(x, z)| ChunkKey::new(x, z, 0));
+    let alone = keys.map(|key| build_chunk(&ground, key, &tolerance).unwrap());
+    let alone_reads = reads();
+    let cache = ContractCache::new(&tolerance);
+    let shared = keys.map(|key| build_chunk_with(&ground, key, &tolerance, &cache).unwrap());
+    let shared_reads = reads();
+    assert_eq!(shared, alone);
+    // A 2 × 2 block has 12 edges, 4 of them shared by two chunks, each
+    // read every metre (65 heights) once instead of twice.
+    assert_eq!(cache.len(), 12);
+    assert_eq!(shared_reads, alone_reads - 4 * 65);
+    // Building again reads only the insides.
+    let again = keys.map(|key| build_chunk_with(&ground, key, &tolerance, &cache).unwrap());
+    assert_eq!(again, alone);
+    assert_eq!(reads(), shared_reads - 12 * 65);
+    cache.retain(|edge| edge.axis == EdgeAxis::X);
+    assert_eq!(cache.len(), 6);
 }
 
 #[test]
