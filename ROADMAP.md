@@ -2019,6 +2019,9 @@ assigned 2026-11-26 while the user was away.
     each;
   - features on: −17 to −19%.
   - Mid's `RouteStats` now has zero counts where no road starts.
+  - With features off, Mid and Fine add about 0.1 ms per region over
+    Rough (the Time Profiler finds `with_tier` in 1 sample of 8,494), so
+    the tiers above Rough cost about nothing; nothing more to cut there.
 
 #### TB: Cheap borders
 
