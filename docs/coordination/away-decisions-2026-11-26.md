@@ -92,6 +92,22 @@ are the ones most worth a look.
 - **`H*` stays as is.** Most work moves to the GPU via the TIN, and `H*`
   may be revisited later. The GPU plan is being revised to be TIN-centred.
 
+- **New terrain LOD design (user, 2026-11-26): every chunk level is a
+  canonical TIN level.** Tolerance doubles with each level. Each Scatter
+  places on one level, set per Scatter. Each feature declares its own
+  levels. The coordinator's defaults, tuned for performance, for the user
+  to review:
+  - **Build radius per level:** level 0 to 150 m, level 1 to 500 m, level
+    2 to 1.5 km, level 3 to 4 km (the tree cap). Levels 4 and up are
+    drawn only.
+  - **Feature levels:** roads keep edges to level 1 and carve to level 2.
+    Rivers and ponds keep edges to level 2 and carve at all levels.
+  - **Keep-off rules** read the feature lines.
+  - **Proper features:** turning roads and rivers into proper features is
+    a new milestone, TF.
+
+  The full design is in `terrain/terrain_lod.md`.
+
 ## Demo
 
 10. **Review: the play area.**
