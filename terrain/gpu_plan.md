@@ -4,6 +4,15 @@
 > weights and GPU2 no longer exist; the terrain draws flat grey. Mentions
 > of paint below are history. Biome ground paint from labels is ROADMAP
 > BP.
+>
+> **Superseded in part 2026-11-26** (the user): every chunk level is now a
+> canonical TIN level, and the TIN is the ground everywhere
+> ([terrain_lod.md](terrain_lod.md), ROADMAP CT-T). Below, "far ground
+> stays on regular `H*` grids", "TINs exist only for Fine level-0
+> chunks" and the D6b split where placement reads `H*` no longer hold.
+> Open question 3 is answered: far ground is coarse canonical TINs, at
+> about the cost of a level-0 chunk each (level 6: 0.4–7.7 ms on one
+> thread).
 
 A plan only: it contains no engine code. Status lives in
 [ROADMAP.md](../ROADMAP.md), and the milestones named here link there.

@@ -1,6 +1,7 @@
 # Procgena: Canonical TIN Terrain Architecture
 
 **Status:** Proposed greenfield technical design (revision 4: deterministic GPU-accelerated world generation). Reviewed against the code 2026-11-25: see section 21 for corrections and the open decisions (gate D6). Scheduled as the CT milestones in [ROADMAP.md](../ROADMAP.md).  
+**Revised 2026-11-26 (the user):** every chunk level, not only level 0, is a canonical TIN level, and the TIN is the ground everywhere (D6b, section 21.2). Where this document says canonical geometry is realized "per level-0 chunk", read "per chunk at each level". See [terrain/terrain_lod.md](../terrain/terrain_lod.md).  
 **Scope:** Terrain generation, representation, feature integration, queries, streaming and derived runtime products
 
 ## 1. Executive summary
@@ -850,6 +851,8 @@ The plan already defines the composed target surface `H*` (section 8.4): base te
 - **(c) Split by role.** `H*` decides everything placement and labels decide: which spots exist, masks, slope tests and labels, all independent of distance. The physical surface (the canonical TIN where it is realized) gives the rest height of near copies, collision and gameplay ground. Far copies rest on `H*`, which is ARCHITECTURE's open question 9, which already exists. A copy's identity never includes its rest height.
 
 Option (c) keeps "placement does not depend on distance" and the analytic slope, and matches lazy realization. Its cost is two height answers in the near field that differ within the TIN tolerance, so a copy's height can settle when its chunk realizes. **Decided 2026-11-25: option (c).**
+
+**Revised by the user 2026-11-26: (a), at every chunk level.** The TIN is the ground and `H*` is only the generator the TINs sample. The cost objection to (a) is met by making every chunk level a canonical TIN level: level `L` covers 64 m × 2^L, samples 1 m × 2^L, and follows `H*` within the base tolerance × 2^L. Each Scatter places on one level, so a long-range Scatter reads a coarse level instead of realizing level 0 out to its place range, and a level costs about the same per chunk at any `L`. Near copies settle onto level 0. Slope for placement comes from smoothed vertex normals, as this section already asks. See `terrain/terrain_lod.md` and ROADMAP CT-T.
 
 Whichever is chosen, `Ground::gradient` for placement should come from `H*` or from smoothed vertex normals, never raw face gradients. Section 11's `GroundSurface` sits beside `Ground`, not in place of it, unless (a) is chosen.
 

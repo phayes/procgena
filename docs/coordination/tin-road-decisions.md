@@ -23,14 +23,18 @@ lives in ROADMAP.md ("Canonical ground and roads track").
 - **D6a, determinism.** Results are bitwise identical on one platform first.
   `std` maths stays. Pinned maths, for identity across platforms, is a later
   milestone.
-- **D6b, which surface decides what.** The analytic composed surface `H*` (the
-  terrain's height at `FeatureTier::Fine`) decides spots, masks, slope and
-  labels, at every distance. The realized TIN gives collision and the rest
-  height of near copies. Far copies rest on `H*`. A copy's identity never
-  includes its rest height. A TIN query (`GroundSurface`) sits beside
-  `Ground`, not in place of it. Slope for placement never comes from raw face
-  gradients.
-- **D6c, constraints.** Only level-0 chunk borders are mesh constraints. Region
+- **D6b, which surface decides what.** Revised by the user 2026-11-26: the TIN
+  is the ground, and `H*` is only the generator the TINs sample. Every chunk
+  level is a canonical TIN level (level `L`: 64 m × 2^L, sampled every
+  1 m × 2^L, within the base tolerance × 2^L). Each Scatter places on one
+  level and takes spots, height and slope from that level's TIN at every
+  distance; near copies settle onto level 0. A copy's identity never
+  includes its rest height. Slope for placement never comes from raw face
+  gradients. See `terrain/terrain_lod.md` and ROADMAP CT-T. (Until then,
+  2026-11-25: `H*` decided spots, masks, slope and labels, and the TIN gave
+  collision and near rest heights.)
+- **D6c, constraints.** Only chunk borders (at each level) are mesh
+  constraints. Region
   borders are not, so the `R ∩ C` patch work is superseded, and region
   ownership comes from the region graph. A region border is constrained only
   where something needs an edge there.

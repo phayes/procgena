@@ -1,9 +1,16 @@
 # The TIN as the only canonical ground: costs (2026-11-26)
 
-Input for a conversation with the user, who is weighing making `H*` only
+> **Decided since (the user, 2026-11-26):** every chunk level is a canonical
+> TIN level, and each Scatter places on one level
+> ([terrain_lod.md](terrain_lod.md), ROADMAP CT-T). This note measures the
+> earlier proposal of a single canonical level 0 out to the place range;
+> its per-chunk costs and place ranges still hold, and its disc figures
+> show why one level alone wasn't enough.
+
+Input for a conversation with the user, who was weighing making `H*` only
 the generator the TIN samples, with everything reading the TIN (D6b option
-a). Implementing it is deferred, and placement stays on `H*` for now. This
-note only measures. Paths are relative to `terrain/crates/procgena_terrain/`.
+a). This note only measures. Paths are relative to
+`terrain/crates/procgena_terrain/`.
 
 ## Bottom line
 
