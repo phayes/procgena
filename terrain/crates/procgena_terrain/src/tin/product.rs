@@ -12,16 +12,16 @@ use crate::feature::FeatureTier;
 
 use super::contract::ChunkEdgeKey;
 use super::mesh::TinChunk;
-use super::numeric::{MM_PER_M, Mm};
+use super::numeric::{CM_PER_M, Cm};
 use super::probe::{ProbeAddr, TinError};
 
-/// The width of a finest-level chunk in whole millimetres.
-const CHUNK_MM: i64 = (CHUNK_SIZE * MM_PER_M) as i64;
+/// The width of a finest-level chunk in whole centimetres.
+const CHUNK_CM: i64 = (CHUNK_SIZE * CM_PER_M) as i64;
 
-/// How far apart a split side's vertices are, in millimetres: the spacing
+/// How far apart a split side's vertices are, in centimetres: the spacing
 /// of a regular chunk's vertices along a side it shares with a level-0
 /// chunk.
-const SPLIT_MM: i64 = 1000;
+const SPLIT_CM: i64 = 100;
 
 /// How far either side of a vertex the ground is read for its shading
 /// normal, in metres: the spacing regular level-0 chunks use, so the two
@@ -47,8 +47,8 @@ pub struct TinCollider {
 }
 
 impl TinChunk {
-    /// The chunk's smallest corner, in millimetres.
-    fn origin_mm(&self) -> (i64, i64) {
+    /// The chunk's smallest corner, in centimetres.
+    fn origin_cm(&self) -> (i64, i64) {
         let (x, z) = ChunkEdgeKey::of_chunk(self.key)[0].start();
         (x.0, z.0)
     }
@@ -56,7 +56,7 @@ impl TinChunk {
     /// The collision geometry of this chunk: exactly its canonical
     /// triangles, with no skirts and no added vertices.
     pub fn collider(&self) -> TinCollider {
-        let (x0, z0) = self.origin_mm();
+        let (x0, z0) = self.origin_cm();
         TinCollider {
             key: self.key,
             origin: self.key.min_corner(),
@@ -124,23 +124,23 @@ impl TinChunk {
     /// [`render_mesh`](Self::render_mesh) and
     /// [`fit_neighbour`](Self::fit_neighbour) both use these heights, so
     /// they give the same `f32` at the same point.
-    pub fn border_height(&self, x: Mm, z: Mm) -> Option<f64> {
-        let (x0, z0) = self.origin_mm();
+    pub fn border_height(&self, x: Cm, z: Cm) -> Option<f64> {
+        let (x0, z0) = self.origin_cm();
         let (u, v) = (x.0 - x0, z.0 - z0);
         let on = |side: ChunkSide| {
             let (across, along) = side_coordinates(side, u, v);
-            (across == side_offset(side) && (0..=CHUNK_MM).contains(&along)).then_some(along)
+            (across == side_offset(side) && (0..=CHUNK_CM).contains(&along)).then_some(along)
         };
         ChunkSide::ALL
             .into_iter()
             .find_map(|side| Some((side, on(side)?)))
-            .map(|(side, along)| polyline_height(&self.side_line(side), along) / MM_PER_M)
+            .map(|(side, along)| polyline_height(&self.side_line(side), along) / CM_PER_M)
     }
 
-    /// The border vertices on `side`, as (millimetres along the side from
-    /// its low end, height in millimetres), in order along the side.
+    /// The border vertices on `side`, as (centimetres along the side from
+    /// its low end, height in centimetres), in order along the side.
     fn side_line(&self, side: ChunkSide) -> Vec<(i64, i32)> {
-        let (x0, z0) = self.origin_mm();
+        let (x0, z0) = self.origin_cm();
         let mut line: Vec<(i64, i32)> = self
             .vertices
             .iter()
@@ -177,7 +177,7 @@ impl TinChunk {
             self.vertices.len(),
             "one normal for each vertex"
         );
-        let (x0, z0) = self.origin_mm();
+        let (x0, z0) = self.origin_cm();
         let mut mesh = ChunkMesh {
             key: self.key,
             transitions: Transitions::NONE,
@@ -326,15 +326,15 @@ impl TinChunk {
     /// Call it for each canonical chunk beside `mesh`, and draw this chunk
     /// with the shared side split (see [`render_mesh`](Self::render_mesh))
     /// so both have the same vertices along it. Vertices are matched to
-    /// the border by their position rounded to whole millimetres.
+    /// the border by their position rounded to whole centimetres.
     pub fn fit_neighbour(&self, mesh: &mut ChunkMesh) -> usize {
         // The highest vertex at each border position is the edge itself;
         // any below it hang from it.
         let mut tops: HashMap<(i64, i64), f32> = HashMap::new();
         let mut at: Vec<Option<(i64, i64)>> = Vec::with_capacity(mesh.positions.len());
         for p in &mesh.positions {
-            let x = Mm::from_m(mesh.origin.x + f64::from(p.x));
-            let z = Mm::from_m(mesh.origin.y + f64::from(p.z));
+            let x = Cm::from_m(mesh.origin.x + f64::from(p.x));
+            let z = Cm::from_m(mesh.origin.y + f64::from(p.z));
             let key = x
                 .zip(z)
                 .filter(|&(x, z)| self.border_height(x, z).is_some());
@@ -350,7 +350,7 @@ impl TinChunk {
             .into_iter()
             .map(|((x, z), top)| {
                 let target = self
-                    .border_height(Mm(x), Mm(z))
+                    .border_height(Cm(x), Cm(z))
                     .expect("found on the border") as f32;
                 ((x, z), (top, target))
             })
@@ -377,18 +377,18 @@ impl TinChunk {
     }
 }
 
-/// A vertex position in a chunk's frame: `u` and `w` millimetres along x
-/// and z from its corner, at height `h_mm` millimetres.
-fn local_position(u: i64, w: i64, h_mm: f64) -> Vec3 {
+/// A vertex position in a chunk's frame: `u` and `w` centimetres along x
+/// and z from its corner, at height `h_cm` centimetres.
+fn local_position(u: i64, w: i64, h_cm: f64) -> Vec3 {
     Vec3::new(
-        (u as f64 / MM_PER_M) as f32,
-        (h_mm / MM_PER_M) as f32,
-        (w as f64 / MM_PER_M) as f32,
+        (u as f64 / CM_PER_M) as f32,
+        (h_cm / CM_PER_M) as f32,
+        (w as f64 / CM_PER_M) as f32,
     )
 }
 
-/// The point `(u, w)` (millimetres from the chunk's corner) as
-/// (millimetres across `side`'s line, millimetres along it).
+/// The point `(u, w)` (centimetres from the chunk's corner) as
+/// (centimetres across `side`'s line, centimetres along it).
 fn side_coordinates(side: ChunkSide, u: i64, w: i64) -> (i64, i64) {
     match side {
         ChunkSide::MinX | ChunkSide::MaxX => (u, w),
@@ -396,15 +396,15 @@ fn side_coordinates(side: ChunkSide, u: i64, w: i64) -> (i64, i64) {
     }
 }
 
-/// Where `side`'s line is across it, in millimetres from the chunk's corner.
+/// Where `side`'s line is across it, in centimetres from the chunk's corner.
 fn side_offset(side: ChunkSide) -> i64 {
     match side {
         ChunkSide::MinX | ChunkSide::MinZ => 0,
-        ChunkSide::MaxX | ChunkSide::MaxZ => CHUNK_MM,
+        ChunkSide::MaxX | ChunkSide::MaxZ => CHUNK_CM,
     }
 }
 
-/// The point `along` millimetres along `side`, as `(u, w)` millimetres from
+/// The point `along` centimetres along `side`, as `(u, w)` centimetres from
 /// the chunk's corner.
 fn side_point(side: ChunkSide, along: i64) -> (i64, i64) {
     match side {
@@ -413,19 +413,19 @@ fn side_point(side: ChunkSide, along: i64) -> (i64, i64) {
     }
 }
 
-/// The whole metres strictly between `a` and `b` (millimetres), in order
+/// The whole metres strictly between `a` and `b` (centimetres), in order
 /// from `a` to `b`.
 fn whole_metres_between(a: i64, b: i64) -> Vec<i64> {
     let (lo, hi) = (a.min(b), a.max(b));
-    let first = lo.div_euclid(SPLIT_MM) * SPLIT_MM + SPLIT_MM;
-    let mut points: Vec<i64> = (first..hi).step_by(SPLIT_MM as usize).collect();
+    let first = lo.div_euclid(SPLIT_CM) * SPLIT_CM + SPLIT_CM;
+    let mut points: Vec<i64> = (first..hi).step_by(SPLIT_CM as usize).collect();
     if a > b {
         points.reverse();
     }
     points
 }
 
-/// The height in millimetres of the polyline `line` (sorted (along,
+/// The height in centimetres of the polyline `line` (sorted (along,
 /// height) pairs) at `along`, which must lie within it.
 fn polyline_height(line: &[(i64, i32)], along: i64) -> f64 {
     let after = line.partition_point(|&(t, _)| t < along);

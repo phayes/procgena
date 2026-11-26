@@ -13,7 +13,7 @@ use super::mesh::{
     ConstraintKind, DroppedConstraint, TinChunk, TinConstraint, TinTriangle, TinVertex,
     UnmetTolerance,
 };
-use super::numeric::{Mm, NumericProfile};
+use super::numeric::{Cm, NumericProfile};
 use super::resolve::{Piece, Pt, orient};
 
 /// Why an edge must be kept, and the feature it follows.
@@ -21,11 +21,11 @@ type Label = (ConstraintKind, Option<FeatureId>);
 
 /// A constrained Delaunay triangulation of one finest-level chunk, with its
 /// border locked to the chunk's edge contracts. Positions are kept in
-/// millimetres from the chunk's smallest corner, which `f64` holds
+/// centimetres from the chunk's smallest corner, which `f64` holds
 /// exactly.
 pub(crate) struct ChunkCdt {
     key: ChunkKey,
-    /// The chunk's smallest corner, in millimetres.
+    /// The chunk's smallest corner, in centimetres.
     origin: (i64, i64),
     cdt: ConstrainedDelaunayTriangulation<Point2<f64>>,
     /// The vertices, in the order they were inserted (spade's handle
@@ -157,8 +157,8 @@ impl ChunkCdt {
             let added = self.cdt.try_add_constraint(handle(a), handle(b));
             if added.is_empty() {
                 self.dropped.push(DroppedConstraint {
-                    from: (Mm(piece.a.0), Mm(piece.a.1)),
-                    to: (Mm(piece.b.0), Mm(piece.b.1)),
+                    from: (Cm(piece.a.0), Cm(piece.a.1)),
+                    to: (Cm(piece.b.0), Cm(piece.b.1)),
                     kind: piece.kind,
                     feature: piece.feature,
                 });
@@ -180,8 +180,8 @@ impl ChunkCdt {
     pub(crate) fn record_dropped(&mut self, pieces: &[Piece]) {
         self.dropped
             .extend(pieces.iter().map(|piece| DroppedConstraint {
-                from: (Mm(piece.a.0), Mm(piece.a.1)),
-                to: (Mm(piece.b.0), Mm(piece.b.1)),
+                from: (Cm(piece.a.0), Cm(piece.a.1)),
+                to: (Cm(piece.b.0), Cm(piece.b.1)),
                 kind: piece.kind,
                 feature: piece.feature,
             }));
@@ -197,7 +197,7 @@ impl ChunkCdt {
         let handle = self
             .cdt
             .insert(self.local(vertex))
-            .expect("chunk-local millimetres are always valid positions");
+            .expect("chunk-local centimetres are always valid positions");
         let index = handle.index() as u32;
         assert_eq!(
             index as usize,
@@ -295,6 +295,7 @@ impl ChunkCdt {
         TinChunk {
             key: self.key,
             profile: NumericProfile::CURRENT,
+            tolerance: None,
             vertices: self.vertices.clone(),
             triangles: self.triangles().map(TinTriangle).collect(),
             constraints,
@@ -333,7 +334,7 @@ impl ChunkCdt {
             .map(|i| i as u32)
     }
 
-    /// `vertex`'s position in millimetres from the chunk's smallest corner.
+    /// `vertex`'s position in centimetres from the chunk's smallest corner.
     pub(crate) fn local(&self, vertex: TinVertex) -> Point2<f64> {
         Point2::new(
             (vertex.x.0 - self.origin.0) as f64,
@@ -362,7 +363,7 @@ pub fn triangulate(
     interior: &[TinVertex],
 ) -> TinChunk {
     let mut chunk = ChunkCdt::new(key, contracts);
-    let size = ChunkKey::size_at(0) * super::numeric::MM_PER_M;
+    let size = ChunkKey::size_at(0) * super::numeric::CM_PER_M;
     let mut sorted = interior.to_vec();
     sorted.sort_by_key(|v| (v.z, v.x));
     for v in sorted {

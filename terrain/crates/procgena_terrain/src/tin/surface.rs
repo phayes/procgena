@@ -16,16 +16,16 @@ use crate::chunk::{CHUNK_SIZE, ChunkKey};
 
 use super::contract::ChunkEdgeKey;
 use super::mesh::TinChunk;
-use super::numeric::{MM_PER_M, Mm};
+use super::numeric::{CM_PER_M, Cm};
 
-/// The width of a finest-level chunk in whole millimetres.
-const CHUNK_MM: i64 = (CHUNK_SIZE * MM_PER_M) as i64;
+/// The width of a finest-level chunk in whole centimetres.
+const CHUNK_CM: i64 = (CHUNK_SIZE * CM_PER_M) as i64;
 
 /// Bins along each side of a chunk's triangle index.
 const BINS: i64 = 8;
 
-/// The width of one bin, in millimetres.
-const BIN_MM: i64 = CHUNK_MM / BINS;
+/// The width of one bin, in centimetres.
+const BIN_CM: i64 = CHUNK_CM / BINS;
 
 /// The ground under one point of a canonical mesh.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -56,16 +56,16 @@ pub trait GroundSurface {
     }
 }
 
-/// The point `p` (metres) rounded to whole millimetres. `None` if it is not
+/// The point `p` (metres) rounded to whole centimetres. `None` if it is not
 /// finite or beyond the canonical range.
-fn to_mm(p: DVec2) -> Option<(i64, i64)> {
-    Some((Mm::from_m(p.x)?.0, Mm::from_m(p.y)?.0))
+fn to_cm(p: DVec2) -> Option<(i64, i64)> {
+    Some((Cm::from_m(p.x)?.0, Cm::from_m(p.y)?.0))
 }
 
-/// The level-0 chunk owning the millimetre point `(x, z)`: each chunk owns
+/// The level-0 chunk owning the centimetre point `(x, z)`: each chunk owns
 /// its square including its low-x and low-z sides, but not its high ones.
 fn owner(x: i64, z: i64) -> ChunkKey {
-    ChunkKey::new(x.div_euclid(CHUNK_MM), z.div_euclid(CHUNK_MM), 0)
+    ChunkKey::new(x.div_euclid(CHUNK_CM), z.div_euclid(CHUNK_CM), 0)
 }
 
 /// Twice the signed area of `p`, `q`, `r` in the (x, z) plane: negative
@@ -80,9 +80,9 @@ fn orient(p: (i64, i64), q: (i64, i64), r: (i64, i64)) -> i64 {
 #[derive(Debug, Clone)]
 pub struct TinIndex {
     chunk: Arc<TinChunk>,
-    /// The chunk's smallest corner, in millimetres.
+    /// The chunk's smallest corner, in centimetres.
     origin: (i64, i64),
-    /// Each vertex relative to `origin`, in millimetres.
+    /// Each vertex relative to `origin`, in centimetres.
     local: Vec<(i64, i64)>,
     /// Where each bin's triangles start in `items`, row by row along x,
     /// with one more entry at the end.
@@ -113,7 +113,7 @@ impl TinIndex {
             .collect();
 
         // Each triangle goes in every bin its bounds touch, edges included.
-        let bin_of = |mm: i64| (mm / BIN_MM).clamp(0, BINS - 1);
+        let bin_of = |cm: i64| (cm / BIN_CM).clamp(0, BINS - 1);
         let mut bins: Vec<Vec<u32>> = vec![Vec::new(); (BINS * BINS) as usize];
         for (t, triangle) in chunk.triangles.iter().enumerate() {
             let corners = triangle.0.map(|i| local[i as usize]);
@@ -154,24 +154,24 @@ impl TinIndex {
     }
 
     /// The triangle holding the point `p` (metres), after rounding it to
-    /// whole millimetres, or `None` if the rounded point is not in this
+    /// whole centimetres, or `None` if the rounded point is not in this
     /// chunk's square (see [`ResidentTins`] for which chunk owns a point).
     ///
     /// A point on an edge or vertex shared by several triangles gets the
     /// one that comes first in the chunk's triangle order, so the answer
     /// never depends on how the chunk is indexed.
     pub fn locate(&self, p: DVec2) -> Option<u32> {
-        let (x, z) = to_mm(p)?;
-        self.locate_mm(x, z)
+        let (x, z) = to_cm(p)?;
+        self.locate_cm(x, z)
     }
 
-    /// [`locate`](Self::locate) for a point already in millimetres.
-    fn locate_mm(&self, x: i64, z: i64) -> Option<u32> {
+    /// [`locate`](Self::locate) for a point already in centimetres.
+    fn locate_cm(&self, x: i64, z: i64) -> Option<u32> {
         let q = (x - self.origin.0, z - self.origin.1);
-        if !(0..=CHUNK_MM).contains(&q.0) || !(0..=CHUNK_MM).contains(&q.1) {
+        if !(0..=CHUNK_CM).contains(&q.0) || !(0..=CHUNK_CM).contains(&q.1) {
             return None;
         }
-        let bin = |mm: i64| (mm / BIN_MM).min(BINS - 1);
+        let bin = |cm: i64| (cm / BIN_CM).min(BINS - 1);
         let b = (bin(q.1) * BINS + bin(q.0)) as usize;
         let candidates = &self.items[self.starts[b] as usize..self.starts[b + 1] as usize];
         // Candidates are in increasing order, so the first hit is the
@@ -182,7 +182,7 @@ impl TinIndex {
         })
     }
 
-    /// Triangle `t`'s corners relative to the origin, in millimetres.
+    /// Triangle `t`'s corners relative to the origin, in centimetres.
     fn corners(&self, t: u32) -> [(i64, i64); 3] {
         self.chunk.triangles[t as usize]
             .0
@@ -190,17 +190,17 @@ impl TinIndex {
     }
 
     /// The ground under `p` (metres) in this chunk, after rounding it to
-    /// whole millimetres, or `None` if the rounded point is not in this
+    /// whole centimetres, or `None` if the rounded point is not in this
     /// chunk's square. Heights match the canonical vertices exactly at
     /// them, and agree along every edge shared by two triangles.
     pub fn sample(&self, p: DVec2) -> Option<GroundSample> {
-        let (x, z) = to_mm(p)?;
-        self.sample_mm(x, z)
+        let (x, z) = to_cm(p)?;
+        self.sample_cm(x, z)
     }
 
-    /// [`sample`](Self::sample) for a point already in millimetres.
-    fn sample_mm(&self, x: i64, z: i64) -> Option<GroundSample> {
-        let t = self.locate_mm(x, z)?;
+    /// [`sample`](Self::sample) for a point already in centimetres.
+    fn sample_cm(&self, x: i64, z: i64) -> Option<GroundSample> {
+        let t = self.locate_cm(x, z)?;
         let q = (x - self.origin.0, z - self.origin.1);
         let [a, b, c] = self.corners(t);
         let heights = self.chunk.triangles[t as usize]
@@ -211,11 +211,11 @@ impl TinIndex {
         let area = i128::from(orient(a, b, c));
         let weights = [orient(b, c, q), orient(c, a, q), orient(a, b, q)].map(i128::from);
         let sum: i128 = (0..3).map(|k| weights[k] * heights[k]).sum();
-        let height = sum as f64 / area as f64 / MM_PER_M;
+        let height = sum as f64 / area as f64 / CM_PER_M;
 
         // The face's upward normal, from its edges in metres.
         let point = |k: usize, (u, v): (i64, i64)| {
-            DVec3::new(u as f64, heights[k] as f64, v as f64) / MM_PER_M
+            DVec3::new(u as f64, heights[k] as f64, v as f64) / CM_PER_M
         };
         let (pa, pb, pc) = (point(0, a), point(1, b), point(2, c));
         let normal = (pb - pa).cross(pc - pa).normalize();
@@ -232,7 +232,7 @@ impl TinIndex {
 /// alone.
 ///
 /// Each point belongs to one level-0 chunk: the chunk whose square holds
-/// it once rounded to whole millimetres, with its low-x and low-z sides
+/// it once rounded to whole centimetres, with its low-x and low-z sides
 /// but not its high ones. If that chunk isn't loaded the answer is
 /// `None`, even on a side shared with a loaded chunk. Nothing is built or
 /// sampled from the terrain to answer a query.
@@ -280,8 +280,8 @@ impl ResidentTins {
 
 impl GroundSurface for ResidentTins {
     fn sample(&self, p: DVec2) -> Option<GroundSample> {
-        let (x, z) = to_mm(p)?;
-        self.chunks.get(&owner(x, z))?.sample_mm(x, z)
+        let (x, z) = to_cm(p)?;
+        self.chunks.get(&owner(x, z))?.sample_cm(x, z)
     }
 
     /// Looks each chunk up once for each run of points in the same chunk.
@@ -290,7 +290,7 @@ impl GroundSurface for ResidentTins {
         points
             .iter()
             .map(|&p| {
-                let (x, z) = to_mm(p)?;
+                let (x, z) = to_cm(p)?;
                 let key = owner(x, z);
                 let index = match last {
                     Some((k, index)) if k == key => index,
@@ -300,7 +300,7 @@ impl GroundSurface for ResidentTins {
                         index
                     }
                 };
-                index?.sample_mm(x, z)
+                index?.sample_cm(x, z)
             })
             .collect()
     }

@@ -1,4 +1,4 @@
-//! Canonical chunk meshes: millimetre sampling, canonical order and
+//! Canonical chunk meshes: centimetre sampling, canonical order and
 //! hashes, chunk edge contracts, refinement to a tolerance, and river and
 //! pond lines kept as edges.
 
@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use glam::DVec2;
 use procgena_terrain::tin::{
-    ChunkEdgeKey, ConstraintKind, DomainTolerance, EdgeAxis, EdgeContract, Mm, MmHeight, ProbeAddr,
+    ChunkEdgeKey, Cm, CmHeight, ConstraintKind, DomainTolerance, EdgeAxis, EdgeContract, ProbeAddr,
     TinChunk, TinTolerance, TinTriangle, build_chunk, sample_heights, triangulate,
 };
 use procgena_terrain::{
@@ -57,7 +57,7 @@ fn hills(p: DVec2) -> f64 {
 /// The chunks of the 2 × 2 block round the origin.
 const BLOCK: [(i64, i64); 4] = [(-1, -1), (0, -1), (-1, 0), (0, 0)];
 
-/// The height of `mesh` at lattice point `p` (millimetres), if a triangle
+/// The height of `mesh` at lattice point `p` (centimetres), if a triangle
 /// covers it, from the plane through that triangle's corners.
 fn mesh_height(mesh: &TinChunk, p: (i64, i64)) -> Option<f64> {
     mesh.triangles.iter().find_map(|&TinTriangle([a, b, c])| {
@@ -84,22 +84,19 @@ fn assert_tiles_its_chunk(mesh: &TinChunk) {
         assert!(twice < 0.0, "triangle {a:?} {b:?} {c:?} faces down");
         area -= twice / 2.0;
     }
-    assert_eq!(area, 64_000.0 * 64_000.0, "triangles cover the chunk once");
+    assert_eq!(area, 6_400.0 * 6_400.0, "triangles cover the chunk once");
 }
 
 #[test]
-fn probes_sample_the_ground_to_the_millimetre() {
+fn probes_sample_the_ground_to_the_centimetre() {
     let plane = Analytic(|p: DVec2| 5.0 + 0.25 * p.x - 0.5 * p.y);
     let probes = [
-        ProbeAddr::new(Mm(0), Mm(0)),
-        ProbeAddr::new(Mm(-64_000), Mm(12_000)),
-        ProbeAddr::new(Mm(3_000), Mm(-7_000)),
+        ProbeAddr::new(Cm(0), Cm(0)),
+        ProbeAddr::new(Cm(-6_400), Cm(1_200)),
+        ProbeAddr::new(Cm(300), Cm(-700)),
     ];
     let heights = sample_heights(&plane, &probes).unwrap();
-    assert_eq!(
-        heights,
-        [MmHeight(5_000), MmHeight(-17_000), MmHeight(9_250)]
-    );
+    assert_eq!(heights, [CmHeight(500), CmHeight(-1_700), CmHeight(925)]);
 
     // No ground is an error, not a height.
     let none = Analytic(|_: DVec2| f64::NAN);
@@ -136,8 +133,35 @@ fn a_plane_chunk_has_a_fixed_hash() {
     assert_eq!(mesh.content_hash(), GOLDEN_PLANE, "{mesh:?}");
 }
 
+#[test]
+fn the_tolerance_is_part_of_the_hash() {
+    // A plane gets the same triangles at every level, but each level's
+    // mesh hashes differently, and so does one given vertices directly.
+    let plane = Analytic(|p: DVec2| 5.0 + 0.01 * p.x + 0.02 * p.y);
+    let key = ChunkKey::new(-1, 2, 0);
+    let mut hashes: Vec<u64> = [
+        TinTolerance::DENSE,
+        TinTolerance::GENERAL,
+        TinTolerance::LOW_POLY,
+        TinTolerance::VERY_LOW_POLY,
+    ]
+    .iter()
+    .map(|t| build_chunk(&plane, key, t).unwrap().content_hash())
+    .collect();
+    let mesh = build_chunk(&plane, key, &TinTolerance::GENERAL).unwrap();
+    let given = TinChunk {
+        tolerance: None,
+        ..mesh.clone()
+    };
+    hashes.push(given.content_hash());
+    let count = hashes.len();
+    hashes.sort();
+    hashes.dedup();
+    assert_eq!(hashes.len(), count, "two tolerances share a hash");
+}
+
 /// [`a_plane_chunk_has_a_fixed_hash`]'s hash.
-const GOLDEN_PLANE: u64 = 2_351_256_048_787_654_546;
+const GOLDEN_PLANE: u64 = 10_748_988_707_027_673_093;
 
 #[test]
 fn hashes_ignore_the_order_of_vertices() {
@@ -207,10 +231,10 @@ fn neighbours_built_alone_in_any_order_share_their_edges() {
             .iter()
             .filter(|v| match edge.axis {
                 procgena_terrain::tin::EdgeAxis::X => {
-                    v.z == z0 && (x0.0..=x0.0 + 64_000).contains(&v.x.0)
+                    v.z == z0 && (x0.0..=x0.0 + 6_400).contains(&v.x.0)
                 }
                 procgena_terrain::tin::EdgeAxis::Z => {
-                    v.x == x0 && (z0.0..=z0.0 + 64_000).contains(&v.z.0)
+                    v.x == x0 && (z0.0..=z0.0 + 6_400).contains(&v.z.0)
                 }
             })
             .copied()
@@ -254,13 +278,13 @@ fn smooth_hills_converge_within_the_tolerance() {
         // Every 1 m sample is within the tolerance (plus rounding).
         for row in 0..=64 {
             for col in 0..=64 {
-                let p = (x * 64_000 + col * 1000, z * 64_000 + row * 1000);
-                let at = DVec2::new(p.0 as f64, p.1 as f64) / 1000.0;
-                let sample = (hills(at) as f32 as f64 * 1000.0).round();
+                let p = (x * 6_400 + col * 100, z * 6_400 + row * 100);
+                let at = DVec2::new(p.0 as f64, p.1 as f64) / 100.0;
+                let sample = (hills(at) as f32 as f64 * 100.0).round();
                 let height = mesh_height(&mesh, p).expect("the mesh covers the chunk");
                 assert!(
-                    (height - sample).abs() <= 501.0,
-                    "chunk {key:?} at {p:?}: mesh {height} mm, ground {sample} mm"
+                    (height - sample).abs() <= 51.0,
+                    "chunk {key:?} at {p:?}: mesh {height} cm, ground {sample} cm"
                 );
             }
         }
@@ -314,13 +338,13 @@ fn gentle_ground_is_sampled_sparsely_and_stays_within_the_tolerance() {
         assert!(mesh.unmet.is_empty());
         for row in 0..=64 {
             for col in 0..=64 {
-                let p = (x * 64_000 + col * 1000, z * 64_000 + row * 1000);
-                let at = DVec2::new(p.0 as f64, p.1 as f64) / 1000.0;
-                let sample = (swells(at) as f32 as f64 * 1000.0).round();
+                let p = (x * 6_400 + col * 100, z * 6_400 + row * 100);
+                let at = DVec2::new(p.0 as f64, p.1 as f64) / 100.0;
+                let sample = (swells(at) as f32 as f64 * 100.0).round();
                 let height = mesh_height(&mesh, p).expect("the mesh covers the chunk");
                 assert!(
-                    (height - sample).abs() <= 501.0,
-                    "chunk ({x}, {z}) at {p:?}: mesh {height} mm, ground {sample} mm"
+                    (height - sample).abs() <= 51.0,
+                    "chunk ({x}, {z}) at {p:?}: mesh {height} cm, ground {sample} cm"
                 );
             }
         }
@@ -353,7 +377,7 @@ fn a_small_budget_stops_the_same_way_every_time() {
         a.unmet.len()
     );
     assert!(!a.unmet.is_empty(), "40 vertices can't follow these hills");
-    assert!(a.unmet.iter().all(|u| u.error.0 > 50));
+    assert!(a.unmet.iter().all(|u| u.error.0 > 5));
     assert_tiles_its_chunk(&a);
 }
 
@@ -369,9 +393,9 @@ fn triangulating_given_vertices_keeps_the_border() {
     let interior: Vec<_> = [(10, 10), (40, 20), (32, 50)]
         .into_iter()
         .map(|(col, row)| procgena_terrain::tin::TinVertex {
-            x: Mm(-64_000 + col * 1000),
-            z: Mm(row * 1000),
-            h: MmHeight(0),
+            x: Cm(-6_400 + col * 100),
+            z: Cm(row * 100),
+            h: CmHeight(0),
         })
         .collect();
     let mesh = triangulate(
@@ -525,8 +549,8 @@ fn on_edge(mesh: &TinChunk, edge: ChunkEdgeKey) -> Vec<procgena_terrain::tin::Ti
         .vertices
         .iter()
         .filter(|v| match edge.axis {
-            EdgeAxis::X => v.z == z0 && (x0.0..=x0.0 + 64_000).contains(&v.x.0),
-            EdgeAxis::Z => v.x == x0 && (z0.0..=z0.0 + 64_000).contains(&v.z.0),
+            EdgeAxis::X => v.z == z0 && (x0.0..=x0.0 + 6_400).contains(&v.x.0),
+            EdgeAxis::Z => v.x == x0 && (z0.0..=z0.0 + 6_400).contains(&v.z.0),
         })
         .copied()
         .collect();
@@ -608,9 +632,9 @@ fn build_block(
 }
 
 /// Whether the lowest line of river `feature` among `lines` goes into
-/// chunk `key` (more than a millimetre inside) within half a metre of `at`.
+/// chunk `key` (more than a centimetre inside) within half a metre of `at`.
 fn enters(lines: &[ChunkFeature], feature: FeatureId, at: DVec2, key: ChunkKey) -> bool {
-    let (lo, hi) = (key.min_corner() + 0.001, key.max_corner() - 0.001);
+    let (lo, hi) = (key.min_corner() + 0.01, key.max_corner() - 0.01);
     lines
         .iter()
         .filter(|f| f.id == feature)
@@ -626,7 +650,7 @@ fn enters(lines: &[ChunkFeature], feature: FeatureId, at: DVec2, key: ChunkKey) 
         })
         .any(|(a, b)| {
             (0..=1000).any(|s| {
-                let p = a.lerp(b, f64::from(s) / 1000.0);
+                let p = a.lerp(b, f64::from(s) * 1e-3);
                 p.distance(at) <= 0.5 && p.cmpgt(lo).all() && p.cmplt(hi).all()
             })
         })
@@ -690,7 +714,8 @@ fn assert_kept_at(mesh: &TinChunk, p: DVec2, kinds: &[ConstraintKind], within: f
 /// Checks that every river's lowest line, and the outline of all the
 /// water together, are kept as edges in `meshes`.
 fn assert_lines_kept(features: &[ChunkFeature], meshes: &[TinChunk], tolerance: &TinTolerance) {
-    let chord = tolerance.chord + 0.002;
+    // Kept vertices are rounded to the centimetre.
+    let chord = tolerance.chord + 0.01;
     for (i, feature) in features.iter().enumerate() {
         match &feature.shape {
             ChunkFeatureShape::Line(line) => {
@@ -702,7 +727,8 @@ fn assert_lines_kept(features: &[ChunkFeature], meshes: &[TinChunk], tolerance: 
                     for s in 0..=steps {
                         let p = a.lerp(b, s as f64 / steps as f64);
                         for mesh in meshes {
-                            assert_kept_at(mesh, p, &[ConstraintKind::RiverThalweg], 0.0015);
+                            // Within one and a half rounding units.
+                            assert_kept_at(mesh, p, &[ConstraintKind::RiverThalweg], 0.015);
                             // The water's edge, where no other water hides it.
                             for side in [1.0, -1.0] {
                                 let q = p + n * (side * hw);
@@ -807,22 +833,23 @@ fn rivers_crossing_on_a_chunk_edge() {
 }
 
 #[test]
-fn a_tributary_ending_a_millimetre_from_its_trunk() {
-    // One stops a millimetre short of the trunk's lowest line, one a
-    // millimetre past it.
+fn a_tributary_ending_a_centimetre_from_its_trunk() {
+    // One stops a centimetre short of the trunk's lowest line, one a
+    // centimetre past it.
     check_features(vec![
         river(1, &[(-60.0, 20.0), (60.0, 20.0)], 8.0),
-        river(2, &[(10.0, -50.0), (10.0, 19.999)], 4.0),
-        river(3, &[(-20.0, 60.0), (-20.0, 19.999)], 4.0),
-        river(4, &[(-40.0, -50.0), (-40.0, 20.001)], 4.0),
+        river(2, &[(10.0, -50.0), (10.0, 19.99)], 4.0),
+        river(3, &[(-20.0, 60.0), (-20.0, 19.99)], 4.0),
+        river(4, &[(-40.0, -50.0), (-40.0, 20.01)], 4.0),
     ]);
 }
 
 #[test]
-fn a_crossing_a_millimetre_from_an_edge_sample() {
-    // The lowest line crosses x = 0 at z = 10.0008 m, a millimetre from the
-    // edge's sample at 10 m; the edges of its water likewise.
-    check_features(vec![river(1, &[(-40.0, 10.0008), (40.0, 10.0008)], 6.0)]);
+fn a_crossing_a_centimetre_from_an_edge_sample() {
+    // The lowest line crosses x = 0 at z = 10.008 m, a centimetre (once
+    // rounded) from the edge's sample at 10 m; the edges of its water
+    // likewise.
+    check_features(vec![river(1, &[(-40.0, 10.008), (40.0, 10.008)], 6.0)]);
 }
 
 #[test]
@@ -922,11 +949,11 @@ fn river_lines_follow_the_ground_along_their_length() {
             let mid = ((a.x.0 + b.x.0) / 2, (a.z.0 + b.z.0) / 2);
             let ground = source
                 .surface(
-                    DVec2::new(mid.0 as f64, mid.1 as f64) / 1000.0,
+                    DVec2::new(mid.0 as f64, mid.1 as f64) / 100.0,
                     FeatureTier::Fine,
                 )
                 .height;
-            let height = mesh_height(mesh, mid).unwrap() / 1000.0;
+            let height = mesh_height(mesh, mid).unwrap() / 100.0;
             assert!(
                 (height - f64::from(ground)).abs() <= tolerance.water.height + 0.02,
                 "{:?} at {mid:?}: mesh {height} m, ground {ground} m",
@@ -953,8 +980,8 @@ fn rippled_banks_stay_within_the_water_tolerance_everywhere() {
         assert!(mesh.unmet.is_empty(), "chunk ({x}, {z})");
         for row in 0..=64 {
             for col in 0..=64 {
-                let p = (x * 64_000 + col * 1000, z * 64_000 + row * 1000);
-                let at = DVec2::new(p.0 as f64, p.1 as f64) / 1000.0;
+                let p = (x * 6_400 + col * 100, z * 6_400 + row * 100);
+                let at = DVec2::new(p.0 as f64, p.1 as f64) / 100.0;
                 let ground = f64::from(source.surface(at, FeatureTier::Fine).height);
                 let height = mesh_height(mesh, p).expect("the mesh covers its chunk");
                 let limit = if water_gap(&features, at, None) < tolerance.water_band {
@@ -964,8 +991,8 @@ fn rippled_banks_stay_within_the_water_tolerance_everywhere() {
                     tolerance.general.height
                 };
                 assert!(
-                    (height - (ground * 1000.0).round()).abs() <= limit * 1000.0 + 1.0,
-                    "chunk ({x}, {z}) at {at}: mesh {height} mm, ground {ground} m"
+                    (height - (ground * 100.0).round()).abs() <= limit * 100.0 + 1.0,
+                    "chunk ({x}, {z}) at {at}: mesh {height} cm, ground {ground} m"
                 );
             }
         }
@@ -1046,14 +1073,14 @@ fn world_rivers_are_lines_in_the_ground() {
                 (b.x.0, b.z.0),
                 ((a.x.0 + b.x.0) / 2, (a.z.0 + b.z.0) / 2),
             ] {
-                let at = DVec2::new(px as f64, pz as f64) / 1000.0;
+                let at = DVec2::new(px as f64, pz as f64) / 100.0;
                 let level = world
                     .water_level(at)
                     .unwrap_or_else(|| panic!("no water on the lowest line at {at}"));
                 let height = mesh_height(mesh, (px, pz)).expect("the mesh covers its chunk");
                 assert!(
-                    height <= f64::from(level) * 1000.0 + 1.0,
-                    "the bed at {at} is {height} mm, above the water at {level} m"
+                    height <= f64::from(level) * 100.0 + 1.0,
+                    "the bed at {at} is {height} cm, above the water at {level} m"
                 );
                 checked += 1;
             }

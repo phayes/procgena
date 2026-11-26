@@ -2,8 +2,8 @@
 //! follows the terrain's ground within a tolerance, and that every build
 //! makes the same, whatever order chunks are built in.
 //!
-//! Positions and heights are whole millimetres (see [`Mm`] and
-//! [`MmHeight`]). The ground is sampled at the
+//! Positions and heights are whole centimetres (see [`Cm`] and
+//! [`CmHeight`]). The ground is sampled at the
 //! [`Fine`](crate::FeatureTier::Fine) tier through a
 //! [`ChunkSource`](crate::ChunkSource). Neighbouring chunks share the
 //! vertices along their common edge (see [`EdgeContract`]), so they meet
@@ -33,7 +33,7 @@ pub use mesh::{
     ConstraintKind, DroppedConstraint, TinChunk, TinConstraint, TinTriangle, TinVertex,
     UnmetTolerance,
 };
-pub use numeric::{MAX_MM, MM_PER_M, Mm, MmHeight, NumericProfile};
+pub use numeric::{CM_PER_M, Cm, CmHeight, MAX_CM, NumericProfile};
 pub use probe::{ProbeAddr, TinError, sample_heights};
 pub use product::TinCollider;
 pub use refine::build_chunk;

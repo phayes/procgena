@@ -7,19 +7,19 @@ use glam::DVec2;
 use crate::chunk::ChunkSource;
 use crate::feature::FeatureTier;
 
-use super::numeric::{Mm, MmHeight};
+use super::numeric::{Cm, CmHeight};
 
 /// A point where the ground is sampled for a canonical mesh: a world
-/// position in whole millimetres.
+/// position in whole centimetres.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProbeAddr {
-    pub x: Mm,
-    pub z: Mm,
+    pub x: Cm,
+    pub z: Cm,
 }
 
 impl ProbeAddr {
-    /// The probe at `x`, `z` millimetres.
-    pub fn new(x: Mm, z: Mm) -> Self {
+    /// The probe at `x`, `z` centimetres.
+    pub fn new(x: Cm, z: Cm) -> Self {
         Self { x, z }
     }
 
@@ -38,7 +38,7 @@ pub enum TinError {
     /// There is no ground at this probe (for example, outside every
     /// region).
     NoGround(ProbeAddr),
-    /// The ground at this probe is too high or too low for a millimetre
+    /// The ground at this probe is too high or too low for a centimetre
     /// height.
     OutOfRange(ProbeAddr),
 }
@@ -61,7 +61,7 @@ impl fmt::Display for TinError {
 impl std::error::Error for TinError {}
 
 /// The ground height at each of `probes`, from `source` at the
-/// [`Fine`](FeatureTier::Fine) tier, rounded to the nearest millimetre.
+/// [`Fine`](FeatureTier::Fine) tier, rounded to the nearest centimetre.
 /// The heights are the same in any order and on any number of threads.
 ///
 /// Fails if `source` can't give the fine tier, or if a probe has no
@@ -69,7 +69,7 @@ impl std::error::Error for TinError {}
 pub fn sample_heights(
     source: &dyn ChunkSource,
     probes: &[ProbeAddr],
-) -> Result<Vec<MmHeight>, TinError> {
+) -> Result<Vec<CmHeight>, TinError> {
     let tier = source.tier(FeatureTier::Fine);
     if tier != FeatureTier::Fine {
         return Err(TinError::NotFine(tier));
@@ -83,7 +83,7 @@ pub fn sample_heights(
             if s.height.is_nan() {
                 return Err(TinError::NoGround(p));
             }
-            MmHeight::from_m(f64::from(s.height)).ok_or(TinError::OutOfRange(p))
+            CmHeight::from_m(f64::from(s.height)).ok_or(TinError::OutOfRange(p))
         })
         .collect()
 }

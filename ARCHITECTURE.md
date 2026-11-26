@@ -523,7 +523,7 @@ Each ends with a review against today's code.
     on distance").
   - **Constraints:** only level-0 chunk borders are mesh constraints.
     Region ownership comes from the region graph, not from triangles.
-  - **Units:** canonical integer millimetres, `i64` for x and z and
+  - **Units:** canonical integer centimetres, `i64` for x and z and
     `i32` for heights.
 
 **What it gets from above.**

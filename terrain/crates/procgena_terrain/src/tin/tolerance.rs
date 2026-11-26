@@ -1,5 +1,7 @@
 //! How closely a canonical mesh follows the ground.
 
+use procgena_core::ContentHasher;
+
 /// How closely a canonical mesh follows one kind of ground, such as open
 /// land or a river's bed and banks.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -133,6 +135,27 @@ impl TinTolerance {
             "very_low_poly" => Some(Self::VERY_LOW_POLY),
             _ => None,
         }
+    }
+
+    /// A hash of every value, equal on every platform for equal
+    /// tolerances. Different tolerances hash differently.
+    pub fn content_hash(&self) -> u64 {
+        let mut h = ContentHasher::new();
+        h.write_str("procgena_terrain::TinTolerance");
+        for domain in [&self.general, &self.water] {
+            h.write_f64(domain.height);
+            h.write_bool(domain.gradient.is_some());
+            h.write_f64(domain.gradient.unwrap_or(0.0));
+            h.write_f64(domain.max_edge);
+        }
+        h.write_f64(self.water_band);
+        h.write_f64(self.chord);
+        h.write_usize(self.vertex_budget);
+        h.write_u32(match self.sampling {
+            TinSampling::Adaptive => 0,
+            TinSampling::EveryMetre => 1,
+        });
+        h.finish()
     }
 
     /// Whether every value is in range.

@@ -8,19 +8,19 @@ use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkSource};
 use crate::feature::{FeatureId, FeatureTier};
 
 use super::mesh::{ConstraintKind, TinVertex};
-use super::numeric::{MM_PER_M, Mm, MmHeight};
+use super::numeric::{CM_PER_M, Cm, CmHeight};
 use super::probe::{ProbeAddr, TinError, sample_heights};
 use super::resolve::Pt;
-use super::sampling::STEP_MM;
+use super::sampling::STEP_CM;
 use super::tolerance::TinTolerance;
 use super::water::Water;
 
-/// The width of a finest-level chunk in whole millimetres.
-pub(crate) const CHUNK_MM: i64 = (CHUNK_SIZE * MM_PER_M) as i64;
+/// The width of a finest-level chunk in whole centimetres.
+pub(crate) const CHUNK_CM: i64 = (CHUNK_SIZE * CM_PER_M) as i64;
 
-/// How far apart the ground is sampled along a chunk edge, in millimetres:
+/// How far apart the ground is sampled along a chunk edge, in centimetres:
 /// every lattice point. Contract vertices sit on these samples.
-const EDGE_PROBE_MM: i64 = STEP_MM;
+const EDGE_PROBE_CM: i64 = STEP_CM;
 
 /// Which way a chunk edge runs from its first corner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -76,33 +76,33 @@ impl ChunkEdgeKey {
         ]
     }
 
-    /// The edge's first corner, in millimetres.
-    pub fn start(self) -> (Mm, Mm) {
-        (Mm(self.x * CHUNK_MM), Mm(self.z * CHUNK_MM))
+    /// The edge's first corner, in centimetres.
+    pub fn start(self) -> (Cm, Cm) {
+        (Cm(self.x * CHUNK_CM), Cm(self.z * CHUNK_CM))
     }
 
-    /// The edge from grid corner `corner` (millimetres, on the chunk grid)
+    /// The edge from grid corner `corner` (centimetres, on the chunk grid)
     /// along `axis`.
     pub(crate) fn from_corner(corner: Pt, axis: EdgeAxis) -> Self {
-        debug_assert!(corner.0 % CHUNK_MM == 0 && corner.1 % CHUNK_MM == 0);
+        debug_assert!(corner.0 % CHUNK_CM == 0 && corner.1 % CHUNK_CM == 0);
         Self {
-            x: corner.0.div_euclid(CHUNK_MM),
-            z: corner.1.div_euclid(CHUNK_MM),
+            x: corner.0.div_euclid(CHUNK_CM),
+            z: corner.1.div_euclid(CHUNK_CM),
             axis,
         }
     }
 
-    /// The edge's last corner, in millimetres.
-    fn end(self) -> (Mm, Mm) {
-        self.at(CHUNK_MM)
+    /// The edge's last corner, in centimetres.
+    fn end(self) -> (Cm, Cm) {
+        self.at(CHUNK_CM)
     }
 
-    /// The point `along` millimetres from the first corner.
-    fn at(self, along: i64) -> (Mm, Mm) {
+    /// The point `along` centimetres from the first corner.
+    fn at(self, along: i64) -> (Cm, Cm) {
         let (x, z) = self.start();
         match self.axis {
-            EdgeAxis::X => (Mm(x.0 + along), z),
-            EdgeAxis::Z => (x, Mm(z.0 + along)),
+            EdgeAxis::X => (Cm(x.0 + along), z),
+            EdgeAxis::Z => (x, Cm(z.0 + along)),
         }
     }
 }
@@ -112,7 +112,7 @@ impl ChunkEdgeKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EdgeCrossing {
     /// Where, x and z.
-    pub at: (Mm, Mm),
+    pub at: (Cm, Cm),
     /// What the line is.
     pub kind: ConstraintKind,
     /// The feature it follows.
@@ -165,10 +165,10 @@ impl EdgeContract {
         source: &dyn ChunkSource,
         key: ChunkEdgeKey,
         tolerance: &TinTolerance,
-    ) -> Result<(Self, Vec<(usize, MmHeight)>), TinError> {
+    ) -> Result<(Self, Vec<(usize, CmHeight)>), TinError> {
         assert!(tolerance.is_valid(), "invalid tolerance {tolerance:?}");
         let (start, end) = (key.start(), key.end());
-        let corner_m = |(x, z): (Mm, Mm)| DVec2::new(x.to_m(), z.to_m());
+        let corner_m = |(x, z): (Cm, Cm)| DVec2::new(x.to_m(), z.to_m());
         let (lo, hi) = (corner_m(start), corner_m(end));
         let features = source.lines_within(lo, hi, FeatureTier::Fine);
         let water = Water::new(&features, tolerance, lo, hi);
@@ -180,7 +180,7 @@ impl EdgeContract {
             .filter_map(|piece| {
                 let at = piece.edge_crossing(key)?;
                 (!water.hidden_at(piece, at)).then_some(EdgeCrossing {
-                    at: (Mm(at.0), Mm(at.1)),
+                    at: (Cm(at.0), Cm(at.1)),
                     kind: piece.kind,
                     feature: piece.feature,
                 })
@@ -191,9 +191,9 @@ impl EdgeContract {
 
         // Samples every metre, corners included, and at each crossing; the
         // corners and crossings are kept.
-        let along = |at: (Mm, Mm)| (at.0.0 - start.0.0) + (at.1.0 - start.1.0);
-        let mut stations: Vec<(i64, bool)> = (0..=CHUNK_MM / EDGE_PROBE_MM)
-            .map(|i| (i * EDGE_PROBE_MM, i == 0 || i == CHUNK_MM / EDGE_PROBE_MM))
+        let along = |at: (Cm, Cm)| (at.0.0 - start.0.0) + (at.1.0 - start.1.0);
+        let mut stations: Vec<(i64, bool)> = (0..=CHUNK_CM / EDGE_PROBE_CM)
+            .map(|i| (i * EDGE_PROBE_CM, i == 0 || i == CHUNK_CM / EDGE_PROBE_CM))
             .chain(crossings.iter().map(|c| (along(c.at), true)))
             .collect();
         stations.sort();
@@ -244,7 +244,7 @@ impl EdgeContract {
                 .filter_map(|i| {
                     let t = (stations[i].0 - sa) as f64 / (sb - sa) as f64;
                     let error = (f64::from(heights[i].0) - (ha + (hb - ha) * t)).abs();
-                    (error > domain(i).height * MM_PER_M).then_some((i, error))
+                    (error > domain(i).height * CM_PER_M).then_some((i, error))
                 })
                 .fold(None, |best: Option<(usize, f64)>, c| match best {
                     Some(best) if c.1 <= best.1 => Some(best),
@@ -257,7 +257,7 @@ impl EdgeContract {
             };
             let split = if let Some((worst, _)) = worst {
                 worst
-            } else if (sb - sa) as f64 > max_edge * MM_PER_M {
+            } else if (sb - sa) as f64 > max_edge * CM_PER_M {
                 (a + b) / 2
             } else {
                 continue;
@@ -277,8 +277,8 @@ impl EdgeContract {
         let samples = stations
             .iter()
             .zip(&heights)
-            .filter(|((s, _), _)| s % EDGE_PROBE_MM == 0)
-            .map(|(&(s, _), &h)| ((s / EDGE_PROBE_MM) as usize, h))
+            .filter(|((s, _), _)| s % EDGE_PROBE_CM == 0)
+            .map(|(&(s, _), &h)| ((s / EDGE_PROBE_CM) as usize, h))
             .collect();
         Ok((
             Self {

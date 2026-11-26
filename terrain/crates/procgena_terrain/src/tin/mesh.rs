@@ -4,20 +4,20 @@
 use crate::chunk::ChunkKey;
 use crate::feature::FeatureId;
 
-use super::numeric::{Mm, MmHeight, NumericProfile};
+use super::numeric::{Cm, CmHeight, NumericProfile};
 
 /// A vertex of a canonical mesh: a world position and the ground height
-/// there, in whole millimetres.
+/// there, in whole centimetres.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TinVertex {
-    pub x: Mm,
-    pub z: Mm,
-    pub h: MmHeight,
+    pub x: Cm,
+    pub z: Cm,
+    pub h: CmHeight,
 }
 
 impl TinVertex {
     /// The vertex's position across the ground, x and z.
-    pub fn xz(self) -> (Mm, Mm) {
+    pub fn xz(self) -> (Cm, Cm) {
         (self.x, self.z)
     }
 }
@@ -80,9 +80,9 @@ pub struct TinConstraint {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UnmetTolerance {
     /// Where the error is largest, x and z.
-    pub at: (Mm, Mm),
+    pub at: (Cm, Cm),
     /// How far the mesh is from the ground there.
-    pub error: MmHeight,
+    pub error: CmHeight,
 }
 
 /// A straight piece of a feature line that a chunk's mesh leaves out:
@@ -92,9 +92,9 @@ pub struct UnmetTolerance {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DroppedConstraint {
     /// One end, x and z.
-    pub from: (Mm, Mm),
+    pub from: (Cm, Cm),
     /// The other end, x and z.
-    pub to: (Mm, Mm),
+    pub to: (Cm, Cm),
     /// What the piece was.
     pub kind: ConstraintKind,
     /// The feature it followed.
@@ -115,6 +115,12 @@ pub struct TinChunk {
     pub key: ChunkKey,
     /// The numeric rules it was built under.
     pub profile: NumericProfile,
+    /// The [`content_hash`](super::TinTolerance::content_hash) of the
+    /// tolerance it was built within, or `None` for a mesh triangulated
+    /// from given vertices (see [`triangulate`](super::triangulate)).
+    /// Part of the mesh's hash: the same chunk built within different
+    /// tolerances hashes differently.
+    pub tolerance: Option<u64>,
     /// Vertices, sorted by z, then x.
     pub vertices: Vec<TinVertex>,
     /// Triangles, each starting at its smallest index, sorted.

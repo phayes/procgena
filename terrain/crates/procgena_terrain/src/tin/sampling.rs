@@ -19,13 +19,13 @@ use crate::carve::FeatureKind;
 use crate::chunk::{ChunkFeature, ChunkFeatureShape, ChunkSource};
 use crate::ports::BANK_REACH;
 
-use super::numeric::{MM_PER_M, Mm, MmHeight};
+use super::numeric::{CM_PER_M, Cm, CmHeight};
 use super::probe::{ProbeAddr, TinError, sample_heights};
 use super::tolerance::{TinSampling, TinTolerance};
 use super::water::Water;
 
-/// How far apart lattice points are, in millimetres.
-pub(crate) const STEP_MM: i64 = 1000;
+/// How far apart lattice points are, in centimetres.
+pub(crate) const STEP_CM: i64 = 100;
 
 /// The widest a cell (or a stretch of a chunk edge) starts, in lattice
 /// steps. A power of two that divides a chunk's width.
@@ -88,7 +88,7 @@ impl<'a> DenseNear<'a> {
         Self {
             water,
             roads,
-            water_reach: tolerance.water_band + STEP_MM as f64 / MM_PER_M,
+            water_reach: tolerance.water_band + STEP_CM as f64 / CM_PER_M,
             everywhere: tolerance.general.gradient.is_some()
                 || tolerance.sampling == TinSampling::EveryMetre,
         }
@@ -112,27 +112,27 @@ impl<'a> DenseNear<'a> {
     }
 }
 
-/// The largest a coarse cell's points may stray from flat, in millimetres
+/// The largest a coarse cell's points may stray from flat, in centimetres
 /// (see [`DETAIL_SHARE`]).
 pub(crate) fn detail_limit(tolerance: &TinTolerance) -> f64 {
-    DETAIL_SHARE * tolerance.general.height * MM_PER_M
+    DETAIL_SHARE * tolerance.general.height * CM_PER_M
 }
 
 /// How much closer than its tolerance the mesh follows a sample of a cell
-/// left coarse, in millimetres (see [`MARGIN_SHARE`]).
+/// left coarse, in centimetres (see [`MARGIN_SHARE`]).
 pub(crate) fn coarse_margin(tolerance: &TinTolerance) -> f64 {
-    MARGIN_SHARE * tolerance.general.height * MM_PER_M
+    MARGIN_SHARE * tolerance.general.height * CM_PER_M
 }
 
 /// Ground sampled on part of the lattice over a square `side` points
 /// across.
 pub(crate) struct SparseSquare {
-    /// The square's smallest corner, in millimetres.
+    /// The square's smallest corner, in centimetres.
     pub(crate) origin: (i64, i64),
     /// Points along a side.
     pub(crate) side: usize,
     /// Heights, row by row along x; 0 where not sampled.
-    pub(crate) heights: Vec<MmHeight>,
+    pub(crate) heights: Vec<CmHeight>,
     /// Whether each point is sampled.
     pub(crate) sampled: Vec<bool>,
     /// Whether each point is a sample of a cell left coarse, with lattice
@@ -142,8 +142,8 @@ pub(crate) struct SparseSquare {
 
 impl SparseSquare {
     /// Samples the ground of `source` over the square from `origin`
-    /// (millimetres) `side` points across: first every [`COARSEST`] steps,
-    /// then finer in each cell that bends more than `limit` millimetres or
+    /// (centimetres) `side` points across: first every [`COARSEST`] steps,
+    /// then finer in each cell that bends more than `limit` centimetres or
     /// that `dense` needs, down to every step. `known` are points already
     /// sampled (lattice column, row and height), which aren't read again.
     ///
@@ -154,7 +154,7 @@ impl SparseSquare {
         source: &dyn ChunkSource,
         origin: (i64, i64),
         side: usize,
-        known: &[(usize, usize, MmHeight)],
+        known: &[(usize, usize, CmHeight)],
         dense: &DenseNear,
         limit: f64,
     ) -> Result<Self, TinError> {
@@ -162,7 +162,7 @@ impl SparseSquare {
         let mut square = Self {
             origin,
             side,
-            heights: vec![MmHeight(0); side * side],
+            heights: vec![CmHeight(0); side * side],
             sampled: vec![false; side * side],
             coarse: vec![false; side * side],
         };
@@ -256,8 +256,8 @@ impl SparseSquare {
             .map(|&i| {
                 let (c, r) = ((i % self.side) as i64, (i / self.side) as i64);
                 ProbeAddr::new(
-                    Mm(self.origin.0 + c * STEP_MM),
-                    Mm(self.origin.1 + r * STEP_MM),
+                    Cm(self.origin.0 + c * STEP_CM),
+                    Cm(self.origin.1 + r * STEP_CM),
                 )
             })
             .collect();
@@ -271,7 +271,7 @@ impl SparseSquare {
 
     /// How far the middle and side midpoints of the cell `s` steps wide at
     /// column `c` and row `r` stray from the flat surface through its
-    /// corners, in millimetres.
+    /// corners, in centimetres.
     fn bend(&self, c: usize, r: usize, s: usize) -> f64 {
         let h = |c: usize, r: usize| i64::from(self.heights[r * self.side + c].0);
         let half = s / 2;
@@ -292,8 +292,8 @@ impl SparseSquare {
     fn needs(&self, dense: &DenseNear, c: usize, r: usize, s: usize) -> bool {
         let at = |c: usize, r: usize| {
             DVec2::new(
-                Mm(self.origin.0 + c as i64 * STEP_MM).to_m(),
-                Mm(self.origin.1 + r as i64 * STEP_MM).to_m(),
+                Cm(self.origin.0 + c as i64 * STEP_CM).to_m(),
+                Cm(self.origin.1 + r as i64 * STEP_CM).to_m(),
             )
         };
         dense.needs(at(c, r), at(c + s, r + s))

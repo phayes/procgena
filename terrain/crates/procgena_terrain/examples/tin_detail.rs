@@ -21,7 +21,7 @@
 use std::sync::Arc;
 
 use glam::DVec2;
-use procgena_terrain::tin::{Mm, ProbeAddr, sample_heights};
+use procgena_terrain::tin::{Cm, ProbeAddr, sample_heights};
 use procgena_terrain::{
     ChunkKey, Elevation, RegionId, TerrainPreset, WorldTerrain, WorldTerrainOptions, fixtures,
 };
@@ -85,15 +85,16 @@ fn main() {
                     let probes: Vec<ProbeAddr> = (0..SIDE * SIDE)
                         .map(|i| {
                             ProbeAddr::new(
-                                Mm(key.x * 64_000 + (i % SIDE) as i64 * 1000),
-                                Mm(key.z * 64_000 + (i / SIDE) as i64 * 1000),
+                                Cm(key.x * 6_400 + (i % SIDE) as i64 * 100),
+                                Cm(key.z * 6_400 + (i / SIDE) as i64 * 100),
                             )
                         })
                         .collect();
                     let Ok(heights) = sample_heights(&world, &probes) else {
                         continue;
                     };
-                    let h: Vec<f64> = heights.iter().map(|h| f64::from(h.0)).collect();
+                    // In millimetres (to the centimetre).
+                    let h: Vec<f64> = heights.iter().map(|h| f64::from(h.0) * 10.0).collect();
                     for (k, &size) in sizes.iter().enumerate() {
                         measure(&h, size, &mut found[k]);
                     }

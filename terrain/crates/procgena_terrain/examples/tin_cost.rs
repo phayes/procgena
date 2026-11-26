@@ -40,13 +40,16 @@ use std::time::Instant;
 
 use glam::DVec2;
 use procgena_terrain::tin::{
-    ChunkEdgeKey, DomainTolerance, EdgeContract, Mm, ProbeAddr, TinChunk, TinTolerance,
+    CM_PER_M, ChunkEdgeKey, Cm, DomainTolerance, EdgeContract, ProbeAddr, TinChunk, TinTolerance,
     TinTriangle, build_chunk, sample_heights,
 };
 use procgena_terrain::{
     ChunkFeature, ChunkFeatureShape, ChunkKey, ChunkSource, Elevation, FeatureKind, FeatureTier,
     RegionId, SurfacePoint, TerrainPreset, WorldTerrain, WorldTerrainOptions, fixtures,
 };
+
+/// A finest-level chunk's width in centimetres.
+const CHUNK_CM: i64 = 6_400;
 
 /// Slope is not measured this close to a water's edge, in metres.
 const CREASE_CLEARANCE: f64 = 1.5;
@@ -238,7 +241,7 @@ struct Stats {
     repeats: usize,
     /// How many 1 m samples the mesh misses by more than their tolerance.
     over: usize,
-    /// The most any of them is over, in millimetres.
+    /// The most any of them is over, in millimetres (to the centimetre).
     over_worst: f64,
 }
 
@@ -288,7 +291,8 @@ impl Stats {
             println!("chunk {key:?} dropped {:?}", mesh.dropped);
         }
 
-        // Errors between the samples, for both meshes.
+        // Errors between the samples, for both meshes, in millimetres (the
+        // meshes and points are in centimetres).
         let water: Vec<ChunkFeature> = world
             .lines_within(key.min_corner(), key.max_corner(), FeatureTier::Fine)
             .into_iter()
@@ -297,39 +301,39 @@ impl Stats {
         let (points, truth, slopes) = between(world, key);
         let grid: Vec<f64> = heights.iter().map(|h| f64::from(h.0)).collect();
         for ((&p, &t), &ground_slope) in points.iter().zip(&truth).zip(&slopes) {
-            let at = DVec2::new(p.0 as f64, p.1 as f64) / 1000.0;
+            let at = DVec2::new(p.0 as f64, p.1 as f64) / CM_PER_M;
             let gap = water_gap(&water, at);
             let near = usize::from(gap < tolerance.water_band);
             let (height, slope) = tin_at(&mesh, p);
-            self.tin[near].push((height - t).abs());
-            self.grid[near].push((grid_height(&grid, key, p) - t).abs());
+            self.tin[near].push((height - t).abs() * 10.0);
+            self.grid[near].push((grid_height(&grid, key, p) - t).abs() * 10.0);
             if gap.abs() >= CREASE_CLEARANCE {
                 self.slope[near].push((slope - ground_slope).length());
             }
         }
 
         // The 1 m samples the mesh misses by more than their tolerance
-        // (plus a millimetre of rounding).
+        // (plus a centimetre of rounding).
         for (&p, h) in lattice.iter().zip(&heights) {
             let gap = water_gap(&water, p.to_m());
             let limit = if gap < tolerance.water_band {
                 tolerance.water.height
             } else {
                 tolerance.general.height
-            } * 1000.0
+            } * CM_PER_M
                 + 1.0;
             let miss = (tin_at(&mesh, (p.x.0, p.z.0)).0 - f64::from(h.0)).abs();
             if miss > limit {
+                let over_mm = (miss - limit) * 10.0;
                 if std::env::var_os("TIN_COST_DEBUG").is_some() {
                     eprintln!(
-                        "over {key:?} at ({}, {}) by {:.0} mm",
-                        p.x.0 - key.x * 64_000,
-                        p.z.0 - key.z * 64_000,
-                        miss - limit
+                        "over {key:?} at ({}, {}) cm by {over_mm:.0} mm",
+                        p.x.0 - key.x * CHUNK_CM,
+                        p.z.0 - key.z * CHUNK_CM,
                     );
                 }
                 self.over += 1;
-                self.over_worst = self.over_worst.max(miss - limit);
+                self.over_worst = self.over_worst.max(over_mm);
             }
         }
         Ok(())
@@ -412,23 +416,23 @@ fn lattice(key: ChunkKey) -> Vec<ProbeAddr> {
         .map(|i| {
             let (col, row) = (i % 65, i / 65);
             ProbeAddr::new(
-                Mm(key.x * 64_000 + col * 1000),
-                Mm(key.z * 64_000 + row * 1000),
+                Cm(key.x * CHUNK_CM + col * 100),
+                Cm(key.z * CHUNK_CM + row * 100),
             )
         })
         .collect()
 }
 
-/// Points between the samples of chunk `key` (millimetres), the ground
-/// there (millimetres, unrounded), and its slope (rise over run) from
+/// Points between the samples of chunk `key` (centimetres), the ground
+/// there (centimetres, unrounded), and its slope (rise over run) from
 /// differences a quarter metre either side.
 fn between(world: &WorldTerrain, key: ChunkKey) -> (Vec<(i64, i64)>, Vec<f64>, Vec<DVec2>) {
     let points: Vec<(i64, i64)> = (0..128 * 128)
         .map(|i| {
             let (col, row) = (i % 128, i / 128);
             (
-                key.x * 64_000 + 250 + col * 500,
-                key.z * 64_000 + 250 + row * 500,
+                key.x * CHUNK_CM + 25 + col * 50,
+                key.z * CHUNK_CM + 25 + row * 50,
             )
         })
         .collect();
@@ -443,7 +447,7 @@ fn between(world: &WorldTerrain, key: ChunkKey) -> (Vec<(i64, i64)>, Vec<f64>, V
     let at: Vec<DVec2> = points
         .iter()
         .flat_map(|&(x, z)| {
-            let p = DVec2::new(x as f64, z as f64) / 1000.0;
+            let p = DVec2::new(x as f64, z as f64) / CM_PER_M;
             offsets.map(|o| p + o)
         })
         .collect();
@@ -452,7 +456,7 @@ fn between(world: &WorldTerrain, key: ChunkKey) -> (Vec<(i64, i64)>, Vec<f64>, V
         .iter()
         .map(|s| f64::from(s.height))
         .collect();
-    let truth = h.chunks(5).map(|s| s[0] * 1000.0).collect();
+    let truth = h.chunks(5).map(|s| s[0] * CM_PER_M).collect();
     let slopes = h
         .chunks(5)
         .map(|s| DVec2::new(s[1] - s[2], s[3] - s[4]) / (2.0 * step))
@@ -460,8 +464,8 @@ fn between(world: &WorldTerrain, key: ChunkKey) -> (Vec<(i64, i64)>, Vec<f64>, V
     (points, truth, slopes)
 }
 
-/// The height (millimetres) and slope (rise over run) of `mesh` at `p`
-/// (millimetres).
+/// The height (centimetres) and slope (rise over run) of `mesh` at `p`
+/// (centimetres).
 fn tin_at(mesh: &TinChunk, p: (i64, i64)) -> (f64, DVec2) {
     mesh.triangles
         .iter()
@@ -495,12 +499,12 @@ fn tin_at(mesh: &TinChunk, p: (i64, i64)) -> (f64, DVec2) {
         .expect("the mesh covers its chunk")
 }
 
-/// The height at `p` (millimetres) of the regular 1 m mesh through
+/// The height at `p` (centimetres) of the regular 1 m mesh through
 /// `heights` (65 × 65, row by row), each square split corner to corner.
 fn grid_height(heights: &[f64], key: ChunkKey, p: (i64, i64)) -> f64 {
     let (fx, fz) = (
-        (p.0 - key.x * 64_000) as f64 / 1000.0,
-        (p.1 - key.z * 64_000) as f64 / 1000.0,
+        (p.0 - key.x * CHUNK_CM) as f64 / CM_PER_M,
+        (p.1 - key.z * CHUNK_CM) as f64 / CM_PER_M,
     );
     let (col, row) = (fx.floor().min(63.0) as usize, fz.floor().min(63.0) as usize);
     let (u, v) = (fx - col as f64, fz - row as f64);

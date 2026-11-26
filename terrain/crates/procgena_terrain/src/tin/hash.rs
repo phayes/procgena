@@ -6,7 +6,7 @@ use crate::carve::FeatureKind;
 use crate::feature::FeatureId;
 
 use super::mesh::{TinChunk, TinConstraint, TinTriangle, TinVertex};
-use super::numeric::MmHeight;
+use super::numeric::CmHeight;
 use super::probe::ProbeAddr;
 
 impl TinChunk {
@@ -60,6 +60,7 @@ impl TinChunk {
         Self {
             key: self.key,
             profile: self.profile,
+            tolerance: self.tolerance,
             vertices,
             triangles,
             constraints,
@@ -76,6 +77,8 @@ impl TinChunk {
         let mut h = ContentHasher::new();
         h.write_str("procgena_terrain::TinChunk");
         h.write_u32(mesh.profile.code());
+        h.write_bool(mesh.tolerance.is_some());
+        h.write_u64(mesh.tolerance.unwrap_or(0));
         h.write_i64(mesh.key.x);
         h.write_i64(mesh.key.z);
         h.write_u32(u32::from(mesh.key.level));
@@ -139,7 +142,7 @@ fn write_feature(h: &mut ContentHasher, feature: Option<FeatureId>) {
 
 /// A hash of heights sampled at probes: the first stage of building a
 /// canonical mesh. Equal on every platform for equal inputs.
-pub fn probes_hash(probes: &[ProbeAddr], heights: &[MmHeight]) -> u64 {
+pub fn probes_hash(probes: &[ProbeAddr], heights: &[CmHeight]) -> u64 {
     let mut h = ContentHasher::new();
     h.write_str("procgena_terrain::probes");
     h.write_usize(probes.len());

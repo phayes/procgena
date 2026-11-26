@@ -337,7 +337,7 @@ blocks. Until then, nothing that depends on it starts.
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
 | D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | Nothing now | **Settled by milestone RS** (the user, 2026-11-25): region size is a World setting, regions can be about 1 km, and larger Biome areas are same-preset neighbours with invisible borders (see RS and the world-generation plan). Research record: [docs/decisions/D4.md](docs/decisions/D4.md). |
 | D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | G7 (scale-aware terrain lengths), and W0's scale pair and class presets (built at scale 1; its image examples tune the class numbers) | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Scale 1 is the Valheim-like medium-small class and the default World (the user, 2026-11-24): small 0.5, medium 2, large 6 × 4, real-life 20 × 8; the earlier presets are test fixtures. Draft: the other class numbers. Open: a World-level river-size field, whether the bank reach scales (the rest of the region floor is settled by RS), Ecotope geometry, floating origin. |
-| D6 | **Canonical ground** (opened 2026-11-25 by the reviews of the road and TIN plans): D6a the deterministic profile (cross-platform bitwise with pinned maths, or same-platform first); D6b what is authoritative at a distance (TIN, `H*`, or `H*` for placement and labels with the TIN for physical ground); D6c whether region borders are mesh constraints; D6d coordinate units and range | CT0 and RB4, and everything after them. RB0–RB3 are not gated | **Decided 2026-11-25:** same-platform bitwise first; `H*` for spots, masks, slope and labels with the TIN for collision and near rest heights; chunk borders only; integer millimetres (`i64` x/z, `i32` heights). Details under "D6 (gate)". |
+| D6 | **Canonical ground** (opened 2026-11-25 by the reviews of the road and TIN plans): D6a the deterministic profile (cross-platform bitwise with pinned maths, or same-platform first); D6b what is authoritative at a distance (TIN, `H*`, or `H*` for placement and labels with the TIN for physical ground); D6c whether region borders are mesh constraints; D6d coordinate units and range | CT0 and RB4, and everything after them. RB0–RB3 are not gated | **Decided 2026-11-25:** same-platform bitwise first; `H*` for spots, masks, slope and labels with the TIN for collision and near rest heights; chunk borders only; integer centimetres (`i64` x/z, `i32` heights; decided by the user 2026-11-26: cm, superseding mm). Details under "D6 (gate)". |
 
 Questions that wait for later milestones, and are decided inside them:
 open questions 2 (Ecotope overlap, in C3), 9 (far copies on coarse
@@ -2082,7 +2082,10 @@ Decided by the user 2026-11-26. The design is in
     their painter's plain material. Then paint on the GPU from the TIN:
     draw each chunk's TIN into a height and normal texture, and feed the
     existing GPU layer pass, with no CPU paint sites. Paint is visual
-    only, so it needs no bitwise parity.
+    only, so it needs no bitwise parity. Take normals from the TIN's own
+    faces (averaged at vertices): `TinChunk::render_mesh`'s shading
+    normals read `H*` four more times per vertex, which painting from
+    the TIN should avoid.
   - When paint returns, spread weight-image creation across frames:
     creating 40 chunks' images at once took 1.5–2.1 s in one frame.
 
@@ -2119,7 +2122,8 @@ Opened 2026-11-25 by the two plans' reviews. **Decided with the user on
 2026-11-25:** D6a same-platform bitwise first (keep `std` maths; pinned
 maths later); D6b `H*` for spots, masks, slope and labels, the TIN for
 collision and near rest heights, far copies on `H*`; D6c chunk borders
-only; D6d integer millimetres, `i64` x/z and `i32` heights. CT0 uses
+only; D6d integer centimetres, `i64` x/z and `i32` heights (decided by
+the user 2026-11-26: cm, superseding the millimetres first chosen). CT0 uses
 spade 2.15 as the triangulator and the core `ContentHasher` for hashes,
 in a `tin` module of `procgena_terrain`.
 
@@ -2135,9 +2139,10 @@ in a `tin` module of `procgena_terrain`.
   and region borders only where a feature or material needs an edge (the
   review's proposal). Or constrain every region border, as the plan
   first said.
-- **D6d, coordinate units and range.** For example integer millimetres in
-  `i64` world space, with 32-bit chunk-local offsets. This follows from
-  D6a and the largest World class (16 km regions).
+- **D6d, coordinate units and range.** Integer units in `i64` world
+  space, with 32-bit chunk-local offsets. This follows from D6a and the
+  largest World class (16 km regions). Decided by the user 2026-11-26:
+  cm, superseding mm.
 
 #### RB0: Road baseline and benchmark corpus
 
@@ -2284,7 +2289,7 @@ in a `tin` module of `procgena_terrain`.
     outline of all water together: capsule edges, arcs at bends and
     ends, sampled to a 5 cm chord) and pond shores are kept edges
     (`src/tin/water.rs`).
-  - **Resolver:** one resolver in exact `i128` millimetres
+  - **Resolver:** one resolver in exact `i128` centimetres
     (`src/tin/resolve.rs`). It cuts lines at chunk edges (edge
     contracts carry the crossings), and where they cross each other.
     A kept line is also sampled every metre along its length and split
@@ -2296,8 +2301,9 @@ in a `tin` module of `procgena_terrain`.
     mesh.
   - **Tests:** with no features, meshes are bit-identical to CT2's.
     `tests/tin.rs` covers a line through a chunk corner, a line along an
-    edge, lines crossing on an edge, tributaries ending 1 mm from their
-    trunk, a crossing 1 mm from an edge sample, and a river ending in a
+    edge, lines crossing on an edge, tributaries ending 1 cm from their
+    trunk, a crossing 1 cm from an edge sample (1 mm before the cm
+    change), and a river ending in a
     pond on a corner, each built in shuffled orders. On a world it
     checks that the bed stays below the water.
   - **`tin_cost --along-river`** (seed 1, 16 chunks; error between
@@ -2458,7 +2464,7 @@ in a `tin` module of `procgena_terrain`.
   today's TIN chunks**, ahead of CT3 and CT4; nothing assumes vertices on
   the 1 m lattice. In `procgena_terrain::tin`:
   - **Queries:** `TinIndex` (an 8 × 8 bin grid per chunk; exact
-    millimetre tests; a point on a shared edge goes to the first triangle
+    centimetre tests; a point on a shared edge goes to the first triangle
     in canonical order), and `GroundSurface` with a batched form on
     `ResidentTins`, which answers only from loaded chunks and never reads
     `H*`.
@@ -2866,7 +2872,8 @@ where the details are.
     - *Details:* [procgena/studio_plan.md](procgena/studio_plan.md),
       "Proposed, not decided" and "Open questions".
 32. **Canonical ground (D6).** **Decided 2026-11-25:** same-platform
-    first, `H*` plus TIN split, chunk borders only, integer millimetres.
+    first, `H*` plus TIN split, chunk borders only, integer centimetres
+    (decided by the user 2026-11-26: cm, superseding mm).
     Only the S1 streaming question below stays open. The options were:
     - *D6a, deterministic profile:* cross-platform bitwise (pinned maths
       such as `libm` on every authoritative path, with a speed cost) or
@@ -2879,8 +2886,8 @@ where the details are.
     - *D6c, region borders:* constrain chunk borders only (the review's
       proposal, since terrains already meet in height and slope there), or
       every region border too.
-    - *D6d, units:* for example integer millimetres in `i64`, with 32-bit
-      chunk-local offsets.
+    - *D6d, units:* integer units in `i64`, with 32-bit chunk-local
+      offsets (now centimetres).
     - *Also:* should S1's World-wide streaming wait for CT5 and stream TIN
       chunks, or stream height chunks first and switch later?
     - *Details:* TIN plan section 21, road plan section 17, ARCHITECTURE

@@ -11,22 +11,22 @@ use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkSource};
 use crate::feature::FeatureTier;
 
 use super::cdt::ChunkCdt;
-use super::contract::{CHUNK_MM, ChunkEdgeKey, EdgeAxis, EdgeContract};
+use super::contract::{CHUNK_CM, ChunkEdgeKey, EdgeAxis, EdgeContract};
 use super::mesh::{TinChunk, TinVertex, UnmetTolerance};
-use super::numeric::{MM_PER_M, Mm, MmHeight};
+use super::numeric::{CM_PER_M, Cm, CmHeight};
 use super::probe::{ProbeAddr, TinError, sample_heights};
 use super::resolve::{Piece, Pt, Square, point_along, resolve_chunk, untangle};
-use super::sampling::{DenseNear, STEP_MM, SparseSquare, coarse_margin, detail_limit};
+use super::sampling::{DenseNear, STEP_CM, SparseSquare, coarse_margin, detail_limit};
 use super::tolerance::{DomainTolerance, TinTolerance};
 use super::water::Water;
 
-/// How far apart lattice points are across a chunk, in millimetres: the
+/// How far apart lattice points are across a chunk, in centimetres: the
 /// points refinement vertices sit on. The same spacing as along chunk
 /// edges.
-const LATTICE_MM: i64 = STEP_MM;
+const LATTICE_CM: i64 = STEP_CM;
 
 /// Lattice points along a chunk's side, both corners included.
-const SIDE: usize = (CHUNK_SIZE as i64 * MM_PER_M as i64 / LATTICE_MM) as usize + 1;
+const SIDE: usize = (CHUNK_SIZE as i64 * CM_PER_M as i64 / LATTICE_CM) as usize + 1;
 
 /// Slope is not checked at samples this close to a water's edge, in
 /// metres: the ground creases there, and the lattice's slope estimate
@@ -84,13 +84,13 @@ pub fn build_chunk(
 
     // The lattice points the contracts sampled, as lattice columns and
     // rows of the chunk.
-    let border: Vec<(usize, usize, MmHeight)> = built
+    let border: Vec<(usize, usize, CmHeight)> = built
         .iter()
         .zip(edges)
         .flat_map(|((_, samples), edge)| {
             let (col, row) = (
-                ((edge.start().0.0 - key.x * CHUNK_MM) / LATTICE_MM) as usize,
-                ((edge.start().1.0 - key.z * CHUNK_MM) / LATTICE_MM) as usize,
+                ((edge.start().0.0 - key.x * CHUNK_CM) / LATTICE_CM) as usize,
+                ((edge.start().1.0 - key.z * CHUNK_CM) / LATTICE_CM) as usize,
             );
             samples.iter().map(move |&(i, h)| match edge.axis {
                 EdgeAxis::X => (col + i, row, h),
@@ -107,8 +107,8 @@ pub fn build_chunk(
     let square = Square {
         lo: (x0.0, z0.0),
         hi: (
-            x0.0 + (SIDE as i64 - 1) * LATTICE_MM,
-            z0.0 + (SIDE as i64 - 1) * LATTICE_MM,
+            x0.0 + (SIDE as i64 - 1) * LATTICE_CM,
+            z0.0 + (SIDE as i64 - 1) * LATTICE_CM,
         ),
     };
     let resolved = resolve_chunk(
@@ -131,7 +131,7 @@ pub fn build_chunk(
     ends.dedup();
     let probes: Vec<ProbeAddr> = ends
         .iter()
-        .map(|&(x, z)| ProbeAddr::new(Mm(x), Mm(z)))
+        .map(|&(x, z)| ProbeAddr::new(Cm(x), Cm(z)))
         .collect();
     let heights = sample_heights(source, &probes)?;
     let line_vertices: Vec<TinVertex> = probes
@@ -149,7 +149,7 @@ pub fn build_chunk(
 
 /// `pieces` (which cross nothing) cut further so each follows the ground
 /// along its length: each is sampled about every metre (at points rounded
-/// to the millimetre, strictly inside `square`), and, like an edge
+/// to the centimetre, strictly inside `square`), and, like an edge
 /// contract, a stretch gets a vertex at the sample it misses most among
 /// those it misses by more than their height tolerance, or at its middle
 /// sample if it is longer than its longest edge allows. A sample within
@@ -169,7 +169,7 @@ fn follow_ground(
                 (piece.b.0 - piece.a.0) as f64,
                 (piece.b.1 - piece.a.1) as f64,
             );
-            let n = ((dx * dx + dz * dz).sqrt() / LATTICE_MM as f64)
+            let n = ((dx * dx + dz * dz).sqrt() / LATTICE_CM as f64)
                 .ceil()
                 .max(1.0) as i128;
             let mut at = vec![piece.a];
@@ -186,7 +186,7 @@ fn follow_ground(
     let probes: Vec<ProbeAddr> = stations
         .iter()
         .flatten()
-        .map(|&(x, z)| ProbeAddr::new(Mm(x), Mm(z)))
+        .map(|&(x, z)| ProbeAddr::new(Cm(x), Cm(z)))
         .collect();
     let mut heights = sample_heights(source, &probes)?.into_iter();
 
@@ -199,7 +199,7 @@ fn follow_ground(
             .map(|h| f64::from(h.0))
             .collect();
         let domain = |p: Pt| {
-            let m = DVec2::new(Mm(p.0).to_m(), Mm(p.1).to_m());
+            let m = DVec2::new(Cm(p.0).to_m(), Cm(p.1).to_m());
             if water.gap(m) < tolerance.water_band {
                 &tolerance.water
             } else {
@@ -223,7 +223,7 @@ fn follow_ground(
                 .filter_map(|i| {
                     let t = (along(i) - sa) / (sb - sa);
                     let error = (h[i] - (h[a] + (h[b] - h[a]) * t)).abs();
-                    (error > domain(at[i]).height * MM_PER_M).then_some((i, error))
+                    (error > domain(at[i]).height * CM_PER_M).then_some((i, error))
                 })
                 .fold(None, |best: Option<(usize, f64)>, c| match best {
                     Some(best) if c.1 <= best.1 => Some(best),
@@ -234,7 +234,7 @@ fn follow_ground(
                 .fold(f64::INFINITY, f64::min);
             let split = if let Some((worst, _)) = worst {
                 worst
-            } else if sb - sa > max_edge * MM_PER_M {
+            } else if sb - sa > max_edge * CM_PER_M {
                 (a + b) / 2
             } else {
                 continue;
@@ -255,13 +255,13 @@ fn follow_ground(
 /// The ground sampled on part of the 1 m lattice over one chunk (see
 /// [`SparseSquare`]), with each sample's tolerance.
 pub(crate) struct Lattice {
-    /// The chunk's smallest corner, in millimetres.
+    /// The chunk's smallest corner, in centimetres.
     origin: (i64, i64),
     /// Heights, row by row along x, `SIDE` by `SIDE`; 0 where not sampled.
-    heights: Vec<MmHeight>,
+    heights: Vec<CmHeight>,
     /// Whether each point is sampled.
     sampled: Vec<bool>,
-    /// The most the mesh may miss each sample by, in millimetres: its
+    /// The most the mesh may miss each sample by, in centimetres: its
     /// domain's height tolerance, less [`coarse_margin`] where the sample
     /// stands for a cell left coarse.
     limits: Vec<f64>,
@@ -281,7 +281,7 @@ impl Lattice {
     pub(crate) fn sample(
         source: &dyn ChunkSource,
         key: ChunkKey,
-        border: &[(usize, usize, MmHeight)],
+        border: &[(usize, usize, CmHeight)],
         water: &Water,
         dense: &DenseNear,
         tolerance: &TinTolerance,
@@ -304,8 +304,8 @@ impl Lattice {
         let at = |i: usize| {
             let (col, row) = ((i % SIDE) as i64, (i / SIDE) as i64);
             DVec2::new(
-                Mm(x0.0 + col * LATTICE_MM).to_m(),
-                Mm(z0.0 + row * LATTICE_MM).to_m(),
+                Cm(x0.0 + col * LATTICE_CM).to_m(),
+                Cm(z0.0 + row * LATTICE_CM).to_m(),
             )
         };
         let gaps: Vec<f64> = (0..SIDE * SIDE)
@@ -327,7 +327,7 @@ impl Lattice {
                     &tolerance.general
                 };
                 let slack = if coarse[i] { margin } else { 0.0 };
-                domain.height * MM_PER_M - slack
+                domain.height * CM_PER_M - slack
             })
             .collect();
 
@@ -353,7 +353,7 @@ impl Lattice {
                 }
                 let (col, row) = (i % SIDE, i / SIDE);
                 let diff = |lo: usize, hi: usize, at: &dyn Fn(usize) -> f64| {
-                    (at(hi) - at(lo)) / ((hi - lo) as f64 * LATTICE_MM as f64)
+                    (at(hi) - at(lo)) / ((hi - lo) as f64 * LATTICE_CM as f64)
                 };
                 let (cl, ch) = (col.saturating_sub(1), (col + 1).min(SIDE - 1));
                 let (rl, rh) = (row.saturating_sub(1), (row + 1).min(SIDE - 1));
@@ -376,8 +376,8 @@ impl Lattice {
     /// The vertex at lattice column `col` and row `row`.
     fn vertex(&self, col: usize, row: usize) -> TinVertex {
         TinVertex {
-            x: Mm(self.origin.0 + col as i64 * LATTICE_MM),
-            z: Mm(self.origin.1 + row as i64 * LATTICE_MM),
+            x: Cm(self.origin.0 + col as i64 * LATTICE_CM),
+            z: Cm(self.origin.1 + row as i64 * LATTICE_CM),
             h: self.heights[row * SIDE + col],
         }
     }
@@ -394,8 +394,8 @@ impl Lattice {
     /// The lattice column and row of `v`, if it sits on the lattice.
     fn lattice_of(&self, v: TinVertex) -> Option<(usize, usize)> {
         let (dx, dz) = (v.x.0 - self.origin.0, v.z.0 - self.origin.1);
-        (dx % LATTICE_MM == 0 && dz % LATTICE_MM == 0)
-            .then_some(((dx / LATTICE_MM) as usize, (dz / LATTICE_MM) as usize))
+        (dx % LATTICE_CM == 0 && dz % LATTICE_CM == 0)
+            .then_some(((dx / LATTICE_CM) as usize, (dz / LATTICE_CM) as usize))
     }
 }
 
@@ -404,13 +404,13 @@ impl Lattice {
 struct Candidate {
     /// Whether an edge is longer than the tolerance allows.
     too_long: bool,
-    /// How far the triangle misses its worst sample, in millimetres.
+    /// How far the triangle misses its worst sample, in centimetres.
     error: i64,
     /// Whether that miss is more than the sample's height tolerance.
     misses: bool,
     /// The triangle's corners by position (sorted by z, then x): ties go
     /// to the smallest.
-    position: Reverse<[(Mm, Mm); 3]>,
+    position: Reverse<[(Cm, Cm); 3]>,
     /// The triangle, anticlockwise in (x, z).
     face: [u32; 3],
     /// Where to split it: lattice column and row.
@@ -482,18 +482,26 @@ pub(crate) fn refine(
             }
         }
     }
+    // Only misses beyond the stated tolerance are unmet: a sample standing
+    // for a coarse cell is split at a tighter limit, but missing only that
+    // still meets the tolerance.
     let unmet = unmet
         .into_iter()
-        .filter(|c| c.misses)
+        .filter(|c| {
+            c.misses && c.error as f64 > lattice.domain(c.worst, tolerance).height * CM_PER_M
+        })
         .map(|c| {
             let v = lattice.vertex(c.worst.0, c.worst.1);
             UnmetTolerance {
                 at: (v.x, v.z),
-                error: MmHeight(i32::try_from(c.error).unwrap_or(i32::MAX)),
+                error: CmHeight(i32::try_from(c.error).unwrap_or(i32::MAX)),
             }
         })
         .collect();
-    chunk.to_chunk(unmet)
+    TinChunk {
+        tolerance: Some(tolerance.content_hash()),
+        ..chunk.to_chunk(unmet)
+    }
 }
 
 /// Scores triangles against the lattice.
@@ -524,7 +532,7 @@ impl Scorer<'_> {
     ) -> Option<Candidate> {
         let lattice = self.lattice;
         let corners = face.map(|i| chunk.vertices()[i as usize]);
-        // Corners in millimetres from the chunk's corner, where the
+        // Corners in centimetres from the chunk's corner, where the
         // orientation tests are exact.
         let [a, b, c] = corners.map(|v| (v.x.0 - lattice.origin.0, v.z.0 - lattice.origin.1));
         let orient = |p: (i64, i64), q: (i64, i64), r: (i64, i64)| {
@@ -541,8 +549,8 @@ impl Scorer<'_> {
         let last = (SIDE - 1) as i64;
         let cell = |lo: i64, hi: i64| {
             (
-                lo.div_euclid(LATTICE_MM) + i64::from(lo.rem_euclid(LATTICE_MM) != 0),
-                hi.div_euclid(LATTICE_MM),
+                lo.div_euclid(LATTICE_CM) + i64::from(lo.rem_euclid(LATTICE_CM) != 0),
+                hi.div_euclid(LATTICE_CM),
             )
         };
         let (lo_x, hi_x) = cell(a.0.min(b.0).min(c.0), a.0.max(b.0).max(c.0));
@@ -556,7 +564,7 @@ impl Scorer<'_> {
         let mut steepest: Option<(f64, (usize, usize))> = None;
         for z in lo_z..=hi_z {
             for x in lo_x..=hi_x {
-                let p = (x * LATTICE_MM, z * LATTICE_MM);
+                let p = (x * LATTICE_CM, z * LATTICE_CM);
                 let (wa, wb, wc) = (orient(b, c, p), orient(c, a, p), orient(a, b, p));
                 if wa < 0 || wb < 0 || wc < 0 {
                     continue;
@@ -571,7 +579,7 @@ impl Scorer<'_> {
                 }
                 let domain = lattice.domain(at, self.tolerance);
                 // How far the flat triangle misses the sample, exactly, in
-                // whole millimetres (rounded down).
+                // whole centimetres (rounded down).
                 let flat = i128::from(wa) * heights[0]
                     + i128::from(wb) * heights[1]
                     + i128::from(wc) * heights[2];
@@ -605,7 +613,7 @@ impl Scorer<'_> {
             self.tolerance.water.max_edge
         } else {
             self.tolerance.general.max_edge
-        } * MM_PER_M;
+        } * CM_PER_M;
         let too_long = [(a, b), (b, c), (c, a)].iter().any(|&(p, q)| {
             let (dx, dz) = (p.0 - q.0, p.1 - q.1);
             ((dx * dx + dz * dz) as f64).sqrt() > max_edge

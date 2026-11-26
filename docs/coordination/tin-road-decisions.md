@@ -34,8 +34,10 @@ lives in ROADMAP.md ("Canonical ground and roads track").
   borders are not, so the `R ∩ C` patch work is superseded, and region
   ownership comes from the region graph. A region border is constrained only
   where something needs an edge there.
-- **D6d, coordinates.** Canonical integer millimetres: `i64` x/z and `i32`
-  heights. spade works in exact chunk-local `f64`.
+- **D6d, coordinates.** Canonical integer centimetres: `i64` x/z and `i32`
+  heights (`Cm`, `CmHeight`, `NumericProfile::SamePlatformV2`). Decided by
+  the user 2026-11-26: cm, superseding mm. spade works in exact
+  chunk-local `f64`.
 - **Feature tiers.** Only the Fine tier is canonical. Rough and Mid stay
   provisional, with today's skirts and stand-ins, so edge contracts exist for
   Fine chunks only.

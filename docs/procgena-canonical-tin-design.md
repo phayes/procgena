@@ -95,7 +95,8 @@ The following Rust types are illustrative; exact serialization and indexing are 
 ```rust
 #[derive(Clone, Copy, Debug)]
 pub struct TerrainVertex {
-    // Illustrative canonical integer units; resolution to be validated.
+    // Canonical integer centimetres (D6d; built as `TinVertex` with
+    // `Cm` x/z and a `CmHeight` height).
     pub x_q: i64,
     pub z_q: i64,
     pub height_q: i64,
@@ -201,7 +202,7 @@ Use configurable profiles rather than one universal tolerance. The following val
 
 | Domain | Height error | Gradient error (rise/run) | Maximum edge length |
 |---|---:|---:|---:|
-| Road and shoulder | 0.05 m | 0.01 | 2–5 m along alignment |
+| Road and shoulder | 0.10 m (0.05 m before the cm units of 2026-11-26) | 0.01 | 2–5 m along alignment |
 | River bed and banks | 0.10 m | 0.03 | 2–5 m |
 | General terrain | 0.5 m | 0.05 | 25–50 m |
 | Distant low-detail terrain | 2 m | 0.10 | 100 m |
@@ -867,7 +868,7 @@ Proposed: triangulate each level-0 chunk as a whole, and answer region ownership
 
 The GPU kernels of section 13 face the same question, since WGSL's `exp` and `pow` are not exact. So exact GPU parity for any stage that evaluates `H*` needs either the same deterministic approximations implemented on both sides, or that stage kept off the canonical path.
 
-**Decided 2026-11-25: same-platform bitwise first.** `std` maths stays; pinned maths for cross-platform identity is a later milestone. Coordinates are canonical integer millimetres (`i64` x/z, `i32` heights; D6d).
+**Decided 2026-11-25: same-platform bitwise first.** `std` maths stays; pinned maths for cross-platform identity is a later milestone. Coordinates are canonical integer centimetres (`i64` x/z, `i32` heights; D6d; decided by the user 2026-11-26: cm, superseding mm).
 
 ### 21.5 Fit with work already built or planned
 

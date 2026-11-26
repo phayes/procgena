@@ -1,5 +1,5 @@
 //! The one place feature lines are cut where they cross each other and
-//! where they cross chunk edges, in whole millimetres and exact integer
+//! where they cross chunk edges, in whole centimetres and exact integer
 //! arithmetic. Edge contracts and chunks both take their crossing vertices
 //! from here, so neighbours agree on them.
 
@@ -7,13 +7,13 @@ use std::collections::BTreeSet;
 
 use crate::feature::FeatureId;
 
-use super::contract::{CHUNK_MM, ChunkEdgeKey, EdgeAxis};
+use super::contract::{CHUNK_CM, ChunkEdgeKey, EdgeAxis};
 use super::mesh::ConstraintKind;
 
-/// A point across the ground, x and z in whole millimetres.
+/// A point across the ground, x and z in whole centimetres.
 pub(crate) type Pt = (i64, i64);
 
-/// One straight piece of a feature line, ends in whole millimetres, with
+/// One straight piece of a feature line, ends in whole centimetres, with
 /// its smaller end first (by x, then z). Pieces sort by kind first, which
 /// is also their precedence: where two pieces conflict and one must go,
 /// the later one goes.
@@ -104,16 +104,16 @@ fn round_div(n: i128, d: i128) -> i128 {
     }
 }
 
-/// The point `a + (b - a) * t_num / t_den`, rounded to whole millimetres.
+/// The point `a + (b - a) * t_num / t_den`, rounded to whole centimetres.
 pub(crate) fn point_along(a: Pt, b: Pt, t_num: i128, t_den: i128) -> Pt {
     let step = |from: i64, to: i64| {
         from + i64::try_from(round_div(i128::from(to - from) * t_num, t_den))
-            .expect("a point between two millimetre points fits")
+            .expect("a point between two centimetre points fits")
     };
     (step(a.0, b.0), step(a.1, b.1))
 }
 
-/// Where segments `p` and `q` cross, rounded to whole millimetres, if they
+/// Where segments `p` and `q` cross, rounded to whole centimetres, if they
 /// cross properly: each passes strictly from one side of the other to the
 /// other side. The answer does not depend on which is given first.
 pub(crate) fn crossing(p: (Pt, Pt), q: (Pt, Pt)) -> Option<Pt> {
@@ -140,7 +140,7 @@ fn strictly_on(a: Pt, b: Pt, c: Pt) -> bool {
     }
 }
 
-/// Where segment `a`–`b` meets chunk edge `edge`, in whole millimetres, or
+/// Where segment `a`–`b` meets chunk edge `edge`, in whole centimetres, or
 /// `None` if it doesn't, or runs along the edge's line (where the edge
 /// itself is the constraint).
 ///
@@ -195,10 +195,10 @@ fn edge_crossing(a: Pt, b: Pt, carrier: (Pt, Pt), edge: ChunkEdgeKey) -> Option<
         let num = i128::from(v1 - v0) * i128::from(line - u0);
         v0 + i64::try_from(round_div(num, i128::from(u1 - u0))).expect("fits")
     };
-    (lo..=lo + CHUNK_MM).contains(&v).then(|| join(line, v))
+    (lo..=lo + CHUNK_CM).contains(&v).then(|| join(line, v))
 }
 
-/// A finest-level chunk's square, in whole millimetres.
+/// A finest-level chunk's square, in whole centimetres.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Square {
     pub lo: Pt,
@@ -258,7 +258,7 @@ const MAX_ROUNDS: usize = 16;
 /// only if that crossing is one of `border` (the vertices of the chunk's
 /// edge contracts) or a corner. Pieces `drop` says to leave out (such as a
 /// water's edge inside other water) are left out after cutting. Where two
-/// pieces cross, both are cut at the crossing (rounded to a millimetre
+/// pieces cross, both are cut at the crossing (rounded to a centimetre
 /// strictly inside the chunk), until nothing crosses; a piece's end lying
 /// on another piece cuts that piece there; overlapping pieces keep one
 /// copy. A piece left out for reaching the border away from `border` is
@@ -329,7 +329,7 @@ pub(crate) fn resolve_chunk(
 
 /// Cuts `pieces` (inside chunk `square`, ends included) at every crossing
 /// between them, until nothing crosses: both pieces at a crossing (rounded
-/// to a millimetre strictly inside the square), a piece at another's end
+/// to a centimetre strictly inside the square), a piece at another's end
 /// lying on it, and overlapping pieces into one copy. Returns the pieces,
 /// sorted, and those left out because they still crossed a piece that
 /// takes precedence after [`MAX_ROUNDS`] rounds.
@@ -440,21 +440,18 @@ mod tests {
             axis: EdgeAxis::Z,
         };
         let own = |a: Pt, b: Pt| edge_crossing(a, b, (a, b), edge);
-        // Across x = 64 000 mm.
-        assert_eq!(
-            own((63_000, 10_000), (65_000, 10_001)),
-            Some((64_000, 10_001))
-        );
-        assert_eq!(own((64_000, 5), (65_000, 10_001)), Some((64_000, 5)));
+        // Across x = 6 400 cm.
+        assert_eq!(own((6_300, 1_000), (6_500, 1_001)), Some((6_400, 1_001)));
+        assert_eq!(own((6_400, 5), (6_500, 1_001)), Some((6_400, 5)));
         // Along the edge: the edge is the constraint.
-        assert_eq!(own((64_000, 5), (64_000, 10)), None);
+        assert_eq!(own((6_400, 5), (6_400, 10)), None);
         // Beyond the corners.
-        assert_eq!(own((63_000, -10), (65_000, -10)), None);
+        assert_eq!(own((6_300, -10), (6_500, -10)), None);
     }
 
     #[test]
     fn pieces_of_one_straight_edge_cross_a_chunk_edge_together() {
-        // Two pieces of the edge from (0, 0) to (100 m, 0.4 m), starting at
+        // Two pieces of the edge from (0, 0) to (100 m, 4 m), starting at
         // different rounded points of it, cross x = 64 m where the whole
         // edge does, wherever they start.
         let edge = ChunkEdgeKey {
@@ -462,7 +459,7 @@ mod tests {
             z: 0,
             axis: EdgeAxis::Z,
         };
-        let line = ((0, 0), (100_000, 400));
+        let line = ((0, 0), (10_000, 400));
         let kind = ConstraintKind::RiverEdge;
         let feature = FeatureId {
             kind: crate::carve::FeatureKind::River,
@@ -470,9 +467,9 @@ mod tests {
         };
         let whole = Piece::new(kind, feature, line.0, line.1).unwrap();
         let at = whole.edge_crossing(edge).unwrap();
-        assert_eq!(at, (64_000, 256));
-        for start in [(40_001, 160), (63_999, 256), (10_000, 39)] {
-            let piece = Piece::on_line(kind, feature, start, (90_000, 360), line).unwrap();
+        assert_eq!(at, (6_400, 256));
+        for start in [(4_001, 160), (6_399, 256), (1_000, 39)] {
+            let piece = Piece::on_line(kind, feature, start, (9_000, 360), line).unwrap();
             assert_eq!(piece.edge_crossing(edge), Some(at), "from {start:?}");
         }
     }

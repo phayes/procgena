@@ -16,7 +16,7 @@ use crate::feature::FeatureId;
 use crate::{FeatureKind, FeatureLine};
 
 use super::mesh::ConstraintKind;
-use super::numeric::{MM_PER_M, Mm};
+use super::numeric::{CM_PER_M, Cm};
 use super::resolve::{Piece, Pt};
 use super::tolerance::TinTolerance;
 
@@ -131,7 +131,7 @@ impl Water {
                 let n = steps(std::f64::consts::TAU, disc.radius, tolerance.chord).max(8);
                 let at = |j: usize| {
                     let angle = std::f64::consts::TAU * j as f64 / n as f64;
-                    mm(disc.centre + DVec2::new(angle.cos(), angle.sin()) * disc.radius)
+                    cm(disc.centre + DVec2::new(angle.cos(), angle.sin()) * disc.radius)
                 };
                 for j in 0..n {
                     water.pieces.extend(Piece::new(
@@ -144,8 +144,8 @@ impl Water {
             }
         }
 
-        let (lo_mm, hi_mm) = (mm(lo), mm(hi));
-        water.pieces.retain(|p| p.near_box(lo_mm, hi_mm));
+        let (lo_cm, hi_cm) = (cm(lo), cm(hi));
+        water.pieces.retain(|p| p.near_box(lo_cm, hi_cm));
         water.pieces.sort();
         water.pieces.dedup();
         water
@@ -164,10 +164,10 @@ impl Water {
         rivers.chain(ponds).fold(f64::INFINITY, f64::min)
     }
 
-    /// Whether `p` (millimetres) lies well inside water, further in than
+    /// Whether `p` (centimetres) lies well inside water, further in than
     /// the pieces of curved edges can stray.
     pub(crate) fn inside(&self, p: Pt) -> bool {
-        self.gap(DVec2::new(Mm(p.0).to_m(), Mm(p.1).to_m())) < -self.inset
+        self.gap(DVec2::new(Cm(p.0).to_m(), Cm(p.1).to_m())) < -self.inset
     }
 
     /// Whether `piece` is a water's edge whose middle lies well inside
@@ -180,11 +180,11 @@ impl Water {
         let middle = DVec2::new(
             (piece.a.0 + piece.b.0) as f64,
             (piece.a.1 + piece.b.1) as f64,
-        ) / (2.0 * MM_PER_M);
+        ) / (2.0 * CM_PER_M);
         edge && self.gap(middle) < -self.inset
     }
 
-    /// Whether `piece` is a water's edge and `at` (millimetres) lies well
+    /// Whether `piece` is a water's edge and `at` (centimetres) lies well
     /// inside water: a point where the piece is not part of the outline of
     /// all the water together, so no edge contract keeps a crossing there.
     pub(crate) fn hidden_at(&self, piece: &Piece, at: Pt) -> bool {
@@ -221,9 +221,9 @@ fn capsule_near(capsule: &Capsule, lo: DVec2, hi: DVec2, margin: f64) -> bool {
     min.cmple(hi).all() && max.cmpge(lo).all()
 }
 
-/// `p` (metres) in whole millimetres.
-fn mm(p: DVec2) -> Pt {
-    let to = |v: f64| Mm::from_m(v).expect("feature lines lie within the world").0;
+/// `p` (metres) in whole centimetres.
+fn cm(p: DVec2) -> Pt {
+    let to = |v: f64| Cm::from_m(v).expect("feature lines lie within the world").0;
     (to(p.x), to(p.y))
 }
 
@@ -306,7 +306,7 @@ impl<'a> River<'a> {
     /// the river starts or ends.
     fn pieces(&self, k: usize, id: FeatureId, chord: f64, out: &mut Vec<Piece>) {
         let (a, b, hw) = self.segment(k as isize).expect("a segment of the river");
-        out.extend(Piece::new(ConstraintKind::RiverThalweg, id, mm(a), mm(b)));
+        out.extend(Piece::new(ConstraintKind::RiverThalweg, id, cm(a), cm(b)));
         let n = left((b - a).normalize());
         let prev = self.segment(k as isize - 1);
         let next = self.segment(k as isize + 1);
@@ -317,12 +317,12 @@ impl<'a> River<'a> {
                 .unwrap_or(b + n * (side * hw));
             // Measured on the whole segment's edge, so where it crosses a
             // chunk edge doesn't depend on the rivers listed beside it.
-            let carrier = (mm(a + n * (side * hw)), mm(b + n * (side * hw)));
+            let carrier = (cm(a + n * (side * hw)), cm(b + n * (side * hw)));
             out.extend(Piece::on_line(
                 ConstraintKind::RiverEdge,
                 id,
-                mm(start),
-                mm(end),
+                cm(start),
+                cm(end),
                 carrier,
             ));
             // Turning away from this side at the start: round it off.
@@ -396,8 +396,8 @@ fn arc(centre: DVec2, from: DVec2, to: DVec2, chord: f64, id: FeatureId, out: &m
         out.extend(Piece::new(
             ConstraintKind::RiverEdge,
             id,
-            mm(point(j)),
-            mm(point(j + 1)),
+            cm(point(j)),
+            cm(point(j + 1)),
         ));
     }
 }

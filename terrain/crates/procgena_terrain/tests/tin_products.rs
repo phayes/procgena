@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use glam::{DVec2, DVec3, Vec3};
 use procgena_terrain::tin::{
-    ChunkEdgeKey, EdgeContract, GroundSurface, Mm, MmHeight, ResidentTins, TinChunk, TinIndex,
+    ChunkEdgeKey, Cm, CmHeight, EdgeContract, GroundSurface, ResidentTins, TinChunk, TinIndex,
     TinTolerance, TinVertex, build_chunk, triangulate,
 };
 use procgena_terrain::{
@@ -57,7 +57,7 @@ fn orient(a: (i64, i64), b: (i64, i64), c: (i64, i64)) -> i64 {
 }
 
 /// The lowest-numbered triangle of `chunk` whose closed area holds the
-/// millimetre point `p`, by checking every triangle.
+/// centimetre point `p`, by checking every triangle.
 fn brute_locate(chunk: &TinChunk, p: (i64, i64)) -> Option<u32> {
     chunk
         .triangles
@@ -76,20 +76,20 @@ fn brute_locate(chunk: &TinChunk, p: (i64, i64)) -> Option<u32> {
 /// inside it, as feature lines will add.
 fn off_lattice_chunk() -> Arc<TinChunk> {
     let key = ChunkKey::new(2, -1, 0);
-    let height = |x: i64, z: i64| MmHeight(((x / 7 + z / 11) % 9000) as i32);
+    let height = |x: i64, z: i64| CmHeight(((x / 7 + z / 11) % 9000) as i32);
     let contracts = ChunkEdgeKey::of_chunk(key).map(|edge| {
         let (x0, z0) = edge.start();
-        // Each edge gets one vertex 12.345 m along, besides its corners.
+        // Each edge gets one vertex 12.34 m along, besides its corners.
         let along = |t: i64| match edge.axis {
             procgena_terrain::tin::EdgeAxis::X => (x0.0 + t, z0.0),
             procgena_terrain::tin::EdgeAxis::Z => (x0.0, z0.0 + t),
         };
-        let vertices = [0, 12_345, 64_000]
+        let vertices = [0, 1_234, 6_400]
             .map(|t| {
                 let (x, z) = along(t);
                 TinVertex {
-                    x: Mm(x),
-                    z: Mm(z),
+                    x: Cm(x),
+                    z: Cm(z),
                     h: height(x, z),
                 }
             })
@@ -100,12 +100,12 @@ fn off_lattice_chunk() -> Arc<TinChunk> {
             crossings: Vec::new(),
         }
     });
-    let (x0, z0) = (128_000, -64_000);
-    let interior: Vec<TinVertex> = [(31_234, 27_001), (5_555, 50_505), (48_017, 9_999)]
+    let (x0, z0) = (12_800, -6_400);
+    let interior: Vec<TinVertex> = [(3_123, 2_701), (555, 5_051), (4_817, 999)]
         .into_iter()
         .map(|(u, w)| TinVertex {
-            x: Mm(x0 + u),
-            z: Mm(z0 + w),
+            x: Cm(x0 + u),
+            z: Cm(z0 + w),
             h: height(x0 + u, z0 + w),
         })
         .collect();
@@ -119,11 +119,11 @@ fn off_lattice_chunk() -> Arc<TinChunk> {
 /// Millimetre points over chunk `key`'s closed square: a grid with an odd
 /// spacing, every vertex, and points along every triangle edge.
 fn probe_points(chunk: &TinChunk) -> Vec<(i64, i64)> {
-    let (x0, z0) = (chunk.key.x * 64_000, chunk.key.z * 64_000);
+    let (x0, z0) = (chunk.key.x * 6_400, chunk.key.z * 6_400);
     let mut points = Vec::new();
     for j in 0..=173 {
         for i in 0..=173 {
-            points.push((x0 + i * 64_000 / 173, z0 + j * 64_000 / 173));
+            points.push((x0 + i * 6_400 / 173, z0 + j * 6_400 / 173));
         }
     }
     points.extend(chunk.vertices.iter().map(|v| (v.x.0, v.z.0)));
@@ -133,7 +133,7 @@ fn probe_points(chunk: &TinChunk) -> Vec<(i64, i64)> {
                 chunk.vertices[t.0[k] as usize],
                 chunk.vertices[t.0[(k + 1) % 3] as usize],
             );
-            // The edge's midpoint, when it is a whole millimetre.
+            // The edge's midpoint, when it is a whole centimetre.
             if (a.x.0 + b.x.0) % 2 == 0 && (a.z.0 + b.z.0) % 2 == 0 {
                 points.push(((a.x.0 + b.x.0) / 2, (a.z.0 + b.z.0) / 2));
             }
@@ -142,9 +142,9 @@ fn probe_points(chunk: &TinChunk) -> Vec<(i64, i64)> {
     points
 }
 
-/// The millimetre point as metres.
+/// The centimetre point as metres.
 fn metres(p: (i64, i64)) -> DVec2 {
-    DVec2::new(p.0 as f64 / 1000.0, p.1 as f64 / 1000.0)
+    DVec2::new(p.0 as f64 / 100.0, p.1 as f64 / 100.0)
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn lookup_finds_the_first_triangle_holding_each_point() {
             assert_eq!(found, brute_locate(&chunk, p), "at {p:?}");
         }
         // Outside the chunk's square there is nothing.
-        let (x0, z0) = (chunk.key.x * 64_000, chunk.key.z * 64_000);
+        let (x0, z0) = (chunk.key.x * 6_400, chunk.key.z * 6_400);
         assert_eq!(index.locate(metres((x0 - 1, z0 + 5))), None);
         assert_eq!(index.locate(metres((x0 + 64_001, z0 + 5))), None);
     }
@@ -192,7 +192,7 @@ fn heights_meet_the_vertices_and_agree_across_edges() {
                     .map(|k| w[k] as f64 * f64::from(corners[k].h.0))
                     .sum::<f64>()
                     / area
-                    / 1000.0;
+                    / 100.0;
                 assert!(
                     (h - s.height).abs() < 1e-9,
                     "triangle {t} gives {h} at {p:?}, the lookup {}",
@@ -209,10 +209,10 @@ fn neighbouring_chunks_agree_on_their_shared_side() {
         TinIndex::new(hill_chunk(0, 0)),
         TinIndex::new(hill_chunk(1, 0)),
     );
-    for z in (0..=64_000).step_by(250) {
-        let p = metres((64_000, z));
+    for z in (0..=6_400).step_by(25) {
+        let p = metres((6_400, z));
         let (ha, hb) = (a.sample(p).unwrap().height, b.sample(p).unwrap().height);
-        assert!((ha - hb).abs() < 1e-9, "at z = {z} mm: {ha} against {hb}");
+        assert!((ha - hb).abs() < 1e-9, "at z = {z} cm: {ha} against {hb}");
     }
 }
 
@@ -238,7 +238,7 @@ fn loaded_chunks_answer_only_for_points_they_own() {
     // shares with chunk -1.
     tins.remove(ChunkKey::new(0, 0, 0));
     assert_eq!(tins.sample(DVec2::new(0.0, 30.0)), None);
-    assert!(tins.sample(DVec2::new(-0.001, 30.0)).is_some());
+    assert!(tins.sample(DVec2::new(-0.01, 30.0)).is_some());
 }
 
 #[test]
@@ -299,10 +299,10 @@ fn the_drawn_mesh_is_the_canonical_one_with_split_sides() {
         assert!((upward_area(&plain) - 64.0 * 64.0).abs() < 1e-6);
         for (i, v) in chunk.vertices.iter().enumerate() {
             // Local positions are f32, so exact to well within a
-            // millimetre.
+            // centimetre.
             let p = world(&plain, i);
-            assert_eq!((p.x * 1000.0).round() as i64, v.x.0);
-            assert_eq!((p.z * 1000.0).round() as i64, v.z.0);
+            assert_eq!((p.x * 100.0).round() as i64, v.x.0);
+            assert_eq!((p.z * 100.0).round() as i64, v.z.0);
             assert_eq!(plain.positions[i].y, v.h.to_m() as f32);
         }
 
@@ -314,23 +314,23 @@ fn the_drawn_mesh_is_the_canonical_one_with_split_sides() {
         let mut border: BTreeSet<(i64, i64)> = BTreeSet::new();
         for i in 0..split.positions.len() {
             let p = world(&split, i);
-            let mm = ((p.x * 1000.0).round() as i64, (p.z * 1000.0).round() as i64);
-            let height = chunk.border_height(Mm(mm.0), Mm(mm.1));
+            let cm = ((p.x * 100.0).round() as i64, (p.z * 100.0).round() as i64);
+            let height = chunk.border_height(Cm(cm.0), Cm(cm.1));
             if let Some(h) = height {
-                border.insert(mm);
+                border.insert(cm);
                 assert_eq!(split.positions[i].y, h as f32);
             }
             // Every vertex, old or new, lies on the canonical surface.
             let canonical = index.sample(DVec2::new(p.x, p.z)).unwrap().height;
             assert!((canonical - p.y).abs() < 1e-3, "{p} off the surface");
         }
-        let (x0, z0) = (chunk.key.x * 64_000, chunk.key.z * 64_000);
-        for t in (0..=64_000).step_by(1000) {
+        let (x0, z0) = (chunk.key.x * 6_400, chunk.key.z * 6_400);
+        for t in (0..=6_400).step_by(100) {
             for p in [
                 (x0 + t, z0),
-                (x0 + t, z0 + 64_000),
+                (x0 + t, z0 + 6_400),
                 (x0, z0 + t),
-                (x0 + 64_000, z0 + t),
+                (x0 + 6_400, z0 + t),
             ] {
                 assert!(border.contains(&p), "no vertex at {p:?}");
             }
@@ -354,7 +354,7 @@ fn shading_matches_regular_chunks_where_they_share_vertices() {
         .mesh(Transitions::NONE, 0.0);
     for (v, n) in chunk.vertices.iter().zip(&normals) {
         // Lattice vertex (i, j) is regular vertex j × 65 + i.
-        let (i, j) = (v.x.0 / 1000, v.z.0 / 1000);
+        let (i, j) = (v.x.0 / 100, v.z.0 / 100);
         let r = regular.normals[(j * 65 + i) as usize];
         assert!((*n - r).length() < 1e-5, "{n} against {r} at {v:?}");
     }
@@ -367,15 +367,15 @@ fn regular(key: ChunkKey, transitions: Transitions, skirt: f32) -> ChunkMesh {
         .mesh(transitions, skirt)
 }
 
-/// The world positions, in millimetres, and heights of `mesh`'s vertices
-/// on the line `x = line_mm` between `z0` and `z1` millimetres, the highest
+/// The world positions, in centimetres, and heights of `mesh`'s vertices
+/// on the line `x = line_cm` between `z0` and `z1` centimetres, the highest
 /// at each position.
-fn on_side(mesh: &ChunkMesh, line_mm: i64, (z0, z1): (i64, i64)) -> BTreeMap<i64, f32> {
+fn on_side(mesh: &ChunkMesh, line_cm: i64, (z0, z1): (i64, i64)) -> BTreeMap<i64, f32> {
     let mut found = BTreeMap::new();
     for i in 0..mesh.positions.len() {
         let p = world(mesh, i);
-        let (x, z) = ((p.x * 1000.0).round() as i64, (p.z * 1000.0).round() as i64);
-        if x == line_mm && (z0..=z1).contains(&z) {
+        let (x, z) = ((p.x * 100.0).round() as i64, (p.z * 100.0).round() as i64);
+        if x == line_cm && (z0..=z1).contains(&z) {
             let y = found.entry(z).or_insert(f32::NEG_INFINITY);
             *y = y.max(mesh.positions[i].y);
         }
@@ -395,7 +395,7 @@ fn regular_neighbours_fit_the_canonical_border_exactly() {
     let cases = [
         (
             regular(ChunkKey::new(0, 0, 0), Transitions::NONE, 8.0),
-            64_000,
+            6_400,
         ),
         (
             regular(
@@ -403,13 +403,13 @@ fn regular_neighbours_fit_the_canonical_border_exactly() {
                 Transitions::NONE.with_side(ChunkSide::MinX),
                 8.0,
             ),
-            128_000,
+            12_800,
         ),
     ];
     let tolerance = TinTolerance::GENERAL.general.height as f32;
     for (mut neighbour, line) in cases {
-        let ours = on_side(&tin, line, (0, 64_000));
-        let before = on_side(&neighbour, line, (0, 64_000));
+        let ours = on_side(&tin, line, (0, 6_400));
+        let before = on_side(&neighbour, line, (0, 6_400));
         assert_eq!(
             ours.keys().collect::<Vec<_>>(),
             before.keys().collect::<Vec<_>>(),
@@ -426,9 +426,9 @@ fn regular_neighbours_fit_the_canonical_border_exactly() {
         // their depth.
         let moved = chunk.fit_neighbour(&mut neighbour);
         assert_eq!(moved, 65);
-        assert_eq!(on_side(&neighbour, line, (0, 64_000)), ours);
+        assert_eq!(on_side(&neighbour, line, (0, 6_400)), ours);
         let lowest: f32 = (0..neighbour.positions.len())
-            .filter(|&i| ((world(&neighbour, i).x * 1000.0).round() as i64) == line)
+            .filter(|&i| ((world(&neighbour, i).x * 100.0).round() as i64) == line)
             .map(|i| neighbour.positions[i].y)
             .fold(f32::INFINITY, f32::min);
         let edge_lowest = ours.values().copied().fold(f32::INFINITY, f32::min);
@@ -449,9 +449,9 @@ fn the_collider_is_the_canonical_mesh() {
         );
         for (p, v) in collider.vertices.iter().zip(&chunk.vertices) {
             let expected = Vec3::new(
-                ((v.x.0 - chunk.key.x * 64_000) as f64 / 1000.0) as f32,
+                ((v.x.0 - chunk.key.x * 6_400) as f64 / 100.0) as f32,
                 v.h.to_m() as f32,
-                ((v.z.0 - chunk.key.z * 64_000) as f64 / 1000.0) as f32,
+                ((v.z.0 - chunk.key.z * 6_400) as f64 / 100.0) as f32,
             );
             assert_eq!(*p, expected);
         }
