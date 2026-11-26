@@ -1,5 +1,8 @@
 # Cheap region borders (TB): design
 
+> **Ground paint removed 2026-11-26** (the user): mentions of paint below
+> are history; the terrain draws flat grey.
+
 Decided by the user 2026-11-26: "the cheap borders" and "no blending at all
 between same-preset neighbours. Lets start there." Options 6 and 7 of
 [speedup_options.md](speedup_options.md). Status lives in

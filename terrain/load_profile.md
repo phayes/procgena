@@ -1,5 +1,8 @@
 # Terrain load profile
 
+> **Ground paint removed 2026-11-26** (the user): the paint costs measured
+> below no longer exist; the terrain draws flat grey.
+
 Where a cold terrain load spends its time, measured 2026-11-26 on the M1 Max
 (10 cores), in release, with the timings in the Data section below. Milestones
 and items link to [ROADMAP.md](../ROADMAP.md); their status lives there.

@@ -1,5 +1,12 @@
 # Studio revamp: plan
 
+> **Ground paint removed 2026-11-26** (the user): the ground-materials
+> overlay, the terrain's ground textures and GM0–GM5 are gone, and the
+> terrain view draws flat grey. The Ecotope editor's ground-layer panel is
+> kept unconnected for Biome ground paint (ROADMAP BP), with the ground
+> texture list and the texture download machinery. Mentions of ground
+> paint below are history.
+
 Status: **planned with the user on 2026-11-24.** The choices under
 "Decisions" are the user's. Everything marked "proposed" is a
 recommendation the user has not decided; each is listed under "Open

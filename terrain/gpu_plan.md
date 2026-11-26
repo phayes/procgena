@@ -1,5 +1,10 @@
 # Terrain on the GPU: a TIN-centred plan
 
+> **Paint parts removed 2026-11-26** (the user): ground paint, its sites,
+> weights and GPU2 no longer exist; the terrain draws flat grey. Mentions
+> of paint below are history. Biome ground paint from labels is ROADMAP
+> BP.
+
 A plan only: it contains no engine code. Status lives in
 [ROADMAP.md](../ROADMAP.md), and the milestones named here link there.
 

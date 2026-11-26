@@ -1,5 +1,9 @@
 # GPU terrain implementation
 
+> **Paint parts removed 2026-11-26** (the user): the GPU ground painting
+> described here (weights, `gpu_ground`, the layer shader) is gone; the
+> terrain draws flat grey. Biome ground paint from labels is ROADMAP BP.
+
 2026-11-25. Implementation of the GPU stages in `edit_cache_plan.md`,
 starting with ground painting because every streamed chunk has weights.
 

@@ -1,5 +1,8 @@
 # Terrain loading: algorithmic speed-up options (2026-11-26)
 
+> **Ground paint removed 2026-11-26** (the user): options that speed up
+> paint no longer apply; the terrain draws flat grey.
+
 Answers to the user's request for alternative architectures and coarser
 constraints that give large algorithmic speed-ups on **one worker thread**,
 with roads and rivers off. The sources are a code-only review by Codex and

@@ -122,8 +122,8 @@ its block in ROADMAP; this list says only what the demo can use.
 | Piece | Where | What the demo gets | Gap for the demo |
 |-------|-------|--------------------|------------------|
 | World of Biomes | `procgena_world` (W0) | `World`, `.world.yml` presets, a Biome per region, region seeds, land through `WorldTerrain` | Biomes are empty (no Ecotopes yet, B0); cover is chosen by the demo |
-| Terrain and streaming | `procgena_terrain`, `procgena_terrain_bevy` | `TerrainPlugin` streams chunks around a `TerrainViewer`, chunk levels by size on screen, rivers, roads, ponds as `TerrainWater`, ground materials and textures; `WorldTerrain` implements `Ground` | No colliders; the first build of a region is slow in dev builds (minutes, per CLAUDE.md), seconds-scale in release |
-| Ecotopes | `procgena_biome`, `procgena_biome_bevy` | `EcotopeParams { ecotope, seed, ground, area, coverage, patch }` places a whole Ecotope (trees, stones, dead wood, mushrooms, plants) on any `Ground`, in the background, with painted ground layers | One area per entity, no streaming; tree Scatters are capped at 2048 m (`MAX_SCATTER_SIZE`) |
+| Terrain and streaming | `procgena_terrain`, `procgena_terrain_bevy` | `TerrainPlugin` streams chunks around a `TerrainViewer`, chunk levels by size on screen, rivers, roads, ponds as `TerrainWater`, flat grey ground (paint removed 2026-11-26; BP); `WorldTerrain` implements `Ground` | No colliders; the first build of a region is slow in dev builds (minutes, per CLAUDE.md), seconds-scale in release |
+| Ecotopes | `procgena_biome`, `procgena_biome_bevy` | `EcotopeParams { ecotope, seed, ground, area, coverage, patch }` places a whole Ecotope (trees, stones, dead wood, mushrooms, plants) on any `Ground`, in the background, over a plain grey ground patch | One area per entity, no streaming; tree Scatters are capped at 2048 m (`MAX_SCATTER_SIZE`) |
 | Trees | `procgena_tree`, `procgena_tree_bevy` | Wind (`Wind` resource over `WindParams`), impostors, fruit as attached copies | Impostors do not sway |
 | Grass and plants | `procgena_plant_bevy` | GPU grass with `PlantWind` (direction, strength, gust scale and speed, sway, flutter), `PlantSun`, shadows policy, trampling by interactors from avian or rapier colliders (`avian`, `rapier` features) | Grass wind and tree wind are separate resources (the "One wind" rule plans to merge them) |
 | Stones, dead wood, mushrooms, fruit, clumps | each asset's crates | Drawn through the shared instanced renderer with the distance chain; dead wood is natural "log" scenery | No colliders built from `game_level` (deferred by IX) |
@@ -183,7 +183,8 @@ workspace member only after its files exist.
   question for C2's world-anchored ids, not something the demo papers over.
 - **The edge**: beyond the area, terrain keeps streaming to the horizon,
   bare, under distance fog and the far-forest tint once
-  [GM5](../ROADMAP.md#gm5-far-grass-and-forest-tints) exists. The glider's
+  Biome ground paint ([BP](../ROADMAP.md#bp-biome-ground-paint-from-labels-and-segmentation))
+  exists. The glider's
   ceiling and a turning wind keep the player inside.
 - **Colliders**: for each terrain chunk at the finest level within about
   100 m, an avian trimesh collider from the chunk mesh; trunks as capsules
@@ -360,8 +361,8 @@ material and lists what to ask of the engine crates.
 - **Wind**: a layered wind bed whose level and filter follow
   `WindState.strength`, leaf rustle near trees, and airspeed roar on the
   glider.
-- **Footsteps** by ground material (the painted ground layers say grass,
-  needles, soil, rock).
+- **Footsteps** by ground material (from the terrain's labels until
+  Biome ground paint, BP, says grass, needles, soil, rock).
 - **Music**: three or four calm pieces, each recorded as stems (for
   example a base pad, a melodic line, a flight layer), mixed by time of
   day, wind and flight. Silence between pieces is part of the design.
@@ -481,7 +482,7 @@ Status lives in each ROADMAP block; this says what the demo needs and when.
 | [ED](../ROADMAP.md#ed-ecotope-draw-speed): Ecotope draw speed | Fast first placement of many tiles (loading time) | L1 |
 | [IX](../ROADMAP.md#ix-experiment-lean-heavily-on-impostors): impostors | How close impostors can come, and the frame budget from the glider; impostor sway in wind is an ask | L4, L5 |
 | "One wind" (ARCHITECTURE.md, asset alignment rule 9) | One wind resource for trees, grass and clumps | Nice for L3; the demo maps both until then |
-| [GM5](../ROADMAP.md#gm5-far-grass-and-forest-tints) | Far forest tint beyond the play area | L5 |
+| [BP](../ROADMAP.md#bp-biome-ground-paint-from-labels-and-segmentation) | Far forest tint beyond the play area (GM5 was removed with ground paint, 2026-11-26) | L5 |
 | [R4](../ROADMAP.md#r4-promotion-and-bevy-queries-everywhere) and [X1](../ROADMAP.md#x1-edits-interaction-core-queries-hooks-and-meshscatter) | Promoting the tree under the axe, removing and replacing copies (felled tree, stump), colliders from `game_level` (deferred by IX) | L7, once chopping is added |
 | [FF](../ROADMAP.md#ff-the-far-field-drawn-to-the-horizon-later) | Forest to the horizon from the glider | After L8 |
 
@@ -499,7 +500,7 @@ approved; R6 and R7 approved for later; R3 deferred.
 | R2 | New item, `procgena_biome_bevy` | Read access to a placed Ecotope's copies (position, scale, specimen bounds, kind) from Bevy, for example on `EcotopeFinished` | **Add** a small item: hand out the engine-free `EcotopePlacement` (it already holds the copies) once placing finishes | The demo builds trunk colliders, leaf emitters in crowns and bird-call spots from it; without it the demo must place the Ecotope twice | Nothing measurable; a few hours |
 | R3 | "One wind" (ARCHITECTURE.md, asset alignment rule 9) | One wind resource and shader module for trees, grass and clumps | **Move earlier**, as a demo-sized slice: one shared wind resource in `procgena_core_bevy` that tree and plant read, before the full shader merge | The whistle is the heart of the experience; one source of wind keeps trees and grass in step and removes the demo's mapping layer | Touches every asset's Bevy crate (one rebuild wave); otherwise small |
 | R4 | [ED](../ROADMAP.md#ed-ecotope-draw-speed) | Fast first placement of the play area's tiles, and no shader-compile stalls after the loading screen | **Un-defer** the pipeline warm-up as an API a game can call behind a loading screen | 0.3–1.6 s stalls in the first minute are the first thing a player notices; a studio can live with them, an experience can't | Small; ED's other items unchanged |
-| R5 | [GM5](../ROADMAP.md#gm5-far-grass-and-forest-tints) | Far forest tint beyond the play area | **Move earlier**, ahead of L5 | Until S1, everything outside the play area is bare land; from the glider the tint is what makes it read as forest to the horizon | Whatever GM5 currently follows in the ground materials track |
+| R5 | [BP](../ROADMAP.md#bp-biome-ground-paint-from-labels-and-segmentation) (was GM5, removed 2026-11-26) | Far forest tint beyond the play area | **Move earlier**, ahead of L5; waits for BP | Until S1, everything outside the play area is bare land; from the glider the tint is what makes it read as forest to the horizon | Whatever BP is ordered behind |
 | R6 | [S1](../ROADMAP.md#s1-streaming) | Cover streaming around the player | **Cut down to a demo-sized slice**: single-Biome streaming over one Terrain on CPU placement, which S1 already lists as able to start earlier (needs B1, G6, R2, I2), ahead of GP | Ends the play area's edge, so the player can glide anywhere | GP and R3's GPU building for deadwood, mushroom and tree move later |
 | R7 | [R4](../ROADMAP.md#r4-promotion-and-bevy-queries-everywhere) and [X1](../ROADMAP.md#x1-edits-interaction-core-queries-hooks-and-meshscatter) | Promote the tree under the axe; Remove and Replace edits for tree copies (felled tree, stump) | **For chopping, later:** **cut down** to a demo slice: promotion and Remove/Replace edits for tree copies in one Ecotope, in session memory (no saving) | Chopping as a ritual needs only these two edits | C2's remaining work and X1's queries and hooks, if the slice jumps ahead of them |
 | R8 | [CT5](../ROADMAP.md#ct5-products-and-streaming) | Collision that matches the drawn ground | **No change.** Ask only that CT5's collision product be easy for a game to turn into a physics collider per chunk | L1 works on chunk-mesh colliders until then | Nothing |
@@ -510,7 +511,7 @@ approved; R6 and R7 approved for later; R3 deferred.
   flight model and tests, all of L6's audio code and asset sourcing, the
   art direction and reference shots. The demo is a consumer, so it rebuilds
   only when the crates it uses change.
-- **Waits on engine:** L4's frame budget (IX), L5's far view (GM5, IX),
+- **Waits on engine:** L4's frame budget (IX), L5's far view (BP, IX),
   L7's felling (R4, X1), L8 (S1, CT5, W1).
 - **Contention to plan for:** the demo build pulls in every asset's Bevy
   crate, so it rebuilds after most engine changes. Demo workers run scoped

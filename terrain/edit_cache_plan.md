@@ -1,5 +1,9 @@
 # Terrain edits: caching and incremental rebuilds
 
+> **Ground paint removed 2026-11-26** (the user): the ground-paint and
+> GPU2 parts below no longer apply; the terrain draws flat grey. Biome
+> ground paint from labels is ROADMAP BP.
+
 A decision document, not a build log. It answers the user's questions:
 
 - will a cache make terrain editing fast;
