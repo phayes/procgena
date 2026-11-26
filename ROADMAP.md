@@ -1990,6 +1990,42 @@ goals."
   its first picture before this change (rivers and roads on or off), and
   had not settled after 15.
 
+#### TO: Disabled features cost nothing
+
+Speed-up option 1 in [terrain/speedup_options.md](terrain/speedup_options.md),
+assigned 2026-11-26 while the user was away.
+
+- **Covers:**
+  - Plans skip the river trace grid and hydrology when no river can
+    flow, and Mid skips its road grid when no road can start.
+  - Crossing samples are taken only when a crossing is wished on that
+    edge.
+  - Edge profiles built in planning are reused in the build.
+  - Plans are lazy: a neighbour builds only the offer for the edge it
+    shares.
+- **Needs:** TS.
+- **Done when:** output is bitwise identical to the featureless presets
+  and the fixtures suites still pass, and the single-thread cost of
+  plans before the first picture is measured before and after.
+- **Status (2026-11-26):** in progress.
+
+#### TB: Cheap borders
+
+Decided by the user 2026-11-26. The design is in
+[terrain/cheap_borders.md](terrain/cheap_borders.md).
+
+- **Covers:**
+  - Borders between regions with the same relief do no border work.
+  - Every other edge gets one shared height profile, with a cheap
+    polynomial blend in a bounded strip. Height is exact on the edge;
+    slope may crease.
+  - Each sampling tile is classified against borders once, so interior
+    tiles skip all border maths.
+- **Needs:** TS and TO.
+- **Done when:** borders are exact in height, the suites pass with moved
+  figures reported, and the cold-load speed-up is measured.
+- **Status (2026-11-26):** in progress, in its own worktree.
+
 #### GPU1: Relief preview on the GPU
 
 - **Covers:**
