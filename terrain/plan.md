@@ -1069,6 +1069,11 @@ same idea for one value.
 
 ### Relief blending (Phase 2.6)
 
+**Superseded** by cheap borders ([TB](../ROADMAP.md#tb-cheap-borders),
+[cheap_borders.md](cheap_borders.md)): the border blend,
+`Convergence::blend`, `blend_weights` and the blend weights in
+`BorderTarget` are gone. The relief scaling of Phase 2.5 stays.
+
 **Bottom line.** Near a border each terrain can also fade towards a
 **border blend**: a weighted mix of the actual height fields of every
 region meeting there, each evaluated with that region's own settings and
@@ -1251,8 +1256,8 @@ road; it is the hardest road in the test worlds.
 
 | | |
 |---|---|
-| World | `two_regions(DVec2::ZERO, preset(Plains, 62), preset(Mountains, 62), CONFIGS[10].convergence(), &Elevation::flat())` in `tests/common/mod.rs` (re-picked 2026-11-23, see below) |
-| Convergence | shared seeds, relief meeting −1 (`DEFAULT_RELIEF_MEETING`), relief blend 1.0 |
+| World | `two_regions(DVec2::ZERO, preset(Plains, 62), preset(Mountains, 62), DEFAULT.convergence(), &Elevation::flat())` in `tests/common/mod.rs` (re-picked 2026-11-23, see below; the relief blend 1.0 it was picked with is gone since [TB](../ROADMAP.md#tb-cheap-borders)) |
+| Convergence | shared seeds, relief meeting −1 (`DEFAULT_RELIEF_MEETING`) |
 | Regions | `RegionId(1)` Plains, seed 62, west; `RegionId(2)` Mountains, seed 62, east; border through (0, −1500), (150, −700), (−200, 0), (100, 800), (0, 1500); 4 km × 3 km in all |
 | Road | region 2's routed road: from the border crossing near (72, −398), level 28.4 m, up to the hub, the `RoadEnd` point of interest at (900, 16), level 572.0 m (a 546 m climb); mountains' road grade 0.14, steepest 0.25; width 6 m |
 | Window | x 0 to 1280, z −960 to 800 holds the whole climb |

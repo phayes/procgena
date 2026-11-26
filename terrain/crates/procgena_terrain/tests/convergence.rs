@@ -6,8 +6,7 @@ mod common;
 use common::{CONFIGS, DEFAULT, JUNCTION, TWO_REGION_BORDER, preset, triple_junction, two_regions};
 use glam::DVec2;
 use procgena_terrain::{
-    Convergence, DEFAULT_RELIEF_BLEND, Elevation, StitchedWorld, Terrain, TerrainGenerator,
-    fixtures,
+    Convergence, Elevation, StitchedWorld, Terrain, TerrainGenerator, fixtures,
 };
 
 /// Points along the two-region border, at most `spacing` metres apart.
@@ -40,100 +39,81 @@ fn unconverged(terrain: &Terrain) -> TerrainGenerator {
     TerrainGenerator::new(terrain.generator().options().clone()).expect("valid options")
 }
 
-/// The blends the suites check: none, the default, and only blending.
-const BLENDS: [f32; 3] = [0.0, DEFAULT_RELIEF_BLEND, 1.0];
-
-fn plains_and_mountains(meeting: f32, blend: f32) -> StitchedWorld {
+fn plains_and_mountains(meeting: f32) -> StitchedWorld {
     two_regions(
         DVec2::ZERO,
         preset(fixtures::plains_medium(), 1),
         preset(fixtures::mountains_medium(), 1),
-        Convergence { meeting, blend },
+        Convergence { meeting },
         &Elevation::flat(),
     )
 }
 
-/// Plains and mountains converging by scaling their relief alone.
+/// Plains and mountains converging by scaling their relief.
 fn scaling(meeting: f32) -> StitchedWorld {
-    plains_and_mountains(meeting, 0.0)
+    plains_and_mountains(meeting)
 }
 
 #[test]
 fn alike_neighbours_already_match_at_their_border() {
-    for blend in BLENDS {
-        for p in fixtures::all() {
-            let convergence = Convergence {
-                blend,
-                ..DEFAULT.convergence()
-            };
-            let world = two_regions(
-                DVec2::ZERO,
-                preset(p, 7),
-                preset(p, 7),
-                convergence,
-                &Elevation::flat(),
+    for p in fixtures::all() {
+        let world = two_regions(
+            DVec2::ZERO,
+            preset(p, 7),
+            preset(p, 7),
+            DEFAULT.convergence(),
+            &Elevation::flat(),
+        );
+        let [west, east] = [&world.terrains()[0], &world.terrains()[1]];
+        for q in border_points(5.0) {
+            let (a, b) = (
+                west.generator().natural_height(q),
+                east.generator().natural_height(q),
             );
-            let [west, east] = [&world.terrains()[0], &world.terrains()[1]];
-            for q in border_points(5.0) {
-                let (a, b) = (
-                    west.generator().natural_height(q),
-                    east.generator().natural_height(q),
-                );
-                assert_eq!(a, b, "{}, blend {blend}: own heights differ at {q}", p.name);
-            }
+            assert_eq!(a, b, "{}: own heights differ at {q}", p.name);
         }
     }
 }
 
 #[test]
 fn relief_deep_inside_a_region_is_unchanged() {
-    for blend in BLENDS {
-        let world = plains_and_mountains(DEFAULT.meeting, blend);
-        let mountains = &world.terrains()[1];
-        let own = unconverged(mountains);
-        for z in [-1300.0, -400.0, 0.0, 600.0, 1300.0] {
-            let p = DVec2::new(1950.0, z);
-            assert_eq!(
-                mountains.generator().natural_height(p).to_bits(),
-                own.natural_height(p).to_bits(),
-                "blend {blend}, at {p}"
-            );
-        }
+    let world = plains_and_mountains(DEFAULT.meeting);
+    let mountains = &world.terrains()[1];
+    let own = unconverged(mountains);
+    for z in [-1300.0, -400.0, 0.0, 600.0, 1300.0] {
+        let p = DVec2::new(1950.0, z);
+        assert_eq!(
+            mountains.generator().natural_height(p).to_bits(),
+            own.natural_height(p).to_bits(),
+            "at {p}"
+        );
     }
 }
 
 #[test]
 fn relief_changes_near_the_border() {
-    for blend in BLENDS {
-        let world = plains_and_mountains(DEFAULT.meeting, blend);
-        for t in world.terrains() {
-            let own = unconverged(t);
-            let changed = border_points(50.0)
-                .into_iter()
-                .filter(|&q| t.generator().natural_height(q) != own.natural_height(q))
-                .count();
-            assert!(
-                changed > 0,
-                "region {} doesn't converge at blend {blend}",
-                t.region().id.0
-            );
-        }
+    let world = plains_and_mountains(DEFAULT.meeting);
+    for t in world.terrains() {
+        let own = unconverged(t);
+        let changed = border_points(50.0)
+            .into_iter()
+            .filter(|&q| t.generator().natural_height(q) != own.natural_height(q))
+            .count();
+        assert!(changed > 0, "region {} doesn't converge", t.region().id.0);
     }
 }
 
 #[test]
 fn only_the_rougher_side_changes_at_negative_infinity() {
-    for blend in BLENDS {
-        let world = plains_and_mountains(f32::NEG_INFINITY, blend);
-        let plains = &world.terrains()[0];
-        let own = unconverged(plains);
-        for q in grid_points().into_iter().chain(border_points(5.0)) {
-            assert_eq!(
-                plains.generator().natural_height(q).to_bits(),
-                own.natural_height(q).to_bits(),
-                "plains changed at {q}, blend {blend}"
-            );
-        }
+    let world = plains_and_mountains(f32::NEG_INFINITY);
+    let plains = &world.terrains()[0];
+    let own = unconverged(plains);
+    for q in grid_points().into_iter().chain(border_points(5.0)) {
+        assert_eq!(
+            plains.generator().natural_height(q).to_bits(),
+            own.natural_height(q).to_bits(),
+            "plains changed at {q}"
+        );
     }
 }
 
@@ -197,10 +177,7 @@ fn bad_relief_meetings_are_refused() {
             polygon: vec![DVec2::ZERO, DVec2::X * 100.0, DVec2::ONE * 100.0],
             options: preset(fixtures::plains_medium(), 1),
         }];
-        let convergence = Convergence {
-            meeting,
-            ..Convergence::default()
-        };
+        let convergence = Convergence { meeting };
         assert!(matches!(
             StitchedWorld::build(specs, &convergence, &Elevation::flat()),
             Err(procgena_terrain::StitchError::ReliefMeeting(_))
@@ -209,27 +186,8 @@ fn bad_relief_meetings_are_refused() {
 }
 
 #[test]
-fn bad_relief_blends_are_refused() {
-    for blend in [-0.1, 1.5, f32::NAN] {
-        let specs = vec![procgena_terrain::RegionSpec {
-            id: procgena_terrain::RegionId(1),
-            polygon: vec![DVec2::ZERO, DVec2::X * 100.0, DVec2::ONE * 100.0],
-            options: preset(fixtures::plains_medium(), 1),
-        }];
-        let convergence = Convergence {
-            blend,
-            ..Convergence::default()
-        };
-        assert!(matches!(
-            StitchedWorld::build(specs, &convergence, &Elevation::flat()),
-            Err(procgena_terrain::StitchError::ReliefBlend(_))
-        ));
-    }
-}
-
-#[test]
 fn road_grades_rise_to_the_steeper_neighbours_at_the_border() {
-    let world = plains_and_mountains(DEFAULT.meeting, DEFAULT.blend);
+    let world = plains_and_mountains(DEFAULT.meeting);
     let [plains, mountains] = [&world.terrains()[0], &world.terrains()[1]];
     let own = |t: &Terrain| t.generator().options().features.roads.grades();
     let steeper = own(plains).steepest(own(mountains));

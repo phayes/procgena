@@ -15,9 +15,6 @@ pub const DEFAULT_RELIEF_MEETING: f32 = -1.0;
 /// 1.1 km.
 const FADE_RATE: f64 = 0.25;
 
-/// The default [`Convergence::blend`], which currently has no effect.
-pub const DEFAULT_RELIEF_BLEND: f32 = 0.5;
-
 /// Returns true if `meeting` is an accepted [`relief_target`] exponent:
 /// at most 1, negative infinity included, and not NaN.
 pub fn relief_meeting_is_valid(meeting: f32) -> bool {
@@ -34,17 +31,12 @@ pub struct Convergence {
     /// much each side changes. Must be valid (see
     /// [`relief_meeting_is_valid`]).
     pub meeting: f32,
-    /// Currently has no effect, and will be removed: terrains now always
-    /// scale their own relief towards the agreed roughness and meet a
-    /// shared height profile on the border. Must be from 0 to 1.
-    pub blend: f32,
 }
 
 impl Default for Convergence {
     fn default() -> Self {
         Self {
             meeting: DEFAULT_RELIEF_MEETING,
-            blend: DEFAULT_RELIEF_BLEND,
         }
     }
 }
@@ -99,96 +91,9 @@ pub fn relief_target(amplitudes: &[f32], meeting: f32) -> f32 {
     (largest * mean).clamp(smallest, largest) as f32
 }
 
-/// The bisection steps [`blend_weights`] takes to find its exponent.
-const WEIGHT_STEPS: usize = 60;
-
-/// The share of each terrain's ground in the mix that terrains with
-/// `amplitudes` (metres) agree to meet at, where they share an edge or a
-/// corner, in the order given. The shares are zero or more and add up to 1.
-///
-/// Rougher terrains get smaller shares, so the mix is about as rough as
-/// [`relief_target`] with the same `meeting`: at negative infinity the
-/// smoothest terrains share everything, and towards 1 the shares even out.
-/// Mixing terrains whose ground is unrelated lowers the roughness, so
-/// between similar amplitudes the mix is smoother than the target and the
-/// shares are close to even, leaning a little towards the rougher terrain.
-/// Equal amplitudes get equal shares. The shares don't depend on the order of `amplitudes`, bit for
-/// bit.
-///
-/// # Panics
-///
-/// As for [`relief_target`].
-pub fn blend_weights(amplitudes: &[f32], meeting: f32) -> Vec<f32> {
-    let target = f64::from(relief_target(amplitudes, meeting));
-
-    // Sorted, so the sums below don't depend on the order given.
-    let mut order: Vec<usize> = (0..amplitudes.len()).collect();
-    order.sort_by(|&i, &j| amplitudes[i].total_cmp(&amplitudes[j]));
-    let sorted: Vec<f64> = order.iter().map(|&i| f64::from(amplitudes[i])).collect();
-    let (smallest, largest) = (sorted[0], sorted[sorted.len() - 1]);
-    let shares = |weights: Vec<f64>| -> Vec<f32> {
-        let total: f64 = weights.iter().sum();
-        let mut out = vec![0.0f32; amplitudes.len()];
-        for (&i, w) in order.iter().zip(weights) {
-            out[i] = (w / total) as f32;
-        }
-        out
-    };
-
-    // The smoothest terrains alone, when only the rougher ones change or
-    // the target is perfectly flat.
-    if meeting == f32::NEG_INFINITY || target == 0.0 || largest == 0.0 {
-        return shares(
-            sorted
-                .iter()
-                .map(|&a| if a == smallest { 1.0 } else { 0.0 })
-                .collect(),
-        );
-    }
-
-    // Weights `a^q` (relative to the largest, and with amplitudes floored
-    // just above zero so every power is finite), with q chosen so the mix
-    // of unrelated grounds is as rough as the target.
-    let floor = largest * 1e-6;
-    let relative: Vec<f64> = sorted.iter().map(|&a| a.max(floor) / largest).collect();
-    let weights = |q: f64| -> Vec<f64> { relative.iter().map(|r| r.powf(q)).collect() };
-    let roughness = |q: f64| {
-        let w = weights(q);
-        let total: f64 = w.iter().sum();
-        w.iter()
-            .zip(&sorted)
-            .map(|(w, a)| (w / total * a).powi(2))
-            .sum::<f64>()
-            .sqrt()
-    };
-    // Over this range the mix only gets rougher as q rises.
-    let (mut lo, mut hi) = (-2.0f64, 1.0f64);
-    let q = if target <= roughness(lo) {
-        lo
-    } else if target >= roughness(hi) {
-        hi
-    } else {
-        for _ in 0..WEIGHT_STEPS {
-            let middle = 0.5 * (lo + hi);
-            if roughness(middle) < target {
-                lo = middle;
-            } else {
-                hi = middle;
-            }
-        }
-        hi
-    };
-    shares(weights(q))
-}
-
-/// How far along an edge, in metres, road grades and blend shares change
-/// from the edge's to a corner's. Fixed, so the shares still add up to 1
-/// all along the edge.
+/// How far along an edge, in metres, road grades change from the edge's to
+/// a corner's.
 const CORNER_RAMP: f64 = 500.0;
-
-/// The most the blend shares of a [`BorderTarget`] may add up to more or
-/// less than 1.
-const SHARE_TOLERANCE: f32 = 1e-4;
 
 /// What a terrain fades towards at one place on a shared edge.
 #[derive(Debug, Clone, PartialEq)]
@@ -196,28 +101,25 @@ pub struct BorderTarget {
     /// The relief amplitude, in metres (see [`relief_target`]). Zero or
     /// more.
     pub amplitude: f32,
-    /// The share of each region's own ground in the mix the terrains meet
-    /// at (see [`blend_weights`]), sorted by region id with each region
-    /// once. Shares are zero or more and add up to 1.
-    pub blend: Vec<(RegionId, f32)>,
+    /// Every region meeting there, sorted by id, each once: the two on an
+    /// edge, or every region at a corner. A corner's height is mixed from
+    /// all of them.
+    pub regions: Vec<RegionId>,
     /// The road grades. Usually the steepest of the terrains meeting there
     /// (see [`RoadGrades::steepest`]).
     pub roads: RoadGrades,
 }
 
 impl BorderTarget {
-    /// Returns true if the amplitude is finite and not negative, the blend
-    /// shares are valid, and the road grades are valid.
+    /// Returns true if the amplitude is finite and not negative, the
+    /// regions are sorted, distinct and not empty, and the road grades are
+    /// valid.
     fn is_valid(&self) -> bool {
-        let sorted = self.blend.windows(2).all(|w| w[0].0 < w[1].0);
-        let shares_ok = self.blend.iter().all(|(_, s)| s.is_finite() && *s >= 0.0);
-        let total: f32 = self.blend.iter().map(|(_, s)| s).sum();
+        let sorted = self.regions.windows(2).all(|w| w[0] < w[1]);
         self.amplitude.is_finite()
             && self.amplitude >= 0.0
-            && !self.blend.is_empty()
+            && !self.regions.is_empty()
             && sorted
-            && shares_ok
-            && (total - 1.0).abs() <= SHARE_TOLERANCE
             && self.roads.is_valid()
     }
 }
@@ -272,19 +174,6 @@ impl EdgeTarget {
         [&self.middle, &self.start, &self.end]
     }
 
-    /// Every region with a blend share somewhere along the edge, sorted.
-    #[cfg(test)]
-    fn blend_regions(&self) -> Vec<RegionId> {
-        let mut regions: Vec<RegionId> = self
-            .parts()
-            .iter()
-            .flat_map(|t| t.blend.iter().map(|(r, _)| *r))
-            .collect();
-        regions.sort();
-        regions.dedup();
-        regions
-    }
-
     /// The relief amplitude at `along` metres from the start of an edge
     /// `length` metres long.
     pub(crate) fn amplitude_at(&self, along: f64, length: f64) -> f64 {
@@ -303,22 +192,6 @@ impl EdgeTarget {
             grade: at(|r| r.grade),
             max_grade: at(|r| r.max_grade),
         }
-    }
-
-    #[cfg(test)]
-    fn blend_at(&self, regions: &[RegionId], along: f64, length: f64) -> Vec<f64> {
-        regions
-            .iter()
-            .map(|region| {
-                let values = self.parts().map(|t| {
-                    t.blend
-                        .iter()
-                        .find(|(r, _)| r == region)
-                        .map_or(0.0, |(_, s)| *s)
-                });
-                along_edge(values, along, length, |_| CORNER_RAMP)
-            })
-            .collect()
     }
 }
 
@@ -471,88 +344,18 @@ mod tests {
         assert_eq!(scales_at(level_for(spreads, f64::from(total))), [1.0; 3]);
     }
 
-    /// The roughness of a mix of unrelated grounds with `amplitudes`, in
-    /// `shares`.
-    fn mixed(amplitudes: &[f32], shares: &[f32]) -> f32 {
-        amplitudes
-            .iter()
-            .zip(shares)
-            .map(|(a, s)| (a * s).powi(2))
-            .sum::<f32>()
-            .sqrt()
-    }
-
-    #[test]
-    fn blend_weights_follow_the_meeting_exponent() {
-        let pair = [3.1, 282.0];
-        // Only the smoother side, at negative infinity.
-        assert_eq!(blend_weights(&pair, f32::NEG_INFINITY), vec![1.0, 0.0]);
-        // Contrasting terrains: the mix is as rough as the target, and the
-        // smoother side's share falls as the exponent rises.
-        let mut last = 1.0;
-        for meeting in [-1.0, 0.0, 1.0] {
-            let w = blend_weights(&pair, meeting);
-            let target = relief_target(&pair, meeting);
-            assert!((w[0] + w[1] - 1.0).abs() < 1e-6);
-            assert!(w[0] < last && w[0] > 0.4, "{meeting}: {w:?}");
-            last = w[0];
-            let rough = mixed(&pair, &w);
-            assert!(
-                (rough - target).abs() < 1e-3 * target,
-                "{meeting}: {rough} vs {target}"
-            );
-        }
-        // Three terrains at a corner too.
-        let three = [3.1, 30.0, 282.0];
-        for meeting in [-1.0, 0.0, 1.0] {
-            let w = blend_weights(&three, meeting);
-            let target = relief_target(&three, meeting);
-            assert!((mixed(&three, &w) - target).abs() < 1e-3 * target);
-        }
-    }
-
-    #[test]
-    fn blend_weights_are_even_for_alike_terrains_and_handle_flat_ones() {
-        assert_eq!(blend_weights(&[20.0, 20.0], -1.0), vec![0.5, 0.5]);
-        assert_eq!(blend_weights(&[7.0], 1.0), vec![1.0]);
-        // Similar amplitudes can't reach the target; the shares are as even
-        // as the rule allows.
-        let w = blend_weights(&[30.0, 32.0], 1.0);
-        assert!((w[0] - 0.5).abs() < 0.02, "{w:?}");
-        // Flat terrains: with p ≤ 0 the flat side takes everything.
-        assert_eq!(blend_weights(&[0.0, 5.0], -1.0), vec![1.0, 0.0]);
-        assert_eq!(blend_weights(&[0.0, 0.0], 1.0), vec![0.5, 0.5]);
-        let w = blend_weights(&[0.0, 5.0], 1.0);
-        assert!((mixed(&[0.0, 5.0], &w) - 2.5).abs() < 1e-3, "{w:?}");
-    }
-
-    #[test]
-    fn blend_weights_ignore_order() {
-        let amplitudes = [3.1f32, 282.0, 14.6, 0.5];
-        for meeting in [f32::NEG_INFINITY, -2.5, -1.0, 0.0, 0.5, 1.0] {
-            let expected = blend_weights(&amplitudes, meeting);
-            for rotation in 0..amplitudes.len() {
-                let mut rotated = amplitudes;
-                rotated.rotate_left(rotation);
-                let mut got = blend_weights(&rotated, meeting);
-                got.rotate_right(rotation);
-                assert_eq!(got, expected, "meeting {meeting}, rotation {rotation}");
-            }
-        }
-    }
-
     #[test]
     fn edge_targets_reach_their_corners() {
         let border = |amplitude: f32, grade: f32| BorderTarget {
             amplitude,
-            blend: vec![(RegionId(1), 0.5), (RegionId(2), 0.5)],
+            regions: vec![RegionId(1), RegionId(2)],
             roads: RoadGrades {
                 grade,
                 max_grade: 2.0 * grade,
             },
         };
         let mut start = border(50.0, 0.1);
-        start.blend = vec![(RegionId(1), 0.2), (RegionId(2), 0.3), (RegionId(3), 0.5)];
+        start.regions = vec![RegionId(1), RegionId(2), RegionId(3)];
         let target = EdgeTarget {
             edge: EdgeId(0),
             middle: border(20.0, 0.06),
@@ -560,19 +363,9 @@ mod tests {
             end: border(20.0, 0.06),
         };
         assert!(target.is_valid());
-        let regions = target.blend_regions();
-        assert_eq!(regions, vec![RegionId(1), RegionId(2), RegionId(3)]);
-        let corner = [0.2f32, 0.3, 0.5].map(f64::from).to_vec();
-        assert_eq!(target.blend_at(&regions, 0.0, 1000.0), corner);
-        assert_eq!(
-            target.blend_at(&regions, 500.0, 1000.0),
-            vec![0.5, 0.5, 0.0]
-        );
-        let shares = target.blend_at(&regions, 200.0, 1000.0);
-        assert!(
-            (shares.iter().sum::<f64>() - 1.0).abs() < 1e-6,
-            "{shares:?}"
-        );
+        let mut unsorted = target.clone();
+        unsorted.start.regions = vec![RegionId(2), RegionId(1)];
+        assert!(!unsorted.is_valid());
         assert_eq!(target.amplitude_at(0.0, 1000.0), 50.0);
         assert_eq!(target.amplitude_at(1000.0, 1000.0), 20.0);
         assert_eq!(target.amplitude_at(500.0, 1000.0), 20.0);

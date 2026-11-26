@@ -79,7 +79,7 @@ fn elevation_and_edge_targets_may_be_set_in_either_order() {
     );
     let target = BorderTarget {
         amplitude: 30.0,
-        blend: vec![(RegionId(1), 0.6), (RegionId(2), 0.4)],
+        regions: vec![RegionId(1), RegionId(2)],
         roads: plains.features.roads.grades(),
     };
     let targets: Vec<EdgeTarget> = region
@@ -113,11 +113,9 @@ fn elevation_and_edge_targets_may_be_set_in_either_order() {
     }
 }
 
-/// Settings with no relief, no rivers or roads and no border
-/// irregularities: ground that is E alone.
+/// Settings with no relief and no rivers or roads: ground that is E alone.
 fn bare() -> procgena_terrain::TerrainOptions {
     let mut options = preset(fixtures::plains_medium(), 1);
-    options.edges.roughness = 0.0;
     let base = &mut options.base;
     base.elevation = 0.0;
     base.swells.height = 0.0;
@@ -128,7 +126,7 @@ fn bare() -> procgena_terrain::TerrainOptions {
     options
 }
 
-/// Bare ground (no relief, rivers, roads or border irregularities) on the
+/// Bare ground (no relief, rivers or roads) on the
 /// curved test land is E itself everywhere, along every edge and at the
 /// corner where three regions meet: the border protocol passes E through
 /// exactly.

@@ -22,10 +22,7 @@ fn border_points(spacing: f64) -> Vec<DVec2> {
 
 /// A configuration as a short label.
 fn label(config: Config) -> String {
-    format!(
-        "{:?} seeds, meeting {}, blend {}",
-        config.seeds, config.meeting, config.blend
-    )
+    format!("{:?} seeds, meeting {}", config.seeds, config.meeting)
 }
 
 /// How far the mountains' own ground lies above the plains' own ground
@@ -328,10 +325,6 @@ fn feature_problems(world: &StitchedWorld) -> Vec<String> {
 fn scene_dump() {
     let dir = std::env::var("SCENE_DIR").expect("SCENE_DIR");
     let default = common::DEFAULT;
-    let blend_1 = Config {
-        blend: 1.0,
-        ..default
-    };
     let scenes = [
         (
             "two_terrains",
@@ -341,20 +334,13 @@ fn scene_dump() {
             None,
         ),
         (
-            "two_terrains_blend_1",
-            "Two terrains, relief blend 1",
-            two_terrains(DVec2::ZERO, blend_1),
-            5.0,
-            None,
-        ),
-        (
             "mountain_road",
-            "Mountain road close-up, seed 62 (blend 1)",
+            "Mountain road close-up, seed 62",
             common::two_regions(
                 DVec2::ZERO,
                 common::preset(fixtures::plains_medium(), 62),
                 common::preset(fixtures::mountains_medium(), 62),
-                blend_1.convergence(),
+                default.convergence(),
                 &Elevation::flat(),
             ),
             2.5,

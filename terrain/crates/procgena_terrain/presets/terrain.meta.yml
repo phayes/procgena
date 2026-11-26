@@ -33,7 +33,7 @@ sections:
     settings: [features.roads.enabled, features.roads.width, features.roads.min_width, features.roads.grade, features.roads.max_grade, features.roads.min_radius, features.roads.shoulder, features.roads.crossfall, features.roads.cut_slope, features.roads.fill_slope]
   - title: Borders
     part: land
-    settings: [edges.stiffness, edges.margin, edges.roughness]
+    settings: [edges.stiffness, edges.margin]
 settings:
   default_seed:
     label: Seed
@@ -218,9 +218,3 @@ settings:
     range: [10, 2000]
     step: 5
     scale: exponential
-  edges.roughness:
-    label: Roughness
-    unit: m
-    description: "Currently has no effect, and will be removed."
-    range: [0, 20]
-    step: 0.1

@@ -765,8 +765,6 @@ pub enum WorldOptionsError {
     Field(&'static str),
     /// The relief meeting exponent is above 1 or NaN.
     ReliefMeeting(f32),
-    /// The relief blend is outside 0 to 1, or NaN.
-    ReliefBlend(f32),
     /// The rule at this index has a bound that isn't finite, or a `min`
     /// above its `max`.
     Rule(usize),
@@ -791,7 +789,6 @@ impl fmt::Display for WorldOptionsError {
             Self::Elevation(e) => write!(f, "elevation: {e}"),
             Self::Field(name) => write!(f, "the {name} field's settings are out of range"),
             Self::ReliefMeeting(p) => write!(f, "relief meeting exponent {p} is above 1 or NaN"),
-            Self::ReliefBlend(b) => write!(f, "relief blend {b} is outside 0 to 1"),
             Self::Rule(i) => write!(
                 f,
                 "Biome rule {i} has a bound that isn't finite, or a min above its max"
@@ -842,12 +839,9 @@ impl WorldOptions {
                 return Err(WorldOptionsError::Field(name));
             }
         }
-        let Convergence { meeting, blend } = self.convergence;
+        let Convergence { meeting } = self.convergence;
         if !relief_meeting_is_valid(meeting) {
             return Err(WorldOptionsError::ReliefMeeting(meeting));
-        }
-        if !(0.0..=1.0).contains(&blend) {
-            return Err(WorldOptionsError::ReliefBlend(blend));
         }
         for (i, rule) in self.biomes.rules.iter().enumerate() {
             let ranges = [rule.elevation, rule.ruggedness, rule.moisture];

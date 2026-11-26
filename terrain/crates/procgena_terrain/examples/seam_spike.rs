@@ -7,12 +7,10 @@
 //!
 //! Each test world is written twice as a binary PPM image: joined, with
 //! rivers, ponds and roads; and with each region's own unbent terrain, for
-//! comparison. These worlds use the medium-scale test fixtures. An
-//! optional second argument sets the relief blend (0 to 1, default 0.5;
-//! see `Convergence::blend`). A third argument, `warped`, warps the
-//! borders with the fixtures' border warp.
+//! comparison. These worlds use the medium-scale test fixtures. A second
+//! argument, `warped`, warps the borders with the fixtures' border warp.
 //!
-//! With `shipped` as the third argument it instead writes the default
+//! With `shipped` as the second argument it instead writes the default
 //! world layout (2 km regions, the default warp and world elevation) with
 //! the shipped presets mixed region by region, for seeds 1 and 2. Images
 //! cover 4 km square either way.
@@ -63,10 +61,7 @@ fn main() -> std::io::Result<()> {
             .unwrap_or_else(|| "target/terrain_spike".into()),
     );
     fs::create_dir_all(&dir)?;
-    let blend = std::env::args().nth(2).map_or(common::DEFAULT.blend, |b| {
-        b.parse().expect("a blend from 0 to 1")
-    });
-    let warp = match std::env::args().nth(3).as_deref() {
+    let warp = match std::env::args().nth(2).as_deref() {
         None => None,
         Some("warped") => Some(procgena_terrain::fixtures::warp_medium()),
         Some("shipped") => {
@@ -76,10 +71,9 @@ fn main() -> std::io::Result<()> {
             println!("wrote images to {}", dir.display());
             return Ok(());
         }
-        Some(other) => panic!("the third argument may be `warped` or `shipped`, not {other}"),
+        Some(other) => panic!("the second argument may be `warped` or `shipped`, not {other}"),
     };
     let config = common::Config {
-        blend,
         warp,
         ..common::DEFAULT
     };

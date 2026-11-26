@@ -10,7 +10,7 @@ use std::fmt;
 use glam::DVec2;
 
 use crate::converge::{
-    BorderTarget, Convergence, EdgeTarget, blend_weights, relief_meeting_is_valid, relief_target,
+    BorderTarget, Convergence, EdgeTarget, relief_meeting_is_valid, relief_target,
 };
 use crate::elevation::Elevation;
 use crate::feature::FeatureTier;
@@ -42,8 +42,6 @@ pub struct RegionSpec {
 pub enum StitchError {
     /// The relief meeting exponent is above 1 or NaN.
     ReliefMeeting(f32),
-    /// The relief blend is outside 0 to 1, or NaN.
-    ReliefBlend(f32),
     /// Two regions have the same id.
     DuplicateId(RegionId),
     /// A polygon has fewer than three points.
@@ -69,7 +67,6 @@ impl fmt::Display for StitchError {
             Self::ReliefMeeting(p) => {
                 write!(f, "relief meeting exponent {p} is above 1 or NaN")
             }
-            Self::ReliefBlend(b) => write!(f, "relief blend {b} is outside 0 to 1"),
             Self::DuplicateId(id) => write!(f, "region id {} is used twice", id.0),
             Self::TooFewPoints(id) => write!(f, "region {} needs at least three points", id.0),
             Self::Overlap(id) => {
@@ -124,9 +121,8 @@ impl StitchedWorld {
     /// # Errors
     ///
     /// If `convergence.meeting` isn't valid (see
-    /// [`relief_meeting_is_valid`](crate::relief_meeting_is_valid)), if
-    /// `convergence.blend` is outside 0 to 1, or for any of the other
-    /// [`StitchError`] cases.
+    /// [`relief_meeting_is_valid`](crate::relief_meeting_is_valid)), or for
+    /// any of the other [`StitchError`] cases.
     pub fn build(
         mut specs: Vec<RegionSpec>,
         convergence: &Convergence,
@@ -134,9 +130,6 @@ impl StitchedWorld {
     ) -> Result<Self, StitchError> {
         if !relief_meeting_is_valid(convergence.meeting) {
             return Err(StitchError::ReliefMeeting(convergence.meeting));
-        }
-        if !(0.0..=1.0).contains(&convergence.blend) {
-            return Err(StitchError::ReliefBlend(convergence.blend));
         }
         specs.sort_by_key(|s| s.id);
         for pair in specs.windows(2) {
@@ -345,9 +338,8 @@ fn region_graph(
 }
 
 /// Gives each generator targets for its shared edges, from the regions on
-/// each edge and touching each corner: the [`relief_target`] and
-/// [`blend_weights`] of their amplitudes, and the steepest of their road
-/// grades.
+/// each edge and touching each corner: the [`relief_target`] of their
+/// amplitudes, and the steepest of their road grades.
 fn converge(
     regions: &[Region],
     generators: Vec<TerrainGenerator>,
@@ -376,11 +368,7 @@ fn converge(
             .expect("a border has regions");
         BorderTarget {
             amplitude: relief_target(&amplitudes, meeting),
-            blend: touching
-                .iter()
-                .copied()
-                .zip(blend_weights(&amplitudes, meeting))
-                .collect(),
+            regions: touching,
             roads,
         }
     };

@@ -131,8 +131,8 @@ pub use chunk::{
 };
 pub use chunk_levels::{ChunkLevel, ChunkLevels, ChunkLevelsError};
 pub use converge::{
-    BorderTarget, Convergence, DEFAULT_RELIEF_BLEND, DEFAULT_RELIEF_MEETING, EdgeTarget,
-    blend_weights, relief_meeting_is_valid, relief_target,
+    BorderTarget, Convergence, DEFAULT_RELIEF_MEETING, EdgeTarget, relief_meeting_is_valid,
+    relief_target,
 };
 pub use elevation::{Elevation, ElevationError, ElevationOptions, HeightBump};
 pub use feature::{FeatureId, FeatureShape, FeatureTier, TerrainFeature};

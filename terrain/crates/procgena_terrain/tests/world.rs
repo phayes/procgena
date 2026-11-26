@@ -496,17 +496,13 @@ fn invalid_settings_are_refused() {
         }),
         Err(WorldError::Cache)
     );
-    let convergence = |meeting, blend| WorldTerrainOptions {
-        convergence: Convergence { meeting, blend },
+    let convergence = |meeting| WorldTerrainOptions {
+        convergence: Convergence { meeting },
         ..base.clone()
     };
     assert!(matches!(
-        new(convergence(f32::NAN, 0.5)),
+        new(convergence(f32::NAN)),
         Err(WorldError::ReliefMeeting(_))
-    ));
-    assert!(matches!(
-        new(convergence(-1.0, 1.5)),
-        Err(WorldError::ReliefBlend(_))
     ));
     let mut regions = base.regions;
     regions.warp = BorderWarp {

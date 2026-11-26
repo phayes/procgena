@@ -1992,9 +1992,11 @@ Decided by the user 2026-11-26. The design is in
     segments' weights hand over. Not cracks: heights meet exactly.
     Close-up: [terrain/spike/tb_creases.png](terrain/spike/tb_creases.png)
     (master, then TB at the same bend, then TB at a second bend).
-  - **Follow-up:** smooth the handover near bends and corners, and
-    remove `Convergence::blend` and `EdgeOptions::roughness`, which no
-    longer have any effect (coordinated with `procgena_world`).
+  - **Removed since:** `Convergence::blend`, `blend_weights` and
+    `EdgeOptions::roughness`, which had no effect after TB, with their
+    `.meta.yml` entries; `BorderTarget::blend` became `regions`. The test
+    configurations lost their four blend-only variants.
+  - **Follow-up:** smooth the handover near bends and corners.
 
 #### GPU1: Relief preview on the GPU
 

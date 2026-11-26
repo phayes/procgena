@@ -33,7 +33,7 @@ sections:
         settings: [elevation.uplift.height, elevation.uplift.wavelength, elevation.uplift.octaves, elevation.uplift.roughness]
   - title: Convergence
     part: land
-    settings: [convergence.meeting, convergence.blend]
+    settings: [convergence.meeting]
   - title: Selector Fields
     part: biomes
     groups:
@@ -166,11 +166,6 @@ settings:
     description: "How neighbouring terrains settle on a shared roughness at their border: lower values let the smoother side win."
     range: [-10, 1]
     step: 0.05
-  convergence.blend:
-    label: Blend
-    description: "How terrains meet their neighbours, from matching roughness at 0 to sharing exactly the same ground at the border at 1."
-    range: [0, 1]
-    step: 0.01
   fields.ruggedness.wavelength:
     label: Wavelength
     unit: m

@@ -84,10 +84,10 @@ between same-preset neighbours. Lets start there." Options 6 and 7 of
   `Fade::blended*`, the four-offset `pull_gradients`, the seam bend and
   shared border detail (`DETAIL_*`, `Targets`, `bend_*`),
   `CornerOffer::gradient` and `CornerAgreement::gradient`,
-  `EdgeSample::detail`. `Convergence::blend` and `EdgeOptions::roughness`
-  become unused; they are read by `procgena_world` (`options.rs`,
-  `world.meta.yml`) and `terrain.meta.yml`, so removing them is a separate
-  last step, coordinated with those files' owners.
+  `EdgeSample::detail`; and, in a separate step after TB,
+  `Convergence::blend`, `blend_weights` and `EdgeOptions::roughness`
+  (`BorderTarget::blend` became `BorderTarget::regions`, the regions
+  meeting there, which the corner heights read).
 
 ## What the code does today
 
@@ -364,10 +364,8 @@ only if it matters.
    measurement on that one-thread tree.
 2. A, then B, then the tile classification.
 3. A last, separate step removes `Convergence::blend`, `blend_weights`
-   and `EdgeOptions::roughness`, once the coordinator has cleared
-   `procgena_world`'s files. Until then their doc comments (and their
-   `.meta.yml` tooltips) say they have no effect. The corner gradients
-   and `EdgeSample::detail` are inside `procgena_terrain` and go with B.
+   and `EdgeOptions::roughness`, with their `.meta.yml` entries. The
+   corner gradients and `EdgeSample::detail` go with B.
 
 ## Open question
 

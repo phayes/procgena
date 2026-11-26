@@ -77,9 +77,8 @@ pub enum TerrainError {
     UnknownTarget(EdgeId),
     /// An edge has more than one relief target.
     DuplicateTarget(EdgeId),
-    /// A relief target has a negative or non-finite amplitude, blend shares
-    /// that aren't sorted, not negative and adding up to 1, or road grades
-    /// out of range.
+    /// A relief target has a negative or non-finite amplitude, regions that
+    /// are empty or not sorted and distinct, or road grades out of range.
     InvalidTarget(EdgeId),
     /// A target is for an edge whose neighbour isn't one of the
     /// neighbours given.
@@ -334,7 +333,7 @@ impl TerrainGenerator {
         // there, each scaled to the corner's amplitude, in region order.
         let corner_height = |position: DVec2, corner: &BorderTarget| {
             let (mut sum, mut total) = (0.0, 0.0);
-            for &(id, _) in &corner.blend {
+            for &id in &corner.regions {
                 let (relief, k, _) = side(id)?;
                 let scales = middle_scales(relief.spreads(), corner.amplitude).map(f64::from);
                 sum += k * relief.layer_values(position).combine(&scales);

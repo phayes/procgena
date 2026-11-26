@@ -10,7 +10,7 @@ use glam::{DVec2, IVec2, Vec2};
 use procgena_core::{Ground, GroundSample};
 
 use crate::converge::{
-    BorderTarget, Convergence, EdgeTarget, blend_weights, relief_meeting_is_valid, relief_target,
+    BorderTarget, Convergence, EdgeTarget, relief_meeting_is_valid, relief_target,
 };
 use crate::elevation::{Elevation, ElevationError, ElevationOptions};
 use crate::feature::FeatureTier;
@@ -116,8 +116,6 @@ pub enum WorldError {
     Regions(RegionGraphError),
     /// The relief meeting exponent is above 1 or NaN.
     ReliefMeeting(f32),
-    /// The relief blend is outside 0 to 1, or NaN.
-    ReliefBlend(f32),
     /// The cache size is 0.
     Cache,
     /// A part of the scale isn't finite and positive.
@@ -139,7 +137,6 @@ impl fmt::Display for WorldError {
             Self::Elevation(e) => write!(f, "world elevation: {e}"),
             Self::Regions(e) => write!(f, "region graph: {e}"),
             Self::ReliefMeeting(p) => write!(f, "relief meeting exponent {p} is above 1 or NaN"),
-            Self::ReliefBlend(b) => write!(f, "relief blend {b} is outside 0 to 1"),
             Self::Cache => write!(f, "the cache must hold at least one terrain"),
             Self::Scale(s) => write!(
                 f,
@@ -320,8 +317,8 @@ impl WorldTerrain {
     ///
     /// If the elevation or region settings aren't valid, if
     /// `options.convergence` isn't (see
-    /// [`relief_meeting_is_valid`](crate::relief_meeting_is_valid); the blend
-    /// must be from 0 to 1), if `options.cache` is 0, if `options.scale`
+    /// [`relief_meeting_is_valid`](crate::relief_meeting_is_valid)), if
+    /// `options.cache` is 0, if `options.scale`
     /// isn't finite and positive, or if `options.tin` isn't valid.
     pub fn new(
         options: WorldTerrainOptions,
@@ -330,9 +327,6 @@ impl WorldTerrain {
         let convergence = options.convergence;
         if !relief_meeting_is_valid(convergence.meeting) {
             return Err(WorldError::ReliefMeeting(convergence.meeting));
-        }
-        if !(0.0..=1.0).contains(&convergence.blend) {
-            return Err(WorldError::ReliefBlend(convergence.blend));
         }
         if options.cache == 0 {
             return Err(WorldError::Cache);
@@ -710,11 +704,7 @@ impl WorldTerrain {
                 .expect("a border has regions");
             BorderTarget {
                 amplitude: relief_target(&amplitudes, meeting),
-                blend: regions
-                    .iter()
-                    .copied()
-                    .zip(blend_weights(&amplitudes, meeting))
-                    .collect(),
+                regions,
                 roads,
             }
         };

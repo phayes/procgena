@@ -280,9 +280,6 @@ pub struct EdgeOptions {
     /// where the two sides' typical heights lie far apart. Must be positive
     /// and at most [`MAX_MARGIN`]. Wider margins give gentler transitions.
     pub margin: f32,
-    /// Currently has no effect, and will be removed. Must be zero or
-    /// positive.
-    pub roughness: f32,
 }
 
 impl Default for BaseOptions {
@@ -317,7 +314,6 @@ impl Default for EdgeOptions {
         Self {
             stiffness: 1.0,
             margin: 100.0,
-            roughness: 1.0,
         }
     }
 }
@@ -503,12 +499,6 @@ impl TerrainOptions {
             e.margin,
             |v| v > 0.0 && v <= MAX_MARGIN,
             "positive and at most MAX_MARGIN",
-        )?;
-        check(
-            "edges.roughness",
-            e.roughness,
-            |v| (0.0..=MAX_HEIGHT).contains(&v),
-            "from 0 to MAX_HEIGHT",
         )?;
 
         // Features.

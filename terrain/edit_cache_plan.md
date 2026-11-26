@@ -411,7 +411,7 @@ not from the stage names. Then checked with a probe:
 | Region graph and warp | world seed, `RegionGraphOptions` (size, jitter, warp) |
 | E (`Elevation`) | world seed, `ElevationOptions` |
 | Settings (per region) | the source's `TerrainOptions` for the region, E. Gives the generator and its relief amplitude (from `base.*`). |
-| Plan (per region) | Own settings; for **every region on its edges and corners**: amplitude, road grades (`roads.grade`, `roads.max_grade`) and whole `TerrainOptions` (convergence blends neighbours' relief). Then the river trace (`rivers.*`, relief). Then offers: natural border samples, `edges.stiffness/margin/roughness`, river port wishes (`rivers.width`, trace), road port wishes (`roads.enabled`, `roads.width`), road grades. |
+| Plan (per region) | Own settings; for **every region on its edges and corners**: amplitude, road grades (`roads.grade`, `roads.max_grade`) and whole `TerrainOptions` (the shared border profiles are built from them). Then the river trace (`rivers.*`, relief). Then offers: natural border samples, `edges.stiffness/margin`, river port wishes (`rivers.width`, trace), road port wishes (`roads.enabled`, `roads.width`), road grades. |
 | Rough tier (per region) | own plan and the plans of **every region touching its corners** (corner and edge negotiation), E; then bend and hydrology (`rivers.*`, `edges.margin`). |
 | Fine tier (per region) | Rough tier, `roads.*`, agreements, rivers. |
 | Chunk samples | the Rough or Fine terrain of every region the chunk and its ring touch. |

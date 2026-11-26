@@ -87,8 +87,6 @@ pub struct Config {
     pub seeds: Seeds,
     /// The relief meeting exponent passed to `StitchedWorld::build`.
     pub meeting: f32,
-    /// The relief blend passed to `StitchedWorld::build`.
-    pub blend: f32,
     /// The world elevation the regions stand on.
     pub land: Land,
     /// How the borders between regions are warped, if at all. The warp is
@@ -147,7 +145,6 @@ impl Config {
     pub fn convergence(self) -> Convergence {
         Convergence {
             meeting: self.meeting,
-            blend: self.blend,
         }
     }
 
@@ -165,7 +162,6 @@ impl Config {
 pub const DEFAULT: Config = Config {
     seeds: Seeds::Shared,
     meeting: procgena_terrain::DEFAULT_RELIEF_MEETING,
-    blend: procgena_terrain::DEFAULT_RELIEF_BLEND,
     land: Land::Flat,
     warp: None,
 };
@@ -205,30 +201,21 @@ pub const CURVED: Config = Config {
 };
 
 /// Every configuration the suites run on: both kinds of seeding, each at
-/// the relief meeting exponents −∞, −1, 0 and 1 with the default blend,
-/// and at the default exponent with blends 0 and 1.
-pub const CONFIGS: [Config; 12] = {
+/// the relief meeting exponents −∞, −1, 0 and 1.
+pub const CONFIGS: [Config; 8] = {
     let meetings = [f32::NEG_INFINITY, -1.0, 0.0, 1.0];
-    let mut out = [DEFAULT; 12];
+    let mut out = [DEFAULT; 8];
     let mut i = 0;
-    while i < 12 {
+    while i < 8 {
         let seeds = if i % 2 == 0 {
             Seeds::Shared
         } else {
             Seeds::Unrelated
         };
-        out[i] = if i < 8 {
-            Config {
-                seeds,
-                meeting: meetings[i / 2],
-                ..DEFAULT
-            }
-        } else {
-            Config {
-                seeds,
-                blend: if i < 10 { 0.0 } else { 1.0 },
-                ..DEFAULT
-            }
+        out[i] = Config {
+            seeds,
+            meeting: meetings[i / 2],
+            ..DEFAULT
         };
         i += 1;
     }
@@ -237,14 +224,14 @@ pub const CONFIGS: [Config; 12] = {
 
 /// [`CONFIGS`] on flat land, then the usual world on tilted and on curved
 /// land.
-pub const WITH_LAND: [Config; 14] = {
-    let mut out = [TILTED; 14];
+pub const WITH_LAND: [Config; 10] = {
+    let mut out = [TILTED; 10];
     let mut i = 0;
-    while i < 12 {
+    while i < 8 {
         out[i] = CONFIGS[i];
         i += 1;
     }
-    out[13] = CURVED;
+    out[9] = CURVED;
     out
 };
 

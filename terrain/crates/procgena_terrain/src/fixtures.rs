@@ -151,7 +151,6 @@ fn plains() -> TerrainOptions {
         edges: EdgeOptions {
             stiffness: 0.5,
             margin: 250.0,
-            roughness: 0.5,
         },
         features: features(0.3, 8.0, 500.0, 600.0, 0.06),
     }
@@ -180,7 +179,6 @@ fn rolling_hills() -> TerrainOptions {
         edges: EdgeOptions {
             stiffness: 1.0,
             margin: 250.0,
-            roughness: 2.0,
         },
         features: features(0.5, 5.0, 500.0, 400.0, 0.1),
     }
@@ -214,7 +212,6 @@ fn mountains() -> TerrainOptions {
         edges: EdgeOptions {
             stiffness: 3.0,
             margin: 500.0,
-            roughness: 5.0,
         },
         features: features(0.6, 4.0, 500.0, 300.0, 0.14),
     }
