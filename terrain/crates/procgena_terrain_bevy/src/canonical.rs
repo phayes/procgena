@@ -251,8 +251,8 @@ mod tests {
     #[test]
     fn a_dry_chunk_reads_its_mesh_and_normals_only() {
         // No river or pond reaches it, so it reads no regular samples for
-        // water: only what its mesh needs, and four heights a vertex for
-        // its shading normals.
+        // water: only what its mesh needs, and four heights for each border
+        // vertex's shading normal (inside vertices read none).
         let field = Field::new(false);
         let key = ChunkKey::new(0, 0, 0);
         let mesh = build_chunk(&field, key, &field.tin_tolerance()).unwrap();
@@ -260,7 +260,16 @@ mod tests {
         let read =
             TinRead::build(&field, key, &ContractCache::new(&field.tin_tolerance())).unwrap();
         assert!(read.water.is_none());
-        assert_eq!(field.take(), mesh_reads + 4 * mesh.vertices.len());
+        let border = mesh
+            .vertices
+            .iter()
+            .filter(|v| v.x.0 % 6_400 == 0 || v.z.0 % 6_400 == 0)
+            .count();
+        assert!(
+            border < mesh.vertices.len(),
+            "the chunk has inside vertices"
+        );
+        assert_eq!(field.take(), mesh_reads + 4 * border);
     }
 
     #[test]
