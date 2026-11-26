@@ -26,12 +26,15 @@ and items link to [ROADMAP.md](../ROADMAP.md); their status lives there.
   region build, but this is not confirmed. A later studio-replica run, at
   load ~124, did not hang within 75 s.
 - **Why it ranks first:** when it hangs, "everything drawn" never happens,
-  so no speed-up reaches the user.
+  so no speed-up reaches the user. **Time to everything drawn, with the
+  road tiers built while streaming, is pending this fix.** The world
+  worker is moving terrain reads onto one worker thread without Rayon; the
+  full cold loads will be rerun once that lands.
 - **Evidence:** in the shared notes folder, `load-profile/hang.md`.
 
 | # | Speed-up | Expected saving (from the data below) | Effort | ROADMAP item |
 |---|---|---|---|---|
-| 1 | **Cheaper ground sites for paint.** Every chunk read samples a 129 × 129 grid of `GroundSite`s with analytic slopes (`GroundGrid::chunk`, bare stack at `SampleDetail::Gradient`). That is 4× the mesh's 65 × 65 points, and each gradient costs several heights near borders. Options: heights only on the 129² grid, with slope by differences on the grid; one sampling pass for mesh and paint (the mesh points are a subset); or the site evaluation on the GPU. | **Site sampling is 75% of all CPU on the mixed world and 82% on mountains.** The mesh heights are 2.2–2.4%. **Gradient-only frames are 41–43% of all CPU: the measured saving of heights-only sites** (before the cost of differencing, which is small). `ground_cost` agrees: on a warm world a chunk's gradient sites cost 5–6× its mesh samples on hills and 6–20× on mountains. The read phase is CPU-bound (all 10 Rayon workers ~97% busy), so the first picture and the full view should shorten about in proportion. Estimated: a Rough view of 107 s → about 65 s; on mountains 450 s → about 270 s (both at load ~30). | Medium on the CPU: the grid-difference slope needs its visual error measured, as `gpu_progress.md` asks. Large on the GPU: it needs GPU3's f32 border and carving parity. | [GPU2](../ROADMAP.md#gpu2-ground-weights-on-the-gpu) (its site and measure evaluation is still on the CPU). A CPU step before it needs a new item. |
+| 1 | **Cheaper ground sites for paint.** Every chunk read samples a 129 × 129 grid of `GroundSite`s with analytic slopes, at `SampleDetail::Measures` (`GroundGrid::chunk`). The bare stack's riverbed layer uses `HeightAboveWater`, which counts as Measures, so each site also reads 4 curvature heights that no bare layer uses. That is 4× the mesh's 65 × 65 points, and each slope costs several heights near borders. On one thread the unused curvature stencil alone is 32% of the terrain worker's CPU (see the single-thread section). Options: heights only on the 129² grid, with slope by differences on the grid; one sampling pass for mesh and paint (the mesh points are a subset); or the site evaluation on the GPU. | **Site sampling is 75% of all CPU on the mixed world and 82% on mountains.** The mesh heights are 2.2–2.4%. **Gradient-only frames are 41–43% of all CPU: the measured saving of heights-only sites** (before the cost of differencing, which is small). `ground_cost` agrees: on a warm world a chunk's gradient sites cost 5–6× its mesh samples on hills and 6–20× on mountains. The read phase is CPU-bound (all 10 Rayon workers ~97% busy), so the first picture and the full view should shorten about in proportion. Estimated: a Rough view of 107 s → about 65 s; on mountains 450 s → about 270 s (both at load ~30). | Medium on the CPU: the grid-difference slope needs its visual error measured, as `gpu_progress.md` asks. Large on the GPU: it needs GPU3's f32 border and carving parity. | [GPU2](../ROADMAP.md#gpu2-ground-weights-on-the-gpu) (its site and measure evaluation is still on the CPU). A CPU step before it needs a new item. |
 | 2 | **Skip Rough → Fine re-reads that change nothing.** With `coarse_first`, every chunk that wants a later tier is read twice. Only roads differ between the tiers. `ChunkSource::lines_within(box, Fine)` already says whether a road reaches a chunk. Where none does, keep the Rough read and mark it Fine. | Roads reach 111 of 252 chunks on the mixed world and 80 of 252 on mountains. So **56% and 68% of the upgrade reads are wasted.** An upgrade read costs as much as a Rough read: the default run used 4.47 T instructions in 400 s and was still refining, against 2.32 T for the whole view at Rough. So this saves about **28–34% of a default-view load's CPU.** That is approximate, and an upper bound until a test shows Rough and Fine reads bit-identical where no road reaches. The two instruction counts also come from different builds, and the default run's count includes render spin while it was hung. Near level-0 chunks need no upgrade at all (0 of 64; 3 of 64 on mountains), so they are final at the first picture. | Small to medium: a footprint check in `procgena_terrain_bevy`'s stream, plus a test that Rough and Fine reads are bit-identical where no road reaches. | [TE3b](../ROADMAP.md#te3b-chunk-reuse-by-feature-footprint) (the same footprint idea, used for tier upgrades rather than edits) |
 | 3 | **Upgrade the nearest chunks first.** Today upgrades start only when no chunk is missing (`stream_chunks`), so the near chunks wait for the whole far view's Rough reads. | Near chunks reached their final tier at 155–159 s on the mixed world, 155 s with `--tin` and 352 s on mountains, against a first picture at 54–63 s and 167 s. Interleaving the near upgrades (few, after #2) would bring "near chunks final" to about the first picture plus a few reads: **about 90–185 s sooner** at the measured load. | Small: the order of reads in `stream_chunks`. | [TE2](../ROADMAP.md#te2-first-picture-fast) (nearest first) |
 | 4 | **Cheaper border pulls and convergence fade per point.** Inside the site sampling, border pulls (with their gradients by differences, `pull_gradients` over four offsets) and the fade's blended gradients dominate. | Border pulls are **28% of all CPU on the mixed world and 40% on mountains**; the fade is 18% and 23%. Analytic pull gradients alone would remove most of the four-offset work (`[DVec2; 4]::try_map`, 27% inclusive on the mixed world). Much of this saving overlaps with #1: heights-only sites drop the gradient half. | Medium: border and convergence maths. | [Border-pull cost (unscheduled)](../ROADMAP.md#border-pull-cost-unscheduled) |
@@ -42,7 +45,10 @@ and items link to [ROADMAP.md](../ROADMAP.md); their status lives there.
 - **[RB2](../ROADMAP.md#rb2-shared-reverse-cost-field):** roads are 0.0–0.2%
   of CPU.
 - **[TE6](../ROADMAP.md#te6-river-speed-to-investigate):** river carving is
-  0.6–1.6%, and the river trace 0.3–0.4%.
+  0.6–1.6% of a whole load, and the river trace 0.3–0.4%. TE6's own profile
+  agrees: along a river, carving is about 9% of a chunk read, and the
+  border fade and pulls about 88% (rivers on, mountains). The border is the
+  lever (#4), not the rivers.
 - **[TE3](../ROADMAP.md#te3-content-keyed-stage-cache):** no duplicate region
   builds in any run, so it helps edits only.
 - **A CT contract cache:** TIN builds take milliseconds per chunk.
@@ -70,6 +76,79 @@ and items link to [ROADMAP.md](../ROADMAP.md); their status lives there.
   to an idle machine; these runs were not, and the studio config never
   finished here. So read "several times the baseline", not an exact ratio.
   Then the deadlock can keep it from finishing at all.
+
+## One worker thread, roads and rivers off
+
+The user's design goal is now one terrain worker thread with no Rayon, so
+this section ranks by CPU work per stage, not by wall time on 10 cores. The
+full table, with counts and budgets, is in the shared notes folder at
+`load-profile/single-thread-table.md`.
+
+### Ranked for one thread
+
+| # | Speed-up | Saving of the worker's CPU (mixed world, Rough view) | Effort | ROADMAP item |
+|---|---|---|---|---|
+| 1 | **Stop reading the curvature stencil nobody uses.** Let `HeightAboveWater` need nearby water without the 4 curvature heights, or sample at the detail each layer really needs. | **32%** | Small | [GPU2](../ROADMAP.md#gpu2-ground-weights-on-the-gpu) (step 1a of `terrain/gpu_plan.md`) |
+| 2 | **Paint from a grid of heights only.** Take slope (and curvature, if a layer wants it) by differences on the 129² grid, and let the mesh reuse those points. | The analytic slopes are about **53%**. With #1, per chunk drops from about 197k to 18.5k height evaluations (about **10×**). | Medium: measure the visual error of grid slopes first | [GPU2](../ROADMAP.md#gpu2-ground-weights-on-the-gpu) |
+| 3 | **Skip border maths where both regions share their settings.** Relief seeds come from the world seed, so both sides already compute the same relief. 19 of 24 edges round the origin are like this, and all of them in a one-preset world such as the studio. Today the border still runs there, and bends heights by up to 13.6 m (hills) and 152 m (mountains). | The fade and pulls are **81% of a height evaluation** on hills (5.8 of 7.2 µs) and about 62% on mountains. Points the border touches cost 23–40 µs more than the 0.5–0.9 µs relief. | Small to medium for same-settings edges: skip the edge. A design decision for the rest: a plain blend plus TIN seams. | [Border-pull cost (unscheduled)](../ROADMAP.md#border-pull-cost-unscheduled) |
+| 4 | **Cheaper plans.** The 9 plans before the first chunk take 0.18–0.27 s each, 1.9 s in all. Most of a plan is the offers, inside them the fade and pulls again. At river density 0 they still build the 25 m grid, run the trace and bend it (about 0.8%). | Plans are 3.1% of the whole load, but **~90% of the time before the first chunk**. The 2 s first-picture budget leaves about 55 ms per plan. | Medium; much of it comes free with #3 | [TE2](../ROADMAP.md#te2-first-picture-fast) |
+| 5 | **No second read for identical ground.** With features off, every Rough → Fine (or Mid) re-read gives the same ground, yet all 252 chunks are read twice in the viewer default. With features on, see #2 of the first ranking. | **About 50% of a default (coarse-first) load**: the default view did the Rough pass, then re-read all 252 chunks. Mid builds still cost 0.14 s each. | Small: no upgrade when the tiers can't differ | [TE3b](../ROADMAP.md#te3b-chunk-reuse-by-feature-footprint) |
+
+**Not levers on one thread:**
+
+- **Mesh samples:** 3.4%.
+- **Rough builds without their plans:** 0.4%.
+- **Owner lookup and region geometry:** 1.5% of the worker in the profile,
+  though 0.85 µs (hills) to 10 µs (mountains, noisy) per height in the
+  probe.
+- **TIN builds:** milliseconds per chunk.
+
+### What one thread costs today, and the budget
+
+- **Today:** a chunk costs about 197k height evaluations: 16,641 sites ×
+  (1 height + a slope of ~6.5 heights + 4 curvature heights), plus 6,061
+  mesh heights. At 7.2 µs per height on hills, the 252-chunk view is about
+  **360 s on one thread**, plus about 24 s of region plans.
+- **Observed:** 627 s to settle at load ~90, of which the worker was busy
+  97% of the time.
+- **Budget for a full load of about 10 s (252 chunks):** ≤ 2.1 µs per height,
+  all in, after #1 and #2.
+- **Budget for a first picture of about 2 s (40 chunks):** about 1.5 s of
+  heights plus about 0.5 s for the 9 plans.
+- **What that needs:** heights 3.4× cheaper on hills and about 14× on
+  mountains. The relief and E alone cost 0.5–0.9 µs, so only near-free
+  borders (#3) meet it.
+
+| Per height evaluation, one thread (µs) | Hills: all / border-touched / untouched | Mountains: all / touched / untouched |
+|---|---|---|
+| Relief noise and E alone | 0.50 / 0.49 / 0.50 | 0.91 / 0.90 / 0.94 |
+| + convergence fade | 4.3 / 15.3 / 2.3 | 13.5 / 26.8 / 4.5 |
+| + border pulls | 6.3 / 23.4 / 3.0 | 19.4 / 40.8 / 6.2 |
+| + owner lookup (`WorldTerrain::height`) | 7.2 / 24.7 / 3.9 | 29.9 / 62.2 / 13.7 |
+| Site query at Measures (what paint pays) | 68 / 228 / 35 | 256 / 698 / 91 |
+
+- **Where the numbers come from:** the probe `procgena_terrain --example
+  height_parts`, best of 3, warm, load 37–100.
+- **Untouched points:** they still pay 6–7× the relief, because no
+  per-chunk skip exists for chunks wholly inside a region.
+
+### Roads and rivers on against off
+
+- **Single thread:** not measured. In the tree of about 01:20, roads
+  reached no chunk (`--footprint` counted 0 of 252), although the presets
+  have roads on. Something in-progress in that tree produces no roads.
+- **From the profiles with features on (10 cores):** the feature-only work
+  is small:
+  - river carving 0.6–1.6%;
+  - gullies 1.1–1.3%;
+  - road carving 0–0.5%;
+  - the river trace 0.3–0.4%;
+  - road planning 0–0.2%.
+
+  That is about 3–4% of CPU in all. The per-point border maths dominates
+  either way.
+- **What features cost besides:** the Rough → Fine re-reads of chunks a
+  road reaches (44% of chunks on the mixed world).
 
 ## Data
 
