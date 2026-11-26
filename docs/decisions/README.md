@@ -16,5 +16,5 @@ built in [ROADMAP.md](../../ROADMAP.md).
   trait; [IX-plan](IX-plan.md) the impostor experiment.
 - **Design records** for a track: [ecotope-gpu](ecotope-gpu.md) the order
   of the GPU work; [ground-materials](ground-materials.md) ground layers
-  (GM0–GM5); [saved-file-format](saved-file-format.md) preset bundles
+  (GM0–GM5; superseded 2026-11-26, paint removed); [saved-file-format](saved-file-format.md) preset bundles
   (PB1–PB4).

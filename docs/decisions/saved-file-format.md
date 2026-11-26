@@ -405,7 +405,7 @@ which only the deferred mount source would give. That is question 1.
    - **Only the tree Scatter needs this.** Every `ChildKey::new` call site
      was checked; the others build keys from map keys, fixed stems or
      numbered names:
-     - Ecotope Scatters and ground layers are keyed by their map keys;
+     - Ecotope Scatters are keyed by their map keys;
      - stone classes name their own `key`;
      - dead wood and mushroom references resolve to options.
 

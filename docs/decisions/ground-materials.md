@@ -1,6 +1,13 @@
 # Ground materials: Ecotope-owned, driven by terrain measures and labels
 
-> **Record status: decided** with the user 2026-11-24; what is built is in
+> **Superseded 2026-11-26: paint removed; Biome-layer paint from labels
+> to be designed.** The user removed ground paint entirely (the terrain,
+> the Ecotope's ground layers and the Biome base ground). Ground paint
+> will be decided at the Biome layer from labels and segmentation,
+> independent of placement: see ROADMAP's BP. The record below is kept
+> as history.
+
+> **Record status (before 2026-11-26): decided** with the user 2026-11-24; what is built is in
 > ROADMAP's GM0–GM5 and GPU2. This is the record of why. The choices under
 > "Decisions" are the user's; anything still marked "proposed, not
 > decided" is a recommendation waiting for the user (see "Open
