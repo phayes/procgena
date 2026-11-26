@@ -633,6 +633,47 @@ demo crate's tools, rerun whenever the sources change:
 If the head cut shows, the paid A Source set ($19.99) has the "Regular"
 bodies and rigged `.blend` files; buying it is the user's call.
 
+#### Second batch (2026-11-25)
+
+The user asked for more candidates. Free files with a clear licence and
+no account were downloaded into `demo/assets/downloads/`; each loads with
+`gltf` 1.4.1 (the `.blend` was opened in Blender with scripts disabled).
+They are shown on `demo/assets/previews/contact_sheet_2.png`, with the
+same camera and light as the first sheet.
+
+| Candidate | Source | Licence | File | Rig | Verdict |
+|-----------|--------|---------|------|-----|---------|
+| **Quaternius Characters – Fantasy Races**, Standard: Elf and Orc, male and female | [itch.io](https://quaternius.itch.io/characters-fantasy-races) | **Quaternius Asset License (QAL) v1.0**, not CC0: free in any game, no credit, but the assets may not be redistributed as assets ([terms](https://quaternius.com/license.html)) | `Characters - Fantasy Races Kit[Standard].zip`, 98 MB | **Same 65 joints**; UAL clips play directly; F's outfits fit them (head cut as before) | Best new option: an orc in the peasant outfit reads as a burly woodsman. Elves carry antlers. The paid Source set ($20) has all 12 races (the free set has no human or dwarf) |
+| **KayKit Adventurers 2.0**, free: Barbarian, Knight, Mage, Ranger, Rogue, Rogue Hooded | [itch.io](https://kaylousberg.itch.io/kaykit-adventurers) | CC0 (its `License.txt`) | `KayKit_Adventurers_2.0_FREE.zip`, 13 MB | Own 23-bone rig with its own clips (idle, walk, run, jump); **retarget** to the Quaternius rig in Blender, or use its clips (no chop, hang or whistle) | Chibi proportions: too toy-like for the painterly-realistic look. Its `axe_2handed` and `axe_1handed` props (glTF) could serve as the lumberjack's axe |
+| plewr "3D rigged character" | [itch.io](https://plewr.itch.io/3d-rigged-character) | CC0 | `characterRIGGED.glb`, 1 MB | Own 15-bone rig, untextured; retarget needed | A grey blockout: not usable as is |
+| OpenGameArt "3D male" | [OpenGameArt](https://opengameart.org/content/3d-male-0) | CC0 | `male_3d.blend`, 2.6 MB | Own rig (Blender), retarget needed | A plain realistic base body, no clothes or hair: more work than the Quaternius set |
+| OpenGameArt "Angler Man 3D" | [OpenGameArt](https://opengameart.org/content/angler-man-3d) | CC-BY 3.0 | `angler game.zip`, 54 MB | — | **Not a human**: an angler-fish creature. Dropped; files kept in the ignored folder |
+
+**Not downloaded (account, payment or poor fit):**
+
+- **Quaternius paid Source sets**: Fantasy Races Source $20 (all 12
+  races, colour variants), Base Characters Source $19.99, and the UAL Pro
+  $9.99 or Source $14.99. Buying is the user's call.
+- **Quaternius older CC0 packs on Google Drive** (Ultimate Modular Men,
+  Ultimate Modular Women, Ultimate Animated Character Pack, Animated Men):
+  free, CC0, FBX/OBJ/Blend, on older low-poly rigs. Not fetched: flat,
+  low-poly styling further from the look, and Drive folder downloads.
+- **Sketchfab** downloadable CC models: every download needs a Sketchfab
+  account, so none was searched in depth or fetched. The user can browse
+  its "Downloadable" filter while signed in.
+- **Mixamo**: needs the user's Adobe sign-in.
+- **Paid lumberjack models** (CGTrader, RenderHub and similar): a
+  "Lumberjack Character" and "Stylized Lumberjack" were listed at about
+  $29 and $49.99 in search summaries (prices not checked at source), under
+  royalty-free store licences, on their own rigs.
+- **OpenGameArt "Adventurer-militia-peasant"**: CC-BY-SA 3.0 (share-alike)
+  and very low poly; skipped.
+
+**Recommendation unchanged**, with one alternative: the human peasant
+(first sheet) stays the default. The orc peasant (QAL) is the one new
+candidate worth a look if the user likes a fantasy woodsman; it needs no
+retargeting either.
+
 **Art style** (decided: painterly-realistic): the procgena assets are
 realistic-leaning PBR, and the look comes from grading, light and
 atmosphere alone, not a new stylised shading model.
