@@ -91,4 +91,12 @@ lives in ROADMAP.md ("Canonical ground and roads track").
   `GENERAL`.
 - **Built in CT3:** `ChunkSource::lines_within`, gradient error, and tolerance
   profiles per domain.
+- **River banks (the user, 2026-11-25):** there is no bank-top line. Banks are
+  the ground within `water_band` (5 m) of the water's edge, held to the water
+  tolerance. The kept lines are each river's lowest line, its water's edges,
+  and pond shores.
+- **No slope check on open land (the user, 2026-11-25):** gradient error is
+  checked only in the water band. At 0.05 on general terrain, rolling hills
+  would go from 66 to 2,923 triangles per chunk. Placement, labels and shading
+  read the exact ground, so they don't need it.
 - **Not yet done:** a contract cache.
