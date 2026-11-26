@@ -117,6 +117,7 @@ mod scale;
 mod seam;
 mod stitch;
 mod terrain;
+pub mod tin;
 mod warp;
 mod world;
 

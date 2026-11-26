@@ -2130,6 +2130,26 @@ in a `tin` module of `procgena_terrain`.
 - **Done when:** height and gradient error and the triangle counts per
   terrain class are measured against today's regular chunks at equal
   error, and topology is stable under reordered probes.
+- **Status (CT0–CT2): done 2026-11-25**, in `procgena_terrain::tin`
+  (spade 2.15 as the triangulator; hashes from the core
+  `ContentHasher`). Each chunk samples its ground once on a 1 m lattice
+  in one batch. It then splits the worst triangle at its worst sample
+  (Garland–Heckbert over the lattice, exact integer tests), so there are
+  no per-probe samples to reorder. Edge contracts are pure functions of
+  the edge and `H*`, and chunks built alone in any order share their
+  edges (`tests/tin.rs`). A plane chunk's hash is pinned.
+  `--example tin_cost` (seed 1, 16 chunks, 0.5 m tolerance), against the
+  regular mesh's 8,192 triangles:
+
+  | Preset | Triangles | Error between samples, p95 / max | Build per chunk |
+  |---|---|---|---|
+  | plains | 27 | 0.10 / 0.31 m | 2.4 ms |
+  | rolling hills | 66 | 0.33 / 0.54 m | 2.5 ms |
+  | mountains | 657 | 0.38 / 0.79 m (grid 1.04 m) | 6.1 ms |
+
+  Not yet: gradient error, per-domain tolerance profiles (CT3/CT4), a
+  contract cache, and `ChunkSource::lines_within`, moved to CT3, which is
+  its first user.
 
 #### CT3: Rivers, ponds and stamps in the ground
 

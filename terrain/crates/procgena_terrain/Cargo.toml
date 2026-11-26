@@ -16,6 +16,7 @@ glam = { workspace = true }
 procgena_core = { path = "../../../core/crates/procgena_core" }
 rayon = { workspace = true, optional = true }
 serde = { workspace = true }
+spade = "2.15"
 
 [package.metadata.docs.rs]
 all-features = true
