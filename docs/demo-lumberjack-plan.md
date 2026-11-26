@@ -4,6 +4,12 @@
 at the end.** Nothing here is built. Where a choice below says
 "recommended", it is the plan's default until the user answers.
 
+**It is an experience more than a game** (the user, 2026-11-25: "Its
+more of an experience than a game I guess"; "The works for a small
+engaging game"). It is light on goals and mechanics and heavy on mood,
+wandering, gliding and sound, with the full set of atmospheric effects,
+the sun's lens flare included.
+
 The brief (the user, 2026-11-25): *"It's a game where you are a lumberjack
 and you can walk around the world. You also have a hand glider you can use
 to fly when the wind is high. You can also whistle to call the wind. I want
@@ -23,13 +29,13 @@ wisps of leaves floating, animal calls and whistles, gentle music."*
   | Plugin | Owns | Reads | Writes |
   |--------|------|-------|--------|
   | `LandPlugin` | The World, terrain streaming around the player, Ecotope tiles in the play area | `WorldOptions` preset, player position | terrain chunks, Ecotope copies, ground colliders |
-  | `PlayerPlugin` | Walking, the camera rig, input | colliders, input | player transform, `PlayerMode` |
+  | `PlayerPlugin` | Walking, the rigged lumberjack and its animation graph, the camera rig, input | colliders, input | player transform, `PlayerMode`, animation state |
   | `WindPlugin` | **`WindState`**: the one wind of the game, and the whistle | whistle input, time | tree `Wind`, `PlantWind`, the leaves, audio parameters |
   | `GliderPlugin` | Taking off, flying, landing | `WindState`, terrain slope, `PlayerMode` | player velocity, glider pose |
-  | `SkyPlugin` | Sun, atmosphere, fog, light shafts, exposure, bloom, grading, time of day | camera, `WindState` (haze) | camera components, sun |
+  | `SkyPlugin` | Sun, atmosphere, fog, light shafts, exposure, bloom, the sun's lens flare, grading, time of day | camera, `WindState` (haze) | camera components, sun, flare pass |
   | `LeavesPlugin` | Drifting leaves and seeds (GPU particles) | `WindState`, camera, nearby tree copies | particle effects |
   | `SoundPlugin` | Ambience beds, spatial animal calls, the whistle, wind sound, music | `WindState`, `PlayerMode`, time of day, nearby Ecotope | audio graph |
-  | `ChopPlugin` (if in scope, Q3) | Felling, stumps, logs | the copy under the axe | engine edits |
+  | `ChopPlugin` (if in scope, Q3) | Felling a tree as a small ritual: the swing, the fall, a stump | the copy under the axe | engine edits |
 
 - **Data flow.** `WindState` is the hub: the whistle raises its target,
   the wind eases towards it, and every frame it is copied into the tree
@@ -83,13 +89,24 @@ wisps of leaves floating, animal calls and whistles, gentle music."*
   6. **Music as layered stems, mixed by state** (Q5): a few calm loops
      recorded in layers, faded in and out by time of day, wind and whether
      the player is flying. Generative music is a later option.
+  7. **A sun lens flare drawn by the demo.** Bevy 0.20 has no lens flare
+     and no maintained crate offers one, so the demo adds a small
+     screen-space flare pass of its own (see "Atmospherics").
+  8. **A ready-made rigged character and animation clips (CC0),** not a
+     procedural or self-made one. Quaternius's Universal Base Characters
+     with the Universal Animation Libraries share one humanoid rig, so
+     their clips play on the character with no retargeting. The few poses
+     no library has (hanging under the glider, the whistle) are authored
+     on that rig. Nothing is downloaded until the user picks from the
+     shortlist (Q9).
 - **What the demo needs from engine work in flight:** CT5 (collision and
   height products), S1 (streaming cover), W0's selection work only for a
   prettier World, ED (fast first placement), IX (how near impostors can
   come: it decides the frame budget from a glider), the "One wind" rule
   (ARCHITECTURE.md, rule 9) and, if chopping is in, R4 and X1. None of them
   blocks the first walkable slice. See "What the demo needs from engine
-  work".
+  work", and "Roadmap requests" for the changes in order the demo asks
+  the user for.
 
 ## What procgena already gives a demo
 
@@ -172,6 +189,36 @@ workspace member only after its files exist.
 - The player is a grass interactor (plant's `avian` feature), so grass
   parts around the feet as in `examples/walk.rs`.
 
+### The lumberjack's body and movements
+
+- **The model** is a rigged glTF (GLB) humanoid loaded with Bevy's glTF
+  loader, dressed as a lumberjack (plaid shirt, beard, cap) by a texture
+  and hair choice, or by swapping in outfit parts on the same rig. The
+  axe and the folded glider hang from hand and back bones.
+- **Clips** play through Bevy's `AnimationGraph`: a locomotion blend
+  (idle, walk, run by speed), one-shots (jump, fall, land, whistle, chop)
+  and glider states (launch, hang, flare, land). Root motion is not used:
+  the controller moves the body and the clips follow its speed.
+- **Sharing a skeleton.** Bevy finds each clip's bones by their names
+  along the hierarchy, and it has no retargeting at run time. A clip from
+  another file plays on the character only if the bone names and
+  hierarchy match exactly. So every clip must come from the character's
+  own rig family, or be retargeted once, offline in Blender, onto it.
+  The first step after download is a headless check that every chosen
+  clip moves the chosen model.
+- **Clips no library has:**
+  - **Hanging under the glider**: the body hangs from the bar, arms up,
+    legs trailing; a short authored loop, with the lean added at run time
+    from bank and pitch (a small additive or IK offset on the spine).
+  - **The whistle**: fingers to the mouth, a breath; a short authored
+    clip, upper body only, so it plays while walking (a masked blend).
+  - **Glider launch and landing** may borrow a jump and a landing clip,
+    re-timed.
+  Authoring is a few hours in Blender on the rig; the demo needs a
+  person to do it, or the hang pose can start as a pose set in code.
+- **Feet on slopes**: a two-bone foot IK pass so feet rest on uneven
+  ground and roots (later in L5; a polish item).
+
 ### Wind and the whistle (`WindPlugin`)
 
 One resource, `WindState`:
@@ -244,7 +291,25 @@ From Bevy 0.20 (component names checked in the 0.20.1 sources):
   depth from the glider and hides the play area's edge.
 - **Post**: `Bloom` (soft), TAA (needed for foliage and the fog's noise),
   SSAO under the canopy, contact shadows, a light `Vignette`, colour
-  grading per time of day, `DepthOfField` only in a photo mode.
+  grading per time of day, a touch of `MotionBlur` at glider speed, faint
+  `ChromaticAberration` at the screen edge, and `DepthOfField` in a photo
+  mode and for a soft background when the camera is close.
+- **Sun lens flare** (the user, 2026-11-25). Bevy 0.20 has no lens flare
+  (checked in its 0.20.1 sources) and crates.io has no maintained Bevy
+  crate for one, so the demo writes a small post-process pass:
+  - project the sun to the screen;
+  - measure how much of it is visible from a few depth samples around
+    that point, smoothed over a few frames, so the flare fades as the
+    sun slips behind trunks and leaves (this is what makes it lovely in
+    a forest);
+  - draw a soft halo, a faint starburst, and a few ghosts along the line
+    through the screen centre, tinted by the sun's colour from the
+    atmosphere and scaled by exposure;
+  - add a subtle lens dirt texture lit by the bloom.
+  It is one render-graph node drawing into the HDR image before bloom and
+  tone mapping, so exposure and bloom treat it like real light, with its own
+  settings in `demo.yml`. If it turns out generally useful, it could move
+  to `procgena_core_bevy` later.
 - **Time of day**: a slow cycle (recommended: a fixed golden morning by
   default, cycle optional) driving sun angle, fog density, grading,
   ambience and music.
@@ -307,10 +372,13 @@ short recording, and a "Done when". Numbers are on the reference machine
 - World land streaming around the player, one forest Ecotope over the
   play area in tiles, colliders, `bevy-tnua` walking, third-person camera,
   a plain sun and `DistanceFog`, grass parting at the feet.
+- The chosen character (Q9) with idle, walk, run, jump, fall and land
+  blended by speed.
 - **Done when:** a player can walk across the play area over hills, along
   a road and among trees without falling through, getting stuck or
-  passing through trunks; tile borders are invisible; the loading screen
-  takes under 30 s in release on the reference machine.
+  passing through trunks; the lumberjack's feet don't slide at any speed;
+  tile borders are invisible; the loading screen takes under 30 s in
+  release on the reference machine.
 
 ### L2: Atmospherics spike
 
@@ -334,7 +402,8 @@ short recording, and a "Done when". Numbers are on the reference machine
 ### L4: Gliding
 
 - Take-off rules, the flight model, ridge lift, thermals, landing, the
-  camera.
+  camera, and the glider clips (launch, hang loop leaning with bank and
+  pitch, flare, landing).
 - **Done when:** with whistled wind, a player can take off from a ridge,
   stay up for more than 60 s using ridge lift and thermals, cross the play
   area, and land; in calm air the glider won't open; the flight model's
@@ -343,11 +412,13 @@ short recording, and a "Done when". Numbers are on the reference machine
 
 ### L5: Full atmospherics
 
-- Tuned atmosphere, light shafts, exposure, grading, time of day, leaves
-  and motes with hanabi, birds and butterflies.
+- Tuned atmosphere, light shafts, exposure, grading, time of day, the
+  sun's lens flare, motion blur and the rest of the post, leaves and
+  motes with hanabi, birds and butterflies, foot IK.
 - **Done when:** the user signs off a set of reference shots (deep forest
-  with shafts, meadow at golden hour, ridge in strong wind with leaves,
-  the view from the glider) and the frame budget holds.
+  with shafts and the sun flaring through a gap, meadow at golden hour,
+  ridge in strong wind with leaves, the view from the glider) and the
+  frame budget holds.
 
 ### L6: Sound and music
 
@@ -357,14 +428,20 @@ short recording, and a "Done when". Numbers are on the reference machine
   or clicks, calls come from believable places, the wind audio follows
   the visuals, and every file's licence is in the asset manifest.
 
-### L7: Gameplay (scope set by Q3)
+### L7: Gentle purpose (scope set by Q3)
 
-- Recommended minimum: an axe that fells marked trees with a satisfying
-  fall, a stump left behind and a log to pick up; a small goal (deliver
-  logs to a cabin, or reach a far ridge by glider). Felling needs engine
-  edits (see below).
-- **Done when:** the chosen loop can be played start to end, and a felled
-  tree stays felled from near and far within the session.
+An experience, not a game: no score, no inventory, no failure.
+
+- Recommended: a few quiet invitations rather than goals. Cairns on far
+  ridges that the glider reaches (each one a view and a music cue);
+  birds that answer the whistle and lead somewhere; a cabin to return to
+  at dusk. And, if chopping is in, felling a tree as a small ritual: a
+  few swings, the creak, the fall through the canopy, a stump left
+  behind. Felling needs engine edits (see "Roadmap requests").
+- **Done when:** a first-time player, given no instructions, finds the
+  whistle, flies, and reaches a cairn within ten minutes; and, if
+  chopping is in, a felled tree stays felled from near and far within the
+  session.
 
 ### L8: Streaming world (after S1)
 
@@ -390,6 +467,24 @@ Status lives in each ROADMAP block; this says what the demo needs and when.
 | [GM5](../ROADMAP.md#gm5-far-grass-and-forest-tints) | Far forest tint beyond the play area | L5 |
 | [R4](../ROADMAP.md#r4-promotion-and-bevy-queries-everywhere) and [X1](../ROADMAP.md#x1-edits-interaction-core-queries-hooks-and-meshscatter) | Promoting the tree under the axe, removing and replacing copies (felled tree, stump), colliders from `game_level` (deferred by IX) | L7, only if chopping is in |
 | [FF](../ROADMAP.md#ff-the-far-field-drawn-to-the-horizon-later) | Forest to the horizon from the glider | After L8 |
+
+## Roadmap requests
+
+The user allows the demo to ask for changes in the order of engine work
+(2026-11-25). These are requests for the user to decide; this plan does
+not edit ROADMAP. They are ordered by how much they matter to the
+experience.
+
+| # | Milestone | What the demo needs | Proposed change | Why | What it would delay |
+|---|-----------|---------------------|-----------------|-----|---------------------|
+| R1 | [IX](../ROADMAP.md#ix-experiment-lean-heavily-on-impostors) | How close impostors can come, at what frame cost; **impostors that sway in the wind** | Keep IX high; **add** impostor sway (a cheap vertex wobble driven by the shared wind) as an IX item | From the glider almost every tree is an impostor; a forest frozen under a whistled gale breaks the moment the demo is built around | Little: a small shader item inside IX |
+| R2 | New item, `procgena_biome_bevy` | Read access to a placed Ecotope's copies (position, scale, specimen bounds, kind) from Bevy, for example on `EcotopeFinished` | **Add** a small item: hand out the engine-free `EcotopePlacement` (it already holds the copies) once placing finishes | The demo builds trunk colliders, leaf emitters in crowns and bird-call spots from it; without it the demo must place the Ecotope twice | Nothing measurable; a few hours |
+| R3 | "One wind" (ARCHITECTURE.md, asset alignment rule 9) | One wind resource and shader module for trees, grass and clumps | **Move earlier**, as a demo-sized slice: one shared wind resource in `procgena_core_bevy` that tree and plant read, before the full shader merge | The whistle is the heart of the experience; one source of wind keeps trees and grass in step and removes the demo's mapping layer | Touches every asset's Bevy crate (one rebuild wave); otherwise small |
+| R4 | [ED](../ROADMAP.md#ed-ecotope-draw-speed) | Fast first placement of the play area's tiles, and no shader-compile stalls after the loading screen | **Un-defer** the pipeline warm-up as an API a game can call behind a loading screen | 0.3–1.6 s stalls in the first minute are the first thing a player notices; a studio can live with them, an experience can't | Small; ED's other items unchanged |
+| R5 | [GM5](../ROADMAP.md#gm5-far-grass-and-forest-tints) | Far forest tint beyond the play area | **Move earlier**, ahead of L5 | Until S1, everything outside the play area is bare land; from the glider the tint is what makes it read as forest to the horizon | Whatever GM5 currently follows in the ground materials track |
+| R6 | [S1](../ROADMAP.md#s1-streaming) | Cover streaming around the player | **Cut down to a demo-sized slice**: single-Biome streaming over one Terrain on CPU placement, which S1 already lists as able to start earlier (needs B1, G6, R2, I2), ahead of GP | Ends the play area's edge, so the player can glide anywhere | GP and R3's GPU building for deadwood, mushroom and tree move later |
+| R7 | [R4](../ROADMAP.md#r4-promotion-and-bevy-queries-everywhere) and [X1](../ROADMAP.md#x1-edits-interaction-core-queries-hooks-and-meshscatter) | Promote the tree under the axe; Remove and Replace edits for tree copies (felled tree, stump) | **Only if chopping is in (Q3):** **cut down** to a demo slice: promotion and Remove/Replace edits for tree copies in one Ecotope, in session memory (no saving) | Chopping as a ritual needs only these two edits | C2's remaining work and X1's queries and hooks, if the slice jumps ahead of them |
+| R8 | [CT5](../ROADMAP.md#ct5-products-and-streaming) | Collision that matches the drawn ground | **No change.** Ask only that CT5's collision product be easy for a game to turn into a physics collider per chunk | L1 works on chunk-mesh colliders until then | Nothing |
 
 ## What can run in parallel with the engine work
 
@@ -422,8 +517,33 @@ web search on 2026-11-25: **verify each at its source before use.**
 | Whistle | Record it (any phone, a quiet room) or synthesise | Own recording: no licence issue. |
 | Music | Commission three or four stem-based pieces; CC0 music; CC-BY music with credit | Commissioned music: get the stems and a licence to redistribute in the download. |
 | Textures | Already handled by the asset crates' `textures.yml` | — |
-| Character, glider, axe | Simple, original low-poly models made for the demo (glTF), or procedural meshes | Original only, no look borrowed from an existing game. |
+| Character and movements | See "The lumberjack: character and animation shortlist" | CC0 preferred; Mixamo's licence allows use in a game but not redistribution of the raw files |
+| Glider, axe | Simple, original models made for the demo (glTF), or procedural meshes | Original only, no look borrowed from an existing game. |
 | UI | Minimal: a whistle cooldown ring, a wind gauge, a log count | — |
+
+### The lumberjack: character and animation shortlist
+
+Read from each source's page on 2026-11-25. **Nothing is downloaded
+until the user picks (Q9).** Approved files go into `demo/assets/`
+(ignored by git through its own `.gitignore`), and each file's source and
+licence is then recorded in this section.
+
+| # | Candidate | Source | Licence | Files and sizes | Rig and clips | Account |
+|---|-----------|--------|---------|-----------------|---------------|---------|
+| A | **Quaternius Universal Base Characters**, Standard (recommended) | [quaternius.com](https://quaternius.com/packs/universalbasecharacters.html), [itch.io](https://quaternius.itch.io/universal-base-characters) | CC0 | `Universal Base Characters[Standard].zip`, 122 MB, free (2 base models, 5 hairstyles). Source zip 600 MB is paid ($19.99) | Humanoid rig; glTF and FBX; made to work with the animation libraries below. Dressed as a lumberjack by texture and hair, or with Quaternius's modular outfits on the same rig (not yet checked) | No; itch.io "name your price" (0 is fine) |
+| B | **Quaternius Universal Animation Library**, Standard (recommended) | [quaternius.com](https://quaternius.com/packs/universalanimationlibrary.html), [itch.io](https://quaternius.itch.io/universal-animation-library) | CC0 | `Universal Animation Library[Standard].zip`, 15 MB, free (45 clips). Pro 41 MB ($9.99, 120+ clips); Source 46 MB ($14.99) | Same rig naming as the base characters since its v2.0 (its changelog); GLB and FBX. Locomotion in 8 directions, jog, sprint, jumps, swimming, sitting, emotes; root motion on locomotion since v3.0. Exact clip names are not on the page: checked after download or in [its viewer](https://quaternius.com/animviewer.html) | No |
+| C | **Quaternius Universal Animation Library 2**, Standard | [quaternius.com](https://quaternius.com/packs/universalanimationlibrary2.html), [itch.io](https://quaternius.itch.io/universal-animation-library-2) | CC0 | `Universal Animation Library 2[Standard].zip`, 17 MB, free (42 clips). Source 50 MB ($14.99) | Universal humanoid rig (that it matches A's bone names is likely but not stated). Free clips include `WALK_CARRY`, `IDLE_CARRY`, `CLIMB_UP_1M`, `HARVEST`, `WAVE`, `IDLE_LANTERN`, `PLANT_SEED`, `OVERHAND_THROW`, `SLIDE`; full set adds farming, fishing and parkour | No |
+| D | **Mixamo** characters and animations (alternative) | mixamo.com (Adobe) | Adobe's Mixamo terms: free use in games, raw files not redistributable (verify at source) | One FBX per character or clip, chosen on the site (sizes not checked) | Large clip library on one Mixamo skeleton (axe swings, hanging and falling poses to check after sign-in); not glTF, so each file is converted once in Blender. Quaternius's libraries say they are compatible with Mixamo rigs | **Yes, the user's own Adobe sign-in.** The user signs in and downloads; I never enter credentials |
+| E | **Kenney Animated Characters** (fallback) | [kenney.nl](https://kenney.nl/assets/animated-characters-1) | CC0 | One free zip (size not listed) | Simple, blocky style with a few basic clips; would clash with procgena's realistic-leaning look | No |
+
+No CC0 rigged *lumberjack* model was found ready-made; the paid
+lumberjack models on CGTrader and similar stores are "royalty free" with
+terms to read one by one. The recommendation is **A + B (+ C)**: all
+free, CC0, one rig, about 154 MB together. Missing from all of them:
+the glider hang, the whistle and, in the free sets, an axe chop. These
+are authored on the rig (see "The lumberjack's body and movements"), or
+the chop comes from B's Pro set ($9.99) or from Mixamo (retargeted once
+in Blender). Buying a paid set is the user's call.
 
 **Art style** (Q8): the procgena assets are realistic-leaning PBR. The
 recommendation is a painterly-realistic look by grading, light and
@@ -476,12 +596,15 @@ superseded by Bevy's own `Atmosphere`.
   stays an editor. The studio can still open the demo's presets.
 - **Q2. Bounded play area now, or wait for streaming (S1)?** Recommended:
   a 1.5 km area now, with a soft edge, replaced by S1 later.
-- **Q3. How much gameplay? Is chopping in scope?** Chopping needs R4
-  (promotion) and X1 (edits) from the engine, so it would land late (L7)
-  unless those move up. Options: (a) no chopping, a pure wander-and-fly
-  mood piece; (b) chopping marked trees with a stump and a log, and a
-  small delivery goal (recommended, after R4 and X1); (c) a fuller loop
-  (carry logs, build something, a day's goals).
+- **Q3. How much purpose in the experience, and is chopping in?** It is an
+  experience, so there is no score or failure in any option. Chopping
+  needs promotion and edits from the engine (roadmap request R7), so it
+  lands late unless that slice moves up. Options: (a) pure wandering and
+  flying, with a cabin and a day passing; (b) (a) plus gentle invitations:
+  cairns on far ridges reached by glider, birds that answer the whistle
+  and lead somewhere (recommended); (c) (b) plus felling a tree as a
+  small ritual, no logs or inventory (recommended too if R7's slice is
+  acceptable); (d) a fuller lumberjack loop with logs and building.
 - **Q4. First-person or third-person?** Recommended: third-person with a
   first-person toggle.
 - **Q5. Music: stems or generative?** Recommended: commissioned or sourced
@@ -495,11 +618,20 @@ superseded by Bevy's own `Atmosphere`.
   low-end machine available?
 - **Q8. Art style?** Recommended: painterly-realistic by light and grading
   on today's assets.
+- **Q9. Which character and animation files may I download?** Recommended:
+  A, B and C from the shortlist (all CC0 and free, about 154 MB, into a
+  git-ignored `demo/assets/`). Paid sets (B Pro at $9.99 for an axe chop
+  and 120+ clips) and Mixamo (your own Adobe sign-in) only if you want
+  them.
+- **Q10. Roadmap requests R1–R8:** which may go ahead? Recommended: R1,
+  R2, R4 now; R3 and R5 before L5; R6 and R7 when the user sets the
+  experience's scope.
 
 ## Follow-ups for the coordinator
 
 - Add a demo milestone block to ROADMAP once the user approves the plan
   (this plan does not edit ROADMAP).
-- Engine asks raised by this plan: impostor sway in wind (IX), whatever L2
-  finds about procgena materials under Bevy's atmospherics, and colliders
-  from `game_level` (deferred by IX) if chopping is in.
+- Put "Roadmap requests" R1–R8 to the user, and have the agreed ones
+  applied by ROADMAP's owner.
+- Whatever L2 finds about procgena materials under Bevy's atmospherics
+  becomes further engine requests.
