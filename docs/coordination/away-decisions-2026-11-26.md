@@ -46,7 +46,11 @@ with the advisor where needed, for the user to review.
      because both edit `relief.rs`.
    - **The GPU plan's 6 open questions** wait for the user. Nothing that
      depends on them has started.
-5. **Paint slope from height differences (GPU plan open questions 1 and
+5. **Superseded by the user (2026-11-26): terrain paint is off by default**
+   until adaptive TIN sampling lands. Then painting from the TIN is to be
+   explored. Step 1b is cancelled. Step 1a lands only if it's already done,
+   since it's bit-identical. The original entry follows.
+   **Paint slope from height differences (GPU plan open questions 1 and
    2): yes, for paint only.** The load profile found paint sites are 92% of
    the terrain worker's CPU. Step 1b gives paint sites heights only, takes
    slope from differences on the CPU and GPU alike, and shares one height
