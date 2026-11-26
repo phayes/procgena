@@ -77,7 +77,104 @@ and items link to [ROADMAP.md](../ROADMAP.md); their status lives there.
   finished here. So read "several times the baseline", not an exact ratio.
   Then the deadlock can keep it from finishing at all.
 
-## One worker thread, roads and rivers off
+## Post-TB: one worker thread, paint off
+
+Measured 2026-11-26 on master at b84789a. What changed since the sections
+below:
+
+- one terrain worker thread (TS);
+- disabled features cost nothing (TO);
+- paint off by default;
+- no second read where the tiers can't differ;
+- the adaptive TIN in centimetres, with a contract cache (CT-A);
+- cheap borders (TB).
+
+How it was measured:
+
+- **Example:** `load_timeline` with the default viewer camera and view
+  4000 m, on 252 chunks.
+- **Features on:** `--roads --rivers 1.0` in every region. The presets
+  themselves ship with both off.
+- **Load:** 15–30. Read the worker's busy time as the solid figure.
+
+### Cold loads
+
+| World | Features | Mesh | First picture | Finest level final | Settled | Chunks read / promoted | Worker busy | Worker idle |
+|---|---|---|---|---|---|---|---|---|
+| mixed | off | regular | 1.38 s | 2.19 s | **2.67 s** | 252 / 252 | 1.3 s | 38% |
+| mixed | off | `--tin` | 1.29 s | 2.14 s | 2.56 s | 316 / 188 | 0.9 s | 43% |
+| mixed | on | regular | 2.00 s | 3.88 s | **22.2 s** | 366 / 138 | 17.2 s | 4% |
+| mixed | on | `--tin` | 3.37 s | 7.25 s | 24.8 s | 430 / 74 | 18.8 s | 13% |
+| hills | off | regular | 1.99 s | 3.35 s | **5.24 s** | 252 / 252 | 1.8 s | 71% |
+| hills | off | `--tin` | 1.93 s | 3.46 s | 5.89 s | 316 / 188 | 1.8 s | 74% |
+| hills | on | regular | 2.51 s | 5.70 s | **21.2 s** | 390 / 114 | 14.7 s | 26% |
+| hills | on | `--tin` | 3.01 s | 6.44 s | 21.3 s | 454 / 50 | 14.7 s | 15% |
+| mountains | off | regular | 1.42 s | 2.25 s | **2.62 s** | 258 / 252 | 1.3 s | 28% |
+| mountains | off | `--tin` | 1.44 s | 2.75 s | 3.16 s | 322 / 188 | 1.8 s | 19% |
+| mountains | on | regular | 2.36 s | 5.96 s | **29.4 s** | 432 / 78 | 24.0 s | 2% |
+| mountains | on | `--tin` | 3.39 s | 6.43 s | 30.0 s | 464 / 46 | 24.3 s | 2% |
+
+- **Region stages, features off:** each region's plan takes about 1 ms (53 in
+  0.03–0.07 s), and each Rough build about 2 ms (31 in 0.05–0.08 s). The
+  camera is placed at 0.01 s.
+- **Region stages, features on:**
+  - Rough builds take 0.8–1.7 s for 31 regions.
+  - The road tiers take Mid 4–7 s and Fine 13–22 s for 31 regions, about
+    0.13–0.22 s and 0.4–0.7 s a region.
+  - Region 0's roads are built before the first chunk: the camera is placed
+    at 0.28–0.74 s.
+- **Instructions:** with features off, 36–50 G for the whole run, render loop
+  included. Before TB the features-off Rough view took 2.65 T.
+- **The first ranking's #0 (the hang):** no run hung.
+
+### Height evaluations per consumer
+
+| Consumer | Per chunk | Now |
+|---|---|---|
+| Mesh samples | 4,489 heights at level 0; 6,061 at levels ≥ 1 | all of the features-off chunk work |
+| Paint sites | 0 (paint off) | none |
+| TIN | level 0 only, read again on its own (+64 reads) | 6% (mixed), 11% (hills), 27% (mountains) of the features-off worker |
+| Plans | about 1 ms a region | ~0 |
+| Road planning (Mid, Fine) | height reads along routes and sections, with river and road carving | 61–76% of the worker with features on |
+
+### Nanoseconds per height evaluation (one thread, warm)
+
+| Layer | Mixed: all / border-touched | Hills | Mountains |
+|---|---|---|---|
+| Relief noise and E | 339 / 344 | 919 (756 untouched) | 951 |
+| + scaled relief (`natural_height`) | 400 / 491 | 601 | 1,156 |
+| + border field (uncarved height) | 434 / 568 | 652 | 1,332 |
+| + carving (none, features off) | 432 / 578 | 798 | 934 |
+| + owner lookup, point by point (`WorldTerrain::height`) | 1,062 / 1,228 | 2,021 | 2,318 |
+| Query with slope / measures | 1,186 / 2,949 | 2,225 / 4,155 | 3,254 / 6,927 |
+
+- **The border:** points it changes are 14.3% in the mixed world, and 0% in a
+  one-preset world. Same-settings edges no longer move heights at all
+  (0.000 m), and the border field costs 0.03–0.2 µs a height.
+- **Owner lookup:** finding the region that owns a point is now the largest
+  part of a point-by-point height, 0.6–1.4 µs. Chunk reads batch it, but it
+  is still **37–53% of the features-off worker's busy time**: `owner_using`,
+  sorting regions by distance, hashing. Relief noise is 25–40%, and the
+  border field 0–4%.
+- **The probe's noise:** load ~25, hence hills' relief row over its
+  untouched one. Read the rows as orders of magnitude.
+
+### Ranked after TB (one thread)
+
+| # | Speed-up | Expected saving | Effort | ROADMAP item |
+|---|---|---|---|---|
+| 1 | **Cheaper road tiers.** With features on, Mid and Fine road builds are 61–76% of the worker. The promotion check (`tier_changes`) asks every region in view for its Fine tier, so all 31 regions plan roads, far ones included. Inside road planning, about half the time goes to river and road carving in the heights the routes and sections read; the search itself is about 2%. | Settled 21–30 s → about 6–10 s if far regions stop at Mid or Rough (as the studio's `rough_from` already does) and planning reads cheaper heights. The road tiers are 17–28 s of the 22–30 s. | Medium | Canonical ground and roads track ([RB2](../ROADMAP.md#rb2-shared-reverse-cost-field) is not it: the search is small). Needs a new item for road-planning height reads. |
+| 2 | **Keep the worker fed.** The stream queues 2 reads (`QUEUED_READS`), and every promotion uses a slot for a frame. With features off a read takes a few ms, so the worker sits idle **28–74%** of the load, waiting for the next frame. | With features off, settled 2.6–5.9 s → about the worker's busy time, **0.9–1.8 s**. | Small | [TE2](../ROADMAP.md#te2-first-picture-fast) |
+| 3 | **Resolve region ownership once per chunk.** A chunk wholly inside one region needs no per-point owner search. | Owner lookup is 37–53% of the features-off worker, so about 35–50% of chunk-read time. | Small to medium | (new) |
+| 4 | **River carving cost.** With rivers on, river carving and gullies are 5–8% of chunk reads and 21–23% inside road planning, which reads carved heights. | 5–15% of a features-on load; overlaps with #1. | Medium | [TE6](../ROADMAP.md#te6-river-speed-to-investigate) (bake carving per region) |
+| 5 | **TIN builds on rough ground.** With features off the TIN is 27% of the worker on mountains (11% hills, 6% mixed). Its 64 canonical chunks are also read again on their own. | Up to about 0.5 s on mountains. | Medium | CT follow-ups |
+
+- **Below these:** relief noise (25–40% of the features-off worker) is the
+  floor of what a height costs.
+- **Main thread:** frames have a median of 2.4–5.5 ms and a worst case of
+  101–165 ms. No multi-second stalls at this load.
+
+## One worker thread, roads and rivers off (before TB)
 
 The user's design goal is now one terrain worker thread with no Rayon, so
 this section ranks by CPU work per stage, not by wall time on 10 cores. The
