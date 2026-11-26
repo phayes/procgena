@@ -1757,13 +1757,14 @@ the first.
   - Detail offers and agreements for the near regions and their ring
     only. They are negotiated linearly on detail-band samples and pinned
     to zero at corners.
-  - The Fine tier takes its own road settings, not those inside the
-    Rough terrain it clones.
   - Mixed-tier borders get a skirt or a detail fade.
   - River routes stay rough and graph-wide; only carving moves to mid and
     fine.
-  - The rough, detail and port parts of the plan are cached on their own
+  - The rough and detail parts of the plan are cached on their own
     (TE3's keys), with the Rough tier keyed on the rough agreement.
+  - The tier-independent road-edit savings that were filed here are now
+    "Cheaper road edits", under "Later in the track" of the canonical
+    ground and roads track.
   - This changes the seam protocol, as the user agreed.
 - **Needs:**
   - TE4a;
@@ -2163,6 +2164,21 @@ in a `tin` module of `procgena_terrain`.
 
 #### Later in the track
 
+- **Cheaper road edits, revisit after RB4** (kept by the user
+  2026-11-25; moved out of the parked TE4b, since none needs tiers).
+  [terrain/edit_cache_plan.md](terrain/edit_cache_plan.md) estimated
+  about 65% less work per road edit from the three together:
+  - **The Fine tier takes its own road settings,** not those inside the
+    Rough terrain it clones. Once TE3 keeps results across edits, a road
+    edit could otherwise build fine roads from stale settings.
+  - **Port wishes out of the plan:** where roads and rivers want to cross
+    a border is negotiated apart from the rest of the region plan, so a
+    road-width edit keeps the plan.
+  - **The plan cached in stages,** each rebuilt only when its own inputs
+    change.
+
+  RB4 rewrites road planning, so check whether each still applies when
+  it lands.
 - **CT6, GPU sampling and error probes** (TIN milestone 8), after CT2.
 - **RBG, GPU road cost field** (road Stage 9 and TIN milestone 9): integer
   delta-stepping with exact parity to RB2's field, after RB2 and CT0.
