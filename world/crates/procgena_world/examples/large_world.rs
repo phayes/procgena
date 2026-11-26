@@ -3,8 +3,14 @@
 //!
 //! ```text
 //! cargo run -p procgena_world --example large_world -- <dir> [--seed N] [--preset KEY]
-//!     [--span KM] [--land KM] [--centre X Z] [--size PX]
+//!     [--span KM] [--land KM] [--centre X Z] [--size PX] [--weighted]
+//!     [--iterations K] [--temperature T] [--strength S]
 //! ```
+//!
+//! `--weighted` chooses Biomes with the default weighted selection
+//! ([`BiomeSelectionOptions::default`]) instead of the preset's rules.
+//! `--iterations`, `--temperature` and `--strength` (neighbour strength)
+//! change those settings, and imply `--weighted`.
 //!
 //! Writes binary PPM images into `<dir>`:
 //!
@@ -29,7 +35,7 @@ use std::time::Instant;
 
 use glam::{DVec2, Vec3};
 use procgena_terrain::{FeatureTier, RegionId};
-use procgena_world::{BiomePin, World, WorldPreset};
+use procgena_world::{BiomePin, BiomeSelectionOptions, World, WorldPreset};
 
 /// The settings read from the command line.
 struct Args {
@@ -41,6 +47,8 @@ struct Args {
     /// The middle of the land image, in km.
     centre_km: DVec2,
     size: usize,
+    /// Weighted selection instead of the preset's rules.
+    selection: Option<BiomeSelectionOptions>,
 }
 
 fn args() -> Args {
@@ -52,10 +60,20 @@ fn args() -> Args {
         land_km: 12.0,
         centre_km: DVec2::ZERO,
         size: 512,
+        selection: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         let mut value = || it.next().expect("a value after the flag");
+        // The selection flags start from the default weighted selection.
+        if matches!(
+            arg.as_str(),
+            "--weighted" | "--iterations" | "--temperature" | "--strength"
+        ) {
+            args.selection
+                .get_or_insert_with(BiomeSelectionOptions::default);
+        }
+        let selection = args.selection.as_mut();
         match arg.as_str() {
             "--seed" => args.seed = value().parse().expect("a whole number"),
             "--preset" => args.preset = value(),
@@ -67,13 +85,24 @@ fn args() -> Args {
                 args.centre_km = DVec2::new(x, z);
             }
             "--size" => args.size = value().parse().expect("a whole number"),
+            "--weighted" => {}
+            "--iterations" => {
+                selection.unwrap().iterations = value().parse().expect("a whole number");
+            }
+            "--temperature" => {
+                selection.unwrap().temperature = value().parse().expect("a number");
+            }
+            "--strength" => {
+                selection.unwrap().neighbour_strength = value().parse().expect("a number");
+            }
             _ => args.dir = PathBuf::from(arg),
         }
     }
     assert!(
         !args.dir.as_os_str().is_empty(),
         "usage: large_world <dir> [--seed N] [--preset KEY] [--span KM] [--land KM] \
-         [--centre X Z] [--size PX]"
+         [--centre X Z] [--size PX] [--weighted] [--iterations K] [--temperature T] \
+         [--strength S]"
     );
     args
 }
@@ -168,15 +197,23 @@ fn main() -> std::io::Result<()> {
         .clone();
     options.seed = args.seed;
     options.pins.push(BiomePin::at(DVec2::ZERO, "mountains"));
+    options.biome_selection = args.selection.clone();
     let world = World::new(options).expect("valid World");
     let scale = world.options().scale;
     println!(
-        "preset {}, seed {}, scale {} × {}, regions {} m",
+        "preset {}, seed {}, scale {} × {}, regions {} m, {}",
         args.preset,
         args.seed,
         scale.horizontal,
         scale.vertical,
-        world.options().regions.size
+        world.options().regions.size,
+        match &args.selection {
+            Some(s) => format!(
+                "weighted selection: {} iterations, temperature {}, strength {}",
+                s.iterations, s.temperature, s.neighbour_strength
+            ),
+            None => "rule selection".to_owned(),
+        },
     );
 
     // Every pixel's region over the wide square.
@@ -186,15 +223,32 @@ fn main() -> std::io::Result<()> {
     let owners: Vec<RegionId> = (0..args.size * args.size)
         .map(|k| world.region_at(wide.position(k % args.size, k / args.size)))
         .collect();
-    let mut biomes = HashMap::new();
-    for &region in &owners {
-        biomes.entry(region).or_insert_with(|| world.biome(region));
-    }
     println!(
-        "{} regions in {span_km} km × {span_km} km, found in {:.1} s",
+        "pixels' regions found in {:.1} s",
+        started.elapsed().as_secs_f64()
+    );
+
+    // Every region's Biome in one batch, as a map preview would ask.
+    let started = Instant::now();
+    let mut unique = owners.clone();
+    unique.sort_by_key(|r| r.0);
+    unique.dedup();
+    let biomes: HashMap<RegionId, _> = unique.iter().copied().zip(world.biomes(&unique)).collect();
+    println!(
+        "{} regions in {span_km} km × {span_km} km, Biomes chosen in {:.3} s",
         biomes.len(),
         started.elapsed().as_secs_f64(),
         span_km = args.span_km,
+    );
+
+    // The same regions one query at a time, as the land asks for them.
+    let started = Instant::now();
+    for &region in &unique {
+        assert_eq!(world.biome(region).preset.key, biomes[&region].preset.key);
+    }
+    println!(
+        "one at a time: {:.1} µs per region",
+        started.elapsed().as_secs_f64() * 1e6 / unique.len() as f64
     );
     let border = |k: usize| {
         let (i, j) = (k % args.size, k / args.size);
@@ -304,6 +358,11 @@ fn main() -> std::io::Result<()> {
             .expect("region builds");
         (terrain.height(p), terrain.water_level(p))
     };
+    let land_biomes: HashMap<RegionId, _> = regions
+        .iter()
+        .copied()
+        .zip(world.biomes(&regions))
+        .collect();
     let light = Vec3::new(-1.0, 1.5, -1.0).normalize();
     for k in 0..land.size * land.size {
         let p = land.position(k % land.size, k / land.size);
@@ -312,7 +371,7 @@ fn main() -> std::io::Result<()> {
         let dz = height(p + DVec2::Y * step).0 - h;
         let normal = Vec3::new(-dx, step as f32, -dz).normalize();
         let lit = 0.35 + 0.65 * normal.dot(light).max(0.0);
-        let biome = world.biome(land_owners[k]);
+        let biome = &land_biomes[&land_owners[k]];
         let mut c = biome_colour(&biome.preset.key) * lit;
         if water.is_some_and(|w| w > h) {
             c = Vec3::new(0.2, 0.4, 0.8) * (0.6 + 0.4 * lit);
