@@ -20,6 +20,30 @@ If your change conflicts with it, stop and ask rather than diverging
 quietly. If your change settles one of its TODOs or open questions, update
 the document and say so in your report.
 
+## Keeping the documents in step
+
+Documents drift when one fact is written in several places and only some
+copies get updated. Two rules prevent that.
+
+- **Status lives only in [ROADMAP.md](ROADMAP.md).** What is built, in
+  progress or next, and what a milestone still lacks, is written in its
+  milestone block there. ARCHITECTURE.md, plans, READMEs and decision
+  records say what the design is, and link to the milestone instead of
+  restating its status. When your work changes a status, update the
+  milestone block, and no other copy.
+- **A decision that supersedes another updates every echo of the earlier
+  one in the same change.** Before you finish, search every `.md` file for
+  the old decision's names, numbers and phrases (for example a retired
+  type name, a dropped rule such as "level 1 is the default", or a moved
+  milestone), and correct each one or mark it superseded. Decision
+  records in `docs/decisions/` keep their bodies: give them a status
+  banner at the top instead.
+
+Evergreen documents (ARCHITECTURE.md, ROADMAP.md, this file, READMEs and
+the crates' reference docs) describe only the current design and status,
+with no history; git keeps the history. Plans for finished work are
+deleted once anything still open has moved to ROADMAP.
+
 ## Your role: worker or coordinator
 
 - **Worker**: an agent that was given one task. A worker runs only the checks
@@ -68,10 +92,10 @@ cargo test -p <package> --doc
 | `clump/` | `procgena_clump_bevy`| Headless lifecycle tests in `src/spawn.rs`. `--example viewer -- --headless --screenshot <png>` checks the shaders; download textures first with `uv run --project tools textures download clump`. |
 | `deadwood/` | `procgena_deadwood` | Features `export-obj`, `export-gltf`. One file per area in `tests/`. `--example export` writes every preset as GLB/OBJ to `target/procgena_deadwood_export/`. |
 | `fruit/` | `procgena_fruit` | Fruit and flower clusters, an attached asset placed by `procgena_tree`. Features `export-obj`, `export-gltf`. One file per area in `tests/`. |
-| `fruit/` | `procgena_fruit_bevy` | Draws one cluster on its own (the studio's Fruit and Flower tabs). Headless spawn tests in `src/spawn.rs`. Tree fruit is drawn by `procgena_tree_bevy` through the shared renderer's attached copies. |
+| `fruit/` | `procgena_fruit_bevy` | Draws one cluster on its own (the studio's Fruit and Flower kinds). Headless spawn tests in `src/spawn.rs`. Tree fruit is drawn by `procgena_tree_bevy` through the shared renderer's attached copies. |
 | `deadwood/` | `procgena_deadwood_bevy` | Headless spawn tests in `src/spawn.rs`. `--test gpu -- --include-ignored` checks the shaders. `--example viewer -- --headless --screenshot <png>` (also `--preset <name> --closeup`, `--no-impostors`) shows the presets; it reads bark and end grain from `deadwood/assets/textures` (`uv run --project tools textures download deadwood`). |
-| `impostor/` | `procgena_impostor` | Bakes generated objects into octahedral impostors (Bevy). `--example impostor -- --headless --screenshot <png>` bakes a primitive and draws it beside its impostor. |
-| `core/`  | `procgena_core`      | Engine-free: shared hash, `Rng`, `Ground`, `FlatGround`, `HeightGrid`, the distance `chain` (`Lod`, `Step`, `DistanceChain`), `LodRange`, `Quality`, and `preset` (YAML preset files, the `base` + differences merge, the `Preset` trait and the `catalogue!` macro), and `texture` (each crate's `textures.yml` as a `TextureList`). Chain tests in `tests/chain.rs`, fade band tests in `tests/lod.rs`; preset file tests in `src/preset/tests.rs`. Every generator and `procgena_specimen` depend on it, so a change rebuilds most of the workspace. |
+| `impostor/` | `procgena_impostor` | Bakes specimens into octahedral impostors (Bevy). `--example impostor -- --headless --screenshot <png>` bakes a primitive and draws it beside its impostor. |
+| `core/`  | `procgena_core`      | Engine-free: shared hash and content hash, `Rng`, seeds (`seed`: `ChildKey`, `child_seed`, `region_seed`), slot choice (`slot`), `SpecimenId`, addresses (`address`: `RegionId`, `CopyAddress`, part paths), `Ground`, `FlatGround`, `HeightGrid`, `scatter` (`ScatterInput`, the `Scatter` trait, placement), the distance `chain` (`Lod`, `Step`, `DistanceChain`), `LodRange`, `Quality`, `preset` (YAML preset files, the `base` + differences merge, the `Preset` trait and the `catalogue!` macro), `meta` (settings metadata) and `texture` (each crate's `textures.yml` as a `TextureList`). Chain tests in `tests/chain.rs`, fade band tests in `tests/lod.rs`; preset file tests in `src/preset/tests.rs`. Every generator and `procgena_specimen` depend on it, so a change rebuilds most of the workspace. |
 | `core/`  | `procgena_core_bevy` | Shared Bevy runtime: `LodPlugin`, `LodQuality`, `visibility_range`, the dither and triplanar shader modules (`src/shaders/`), texture sets loaded as arrays (`texture`), and the shared instanced renderer and specimen cache (`instanced`), with attached copies (`InstancedAttached`, such as fruit on trees). `--test dither` checks the shader with naga and against the Rust dither levels. `--lib -- --include-ignored gpu` runs the renderer's GPU culling tests, attached copies included. Every asset's Bevy crate depends on it, so a change rebuilds them all. |
 | `specimen/` | `procgena_specimen` | Feature `bevy`. `Specimen`, levels, tags. Every generator depends on it, so a change rebuilds most of the workspace. |
 | `mushroom/` | `procgena_mushroom` | Features `export-obj`, `export-gltf`. One file per area in `tests/`.   |
