@@ -202,7 +202,7 @@ the two.
   height above the ground doesn't shrink a placement range).
   - `factor` is the same quality distance scale the draw selection uses,
     so a lower quality builds less, as it draws less. It is 1 at the
-    default quality. (Coordinator's default, for the user's review.)
+    default quality. (Decided by the user 2026-11-26.)
   - Levels 4 and up have no radius, so they are built only where drawn.
 - **Hysteresis:** a chunk built for its radius stays built until it is
   10% past the radius, like the draw selection's switching bands, so
@@ -254,8 +254,7 @@ and no transition strips (`Transitions` no longer changes a TIN mesh).
 ### No promotion
 
 Every drawn chunk is its own canonical TIN: no parent is drawn in place of
-its children once they are built. (Coordinator's default, for the user's
-review.)
+its children once they are built. (Decided by the user 2026-11-26.)
 
 - **What promotion would save:** only builds for drawing. Of the 528
   chunks above, that is the 80 drawn chunks outside every radius. A chunk

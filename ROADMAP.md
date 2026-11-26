@@ -2499,7 +2499,7 @@ largest place range), whose costs are in
      as TIN edges) and a carve level (the highest sampling its effect on
      the ground), through TF. These replace the Rough, Mid and Fine
      feature tiers, and promotion goes: every drawn chunk is its own
-     TIN. Defaults: roads edges to level 1, carving to 2;
+     TIN (decided by the user 2026-11-26). Defaults: roads edges to level 1, carving to 2;
      rivers and ponds edges to 2, carving at all levels. Measured
      (`--example tin_levels`): cost per chunk stays about flat, from
      0.3–4.5 ms at level 0 to 0.4–7.7 ms at level 6 (plains to
@@ -2534,7 +2534,9 @@ largest place range), whose costs are in
      to its build radius around the camera, apart from the draw
      selection, and a Scatter's place range is clamped to it: level 0 to
      150 m (also colliders), 1 to 500 m, 2 to 1.5 km, 3 to 4 km (the tree
-     cap; FF's forest tint beyond); levels 4 and up are drawn only. That
+     cap; FF's forest tint beyond); levels 4 and up are drawn only. The
+     radii scale with quality, as draw distances do (decided by the user
+     2026-11-26). That
      is about 365 chunks: about 0.15 s cold on plains, 1.6–2.8 s on
      mountains. Keep-off rules such as "no trees on roads" read the
      feature lines, not the TIN.
