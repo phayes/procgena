@@ -765,6 +765,25 @@ small pond at its end sized from its width. Instead:
   Terrain presets, region size and border warp are not scaled (G7). Image
   example `--example large_world`; see world_plan.md, "W0 as built", for
   what it shows and what is left.
+- **Weighted selection (2026-11-25, plan
+  `docs/procgena-world-generation-plan.md`): W0a–W0d done, W0e/W0f in
+  part, W0d.1 waiting on the user's answers.** An optional, versioned
+  `biome_selection` in `WorldOptions` (absent: the first-match rules, as
+  before) draws each unpinned region's Biome from field suitability
+  (prevalence and Gaussian preferences) and a symmetric affinity table, then
+  redraws it `iterations` times from its six lattice neighbours' previous
+  draws (seed key `"world.biome.selection"`). Adjacency is the six
+  neighbours of the hexagonal lattice and fields are read at the
+  unjittered lattice point (decided by the user 2026-11-25: corners may
+  drift by a bounded, Biome-independent amount, and only cross-Biome edges
+  are warped, so selection never depends on geometry it sets). One
+  selector serves `World::biome`, the batch `World::biomes` and the
+  terrain source, with its own graph and E (no cycle, no land built).
+  Random access matches a whole-patch simulation. Cost: about 28 µs per
+  single query at K = 3 and 2 µs per region in a batch; no cache needed.
+  Left: W0d.1 (straight same-Biome edges, drifting corners: a
+  `procgena_terrain` graph change), the `world.meta.yml` entries and the
+  Studio editor (W0f.1), and tuning the draft settings (W0g).
 
 ### Cover track
 

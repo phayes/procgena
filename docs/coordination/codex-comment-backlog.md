@@ -613,3 +613,15 @@ in these files (`git show <commits> -- <file>` shows which).
   (`Grid::with_cell_where`), `src/terrain.rs` (`Terrain::road_stats`,
   `moved`), `src/tin/*.rs` (every item), `tests/tin.rs`,
   `examples/{road_cost,tin_cost}.rs`.
+
+## procgena_world (W0 weighted Biome selection, 2026-11-25)
+
+- **W0a–W0f** (commits `59d9fa7`, `9e1634b`):
+  `world/crates/procgena_world/src/options.rs` (`WorldOptions::biome_selection`,
+  `BIOME_SELECTION_VERSION`, `MAX_ITERATIONS`, `BiomeSelectionOptions`,
+  `BiomeSuitability`, `FieldPreference`, `BiomeCompatibility`,
+  `CompatibilityPair`, `SelectionError`, `WorldOptionsError::Selection`),
+  `src/world.rs` (`RegionBiome::pinned`, `RegionBiome::fields`, `World`,
+  `World::biomes`, `Choice`, `Mode`), `src/selection/{mod,sampling,suitability,compatibility,relaxation}.rs`
+  (every item), `tests/selection.rs` (module docs), `examples/large_world.rs`
+  (module docs, `Args::selection`).
