@@ -52,6 +52,7 @@ mod canonical;
 mod material;
 mod overlay;
 mod progress;
+mod reads;
 mod stream;
 mod worker;
 
@@ -303,13 +304,12 @@ pub struct TerrainProgress {
     pub refining: usize,
     /// Chunks wanted around the viewers now.
     pub wanted: usize,
-    /// Chunks being read.
+    /// Chunks being read or waiting to be read.
     pub reading: usize,
     /// Chunks that could not be read since the stream last changed; they
     /// are left as holes.
     pub failed: usize,
-    /// Chunks sampled and painted since the stream last changed, at any
-    /// tier.
+    /// Chunks sampled since the stream last changed, at any tier.
     pub sampled: usize,
     /// Drawn chunks that a later tier left exactly as they were, so they
     /// stand for it without being read again, since the stream last
@@ -368,7 +368,7 @@ struct TerrainSettings {
 /// A chunk's ground as read: regular samples, or its canonical mesh.
 #[derive(Clone)]
 pub(crate) enum Geometry {
-    Regular(Box<ChunkSamples>),
+    Regular(Arc<ChunkSamples>),
     Tin(TinRead),
 }
 
@@ -430,7 +430,7 @@ impl ChunkRead {
             Some(Ok(read)) => Geometry::Tin(read),
             // A source without the fine tier has no canonical ground.
             None | Some(Err(ReadError::Tin(TinError::NotFine(_)))) => {
-                Geometry::Regular(Box::new(ChunkSamples::sample(source, key, tier)?))
+                Geometry::Regular(Arc::new(ChunkSamples::sample(source, key, tier)?))
             }
             Some(Err(error)) => return Err(error),
         };
@@ -469,7 +469,7 @@ impl ChunkRead {
             panic!("a canonical chunk has no chunks inside it");
         };
         Self {
-            geometry: Geometry::Regular(Box::new(ChunkSamples::stand_in(samples, key))),
+            geometry: Geometry::Regular(Arc::new(ChunkSamples::stand_in(samples, key))),
             stands_for: parent.stands_for,
         }
     }
@@ -499,20 +499,16 @@ impl ChunkRead {
     }
 }
 
-/// Reading one chunk on the terrain thread.
-type ReadTask = worker::Pending<Result<ChunkRead, ReadError>>;
-
-/// How many chunk reads each stream keeps queued on the terrain thread:
-/// one reading and one waiting, so the thread never sits idle between
-/// frames. Every read runs on the one terrain thread, one at a time.
-const QUEUED_READS: usize = 2;
+/// A stream's chunk reads on the terrain thread, each under its chunk and
+/// the stream generation it was started in.
+type Reads = reads::ReadQueue<(ChunkKey, u64), Result<ChunkRead, ReadError>>;
 
 /// A stream's state: what is drawn, wanted and being read.
 #[derive(Component, Default)]
 struct StreamState {
     stream: Stream,
-    /// Reads in flight: the chunk, its generation and the task.
-    tasks: Vec<(ChunkKey, u64, ReadTask)>,
+    /// Reads queued or running on the terrain thread, nearest first.
+    reads: Reads,
     last: Option<TerrainStream>,
     /// The entity drawing each chunk.
     entities: HashMap<ChunkKey, Entity>,
@@ -532,6 +528,13 @@ struct StreamState {
     /// choice was made from, when it kept the target as it was. Choosing
     /// again from the same inputs keeps it again, so it is skipped.
     unchanged_from: Option<(ChunkLevels, f32, Vec<DVec3>)>,
+    /// Whether a read finished, or the drawn chunks changed, since drawn
+    /// chunks were last checked for promotion. Only then can the answer
+    /// change: a later tier's region terrain is built inside a read.
+    check_promotions: bool,
+    /// Drawn chunks the tier they want is known to change, so they need a
+    /// read; not checked for promotion again.
+    changes_known: HashSet<ChunkKey>,
     /// Skirts deeper than [`skirt_depth`], for chunks beside a chunk of
     /// another tier: how far that chunk's tier moved the ground.
     skirts: HashMap<ChunkKey, f32>,
@@ -709,7 +712,9 @@ fn reset_streams(
                 if !same_ground {
                     state.stream.reset();
                     state.unchanged_from = None;
-                    state.tasks.clear();
+                    state.reads.cancel();
+                    state.check_promotions = true;
+                    state.changes_known.clear();
                     state.failed = 0;
                     state.sampled = 0;
                     state.promoted = 0;
@@ -788,17 +793,8 @@ fn stream_chunks(
         }
 
         // Collect finished reads.
-        let mut finished = Vec::new();
-        state
-            .tasks
-            .retain_mut(|(key, generation, task)| match task.poll() {
-                Some(result) => {
-                    finished.push((*key, *generation, result));
-                    false
-                }
-                None => true,
-            });
-        for (key, generation, result) in finished {
+        for ((key, generation), result) in state.reads.finished() {
+            state.check_promotions = true;
             let current = generation == state.stream.generation;
             if let (true, Ok(read)) = (current, &result) {
                 if read.geometry.tier() < read.tier() {
@@ -825,39 +821,79 @@ fn stream_chunks(
             state.stream.finish(key, generation, read);
         }
 
-        // Start reading the nearest missing chunks: at the roughest tier
-        // first when the stream loads coarse first. Only when none is
-        // missing, read drawn chunks again at the tier they want with the
-        // reads left over.
-        let mut free = QUEUED_READS.saturating_sub(state.stream.reading());
-        let missing = state.stream.missing(&flat);
+        // The reads still waiting are chosen again below, from what is
+        // wanted now.
+        let generation = state.stream.generation;
+        for (key, started_in) in state.reads.cancel() {
+            if started_in == generation {
+                state.stream.cancel(key);
+            }
+        }
+
+        // A drawn chunk a later tier is already known to leave alone
+        // stands for that tier as it is, at once and without a read. A
+        // canonical chunk always needs its own read.
         let wanted = |key: ChunkKey| source.tier(key.level);
-        let upgrades = state.stream.upgrades(&flat, wanted);
-        let mut reads: Vec<(ChunkKey, FeatureTier)> = Vec::new();
-        for &key in missing.iter().take(free) {
-            let tier = if source.coarse_first {
-                FeatureTier::ALL[0]
-            } else {
-                wanted(key)
-            };
-            reads.push((key, tier));
+        let canonical = |key: ChunkKey, tier: FeatureTier| {
+            source.tin && key.level == 0 && source.source.tier(tier) == FeatureTier::Fine
+        };
+        if std::mem::take(&mut state.check_promotions) {
+            let upgrades = state.stream.upgrades(&flat, wanted);
+            state.changes_known.retain(|key| upgrades.contains(key));
+            for key in upgrades {
+                let tier = wanted(key);
+                let Some(drawn) = state.stream.read_of(key).filter(|_| !canonical(key, tier))
+                else {
+                    continue;
+                };
+                if state.changes_known.contains(&key) {
+                    continue;
+                }
+                match source.source.tier_change_known(key, drawn.tier(), tier) {
+                    Some(false) => {
+                        state.stream.start(key);
+                        let promoted = Arc::new(drawn.promoted(tier));
+                        state.stream.finish(key, generation, Some(promoted));
+                        state.promoted += 1;
+                    }
+                    Some(true) => {
+                        state.changes_known.insert(key);
+                    }
+                    None => {}
+                }
+            }
         }
-        free -= reads.len();
+
+        // Queue the missing chunks, nearest first: at the roughest tier
+        // when the stream loads coarse first. Only when none is missing,
+        // queue drawn chunks to read again at the tier they want.
+        let missing = state.stream.missing(&flat);
+        let mut reads: Vec<(ChunkKey, FeatureTier)> = missing
+            .iter()
+            .map(|&key| {
+                let tier = if source.coarse_first {
+                    FeatureTier::ALL[0]
+                } else {
+                    wanted(key)
+                };
+                (key, tier)
+            })
+            .collect();
         if missing.is_empty() {
-            reads.extend(upgrades.iter().take(free).map(|&k| (k, wanted(k))));
+            let upgrades = state.stream.upgrades(&flat, wanted);
+            reads.extend(upgrades.into_iter().map(|k| (k, wanted(k))));
         }
+        let mut jobs: Vec<((ChunkKey, u64), reads::Job<_>)> = Vec::with_capacity(reads.len());
         for (key, tier) in reads {
             // A drawn chunk being read again at a later tier: if that tier
             // changes nothing about it, the drawn read stands for it as it
-            // is. A canonical chunk always needs its own read.
-            let canonical =
-                source.tin && key.level == 0 && source.source.tier(tier) == FeatureTier::Fine;
+            // is.
             let drawn = state
                 .stream
                 .is_upgrade(key)
                 .then(|| state.stream.read_of(key))
                 .flatten()
-                .filter(|_| !canonical);
+                .filter(|_| !canonical(key, tier));
             state.stream.start(key);
             let ground = Arc::clone(&source.source);
             let tin = source.tin.then(|| {
@@ -868,7 +904,7 @@ fn stream_chunks(
                     })
                     .clone()
             });
-            let task = worker::spawn(move || {
+            let job = Box::new(move || {
                 if let Some(drawn) = drawn
                     && !ground.tier_changes(key, drawn.tier(), tier)
                 {
@@ -876,8 +912,9 @@ fn stream_chunks(
                 }
                 ChunkRead::read_with(&*ground, key, tier, tin.as_deref())
             });
-            state.tasks.push((key, state.stream.generation, task));
+            jobs.push(((key, generation), job));
         }
+        state.reads.push(jobs);
 
         // Swap the drawn chunks once the whole new set is read; redraw
         // upgraded chunks one by one. `redraw` removes a chunk's entity and
@@ -930,6 +967,7 @@ fn stream_chunks(
         }
         drawn_now.extend(state.stream.take_refreshed());
         let changed = !drawn_now.is_empty();
+        state.check_promotions |= changed;
         let mut near_changes: Vec<ChunkKey> = Vec::new();
         for (key, transitions, read) in drawn_now {
             near_changes.push(key);
@@ -1599,9 +1637,18 @@ mod tests {
             options
         };
 
-        // Each drawn chunk's ground once the stream settles, as
-        // text that tells apart any two bit patterns, and how many chunks
-        // stand for a later tier than they were read at.
+        // A chunk's ground as text that tells apart any two bit patterns.
+        let text = |read: &ChunkRead| {
+            let Geometry::Regular(samples) = &read.geometry else {
+                panic!("no canonical chunks without the switch");
+            };
+            let mut mesh = samples.mesh(Transitions::NONE, 0.0);
+            mesh.tier = read.tier();
+            format!("{mesh:?}")
+        };
+
+        // Each drawn chunk's ground once the stream settles, and how many
+        // chunks stand for a later tier than they were read at.
         let settled = |coarse_first: bool| {
             let _streaming = streaming();
             let mut app = app();
@@ -1624,12 +1671,7 @@ mod tests {
                 .map(|(&key, (read, _))| {
                     assert_eq!(read.tier(), FeatureTier::Fine, "{key:?}");
                     promoted += usize::from(read.geometry.tier() < read.tier());
-                    let Geometry::Regular(samples) = &read.geometry else {
-                        panic!("no canonical chunks without the switch");
-                    };
-                    let mut mesh = samples.mesh(Transitions::NONE, 0.0);
-                    mesh.tier = read.tier();
-                    (key, format!("{mesh:?}"))
+                    (key, text(read))
                 })
                 .collect();
             (reads, promoted)
@@ -1644,6 +1686,14 @@ mod tests {
         assert_eq!(coarse.len(), direct.len());
         for (key, read) in &coarse {
             assert!(read == &direct[key], "{key:?} differs");
+        }
+
+        // And each is exactly the chunk read on its own at its own tier,
+        // whatever order the stream read it in.
+        let world = WorldTerrain::new(fixtures::world_medium(), Arc::new(featured)).unwrap();
+        for (key, read) in &coarse {
+            let alone = ChunkRead::read(&world, *key, FeatureTier::Fine).unwrap();
+            assert!(read == &text(&alone), "{key:?} differs from its read alone");
         }
     }
 

@@ -123,6 +123,12 @@ impl Stream {
         self.reading.insert(key);
     }
 
+    /// Marks `key` as no longer being read, its read dropped before it
+    /// started. It is then missing, or an upgrade, again.
+    pub(crate) fn cancel(&mut self, key: ChunkKey) {
+        self.reading.remove(&key);
+    }
+
     /// What becomes of a read of `key` finishing now: whether it is an
     /// upgrade of samples already kept.
     pub(crate) fn is_upgrade(&self, key: ChunkKey) -> bool {
@@ -580,5 +586,34 @@ mod tests {
         let swap = stream.swap().unwrap();
         assert_eq!(swap.remove.len(), before);
         assert_eq!(swap.add.len(), before);
+    }
+
+    #[test]
+    fn a_cancelled_read_is_wanted_again() {
+        let mut stream = Stream::default();
+        stream.retarget(select(0.0, None));
+        let missing = stream.missing(&[DVec2::ZERO]);
+        stream.start(missing[0]);
+        assert_eq!(stream.missing(&[DVec2::ZERO]), missing[1..]);
+        stream.cancel(missing[0]);
+        assert_eq!(stream.missing(&[DVec2::ZERO]), missing);
+        assert_eq!(stream.reading(), 0);
+
+        // So is a cancelled upgrade.
+        for &key in &missing {
+            read(&mut stream, key, FeatureTier::Rough);
+        }
+        stream.swap().unwrap();
+        let upgrades = stream.upgrades(&[DVec2::ZERO], |_| FeatureTier::Fine);
+        stream.start(upgrades[0]);
+        assert_eq!(
+            stream.upgrades(&[DVec2::ZERO], |_| FeatureTier::Fine),
+            upgrades[1..]
+        );
+        stream.cancel(upgrades[0]);
+        assert_eq!(
+            stream.upgrades(&[DVec2::ZERO], |_| FeatureTier::Fine),
+            upgrades
+        );
     }
 }
