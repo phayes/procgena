@@ -57,7 +57,15 @@ with the advisor where needed, for the user to review.
    grid between mesh and paint. Acceptance: slope error p95 under 1°, and
    material edges within one texel. Scatters and queries keep exact slopes.
    The GPU plan's open questions 3–6 still wait for the user.
-6. **The double chunk read** (Rough, then the wanted tier, for identical
+6. **The canonical unit becomes integer centimetres (decided by the user,
+   2026-11-26),** superseding D6d's millimetres. The adaptive TIN worker
+   makes the change in `src/tin/` along with its rework.
+   - Water-band tolerance stays 0.10 m.
+   - The design doc's road tolerance becomes 0.10 m (from 0.05 m), for CT4.
+   - General terrain stays 0.5 m.
+   - The coordinator's earlier "river beds need about 1 cm" was overstated:
+     the water-band tolerance in force is 10 cm.
+7. **The double chunk read** (Rough, then the wanted tier, for identical
    ground) goes to the world worker after TS. It must be bitwise identical.
 7. **Cheap borders (TB):**
    - Its "before" numbers are taken after the Rayon removal (TS), so the
