@@ -86,9 +86,11 @@ pub enum HeightRule {
     Relief(Ramp),
 }
 
-/// A rule over a point's [`Flags`]: 1 where the point has at least one of
-/// the `any` flags (or `any` is empty) and none of the `none` flags,
-/// otherwise 0.
+/// Selects points by their [`Flags`], such as wet ground or roads.
+/// A point passes if it has at least one `any` flag (unless `any` is empty)
+/// and no `none` flags. A flag in `none` always excludes the point.
+///
+/// For example, select wet ground outside roads and road banks:
 ///
 /// ```yaml
 /// any: [wet]
@@ -97,28 +99,30 @@ pub enum HeightRule {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FlagRule {
-    /// Flags of which the point must have at least one. Empty means no
-    /// flag is needed.
+    /// Flags to match: at least one must be present. Empty allows any point
+    /// that passes `none`.
     #[serde(with = "flag_names")]
     pub any: Flags,
-    /// Flags the point must not have.
+    /// Flags to exclude: any of these prevents a match.
     #[serde(with = "flag_names")]
     pub none: Flags,
 }
 
 impl FlagRule {
-    /// Whether `flags` pass the rule.
+    /// Returns whether the supplied site flags satisfy both `any` and `none`.
     pub fn passes(&self, flags: Flags) -> bool {
         (self.any.is_empty() || flags.intersects(self.any)) && !flags.intersects(self.none)
     }
 }
 
-/// One condition of a ground layer's rule. Each gives a factor from 0 to
-/// 1, and a layer's conditions are multiplied together.
+/// Controls where a ground layer appears. Each condition contributes a
+/// factor from 0 (no coverage) to 1 (full coverage); the layer multiplies
+/// its conditions together.
 ///
-/// A condition whose measure the [`GroundSite`] doesn't have counts as 1,
-/// so it has no effect: see [`Condition::factor`]. Each condition needs
-/// the site read at least at its [`detail`](Self::detail).
+/// Sample the [`GroundSite`] at the condition's [`detail`](Self::detail)
+/// to provide the data it needs. If that data is missing,
+/// [`factor`](Self::factor) returns `None` and the layer treats it as 1:
+/// missing data does not prevent the layer from appearing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Condition {
@@ -127,26 +131,32 @@ pub enum Condition {
     Slope(Ramp),
     /// The ground's height.
     Height(HeightRule),
-    /// How far the ground lies above the water, in metres: negative under
-    /// water (see [`GroundSite::height_above_water`]). Ground with no water
-    /// near or over it counts as infinitely high above it.
+    /// Height above nearby water in metres, negative below the surface.
+    /// Useful for selecting low river banks. Falls back to the water
+    /// covering the point, or infinity for a dry point when no nearby
+    /// water height is available (see [`GroundSite::height_above_water`]).
     HeightAboveWater(Ramp),
     /// 1 where a road gives the ground any of these tags, otherwise 0.
     RoadTags(#[serde(with = "tag_names")] RoadTags),
-    /// How far it is to the nearest river's or pond's edge, in metres: 0 in
-    /// the water, and at most [`MEASURE_REACH`](crate::MEASURE_REACH).
+    /// Distance to a river or pond in metres: 0 inside its footprint,
+    /// increasing away from its edge. Distances beyond
+    /// [`MEASURE_REACH`](crate::MEASURE_REACH) are capped at that value.
     WaterDistance(Ramp),
-    /// How far it is to the nearest road surface's edge, in metres: 0 on
-    /// the road, and at most [`MEASURE_REACH`](crate::MEASURE_REACH).
+    /// Distance to a road surface in metres: 0 on the road, increasing
+    /// away from its edge. Distances beyond
+    /// [`MEASURE_REACH`](crate::MEASURE_REACH) are capped at that value.
     RoadDistance(Ramp),
-    /// How the ground bends, per metre: positive where it is convex
-    /// (ridges, the tops of banks), negative where it is concave (valley
-    /// floors, hollows); see [`Measures::curvature`](crate::Measures::curvature).
+    /// Ground curvature, per metre: positive on outward bends such as
+    /// ridges, negative in inward bends such as hollows. Use a negative
+    /// band to select hollows; see [`Measures::curvature`](crate::Measures::curvature).
     Curvature(Ramp),
-    /// 1 where the ground's [`Landform`] is one of these, otherwise 0. An
-    /// empty set is 0 everywhere labels are known.
+    /// Selects any of the supplied [`Landform`] categories, such as cliff
+    /// or riverbank: 1 for a match, 0 otherwise. An empty set matches
+    /// nothing when labels are available; missing labels leave the
+    /// condition without an effect.
     Landform(#[serde(with = "landform_names")] BTreeSet<Landform>),
-    /// 1 where the ground's [`Flags`] pass the rule, otherwise 0.
+    /// Selects points whose [`Flags`] pass the supplied rule: 1 for a
+    /// match, 0 otherwise. Missing labels leave the condition without an effect.
     Flags(FlagRule),
 }
 
@@ -178,11 +188,11 @@ impl Condition {
         }
     }
 
-    /// The least a [`GroundSource`](super::GroundSource) must work out
-    /// about a point for this condition to read it: slope, height and road
-    /// tags need [`SampleDetail::Gradient`]; height above water, distances
-    /// and curvature [`SampleDetail::Measures`]; landforms and flags
-    /// [`SampleDetail::Labels`].
+    /// The minimum sampling detail to request for this condition.
+    /// [`SampleDetail::Gradient`] provides height, slope and road tags;
+    /// [`SampleDetail::Measures`] adds nearby water height, distances and
+    /// curvature; [`SampleDetail::Labels`] adds landform categories and
+    /// flags. Higher detail requires more terrain calculations.
     pub fn detail(&self) -> SampleDetail {
         match self {
             Self::Slope(_) | Self::Height(_) | Self::RoadTags(_) => SampleDetail::Gradient,
@@ -208,7 +218,7 @@ impl Condition {
     }
 }
 
-/// Every single flag, in the order [`Flags::names`] lists them.
+/// All supported flags, in the same order as [`Flags::names`].
 pub(crate) const FLAGS: [Flags; 6] = [
     Flags::UNDERWATER,
     Flags::RIVER,
@@ -218,8 +228,8 @@ pub(crate) const FLAGS: [Flags; 6] = [
     Flags::WET,
 ];
 
-/// Reads and writes [`Flags`] as a list of flag names, such as
-/// `[wet, river]`.
+/// Serializes [`Flags`] as names, for example `[wet, river]` in YAML.
+/// Rejects unknown names and lists the supported choices in the error.
 mod flag_names {
     use super::*;
 
@@ -244,8 +254,8 @@ mod flag_names {
     }
 }
 
-/// Reads and writes a set of [`Landform`]s as a list of names, such as
-/// `[cliff, ridge]`.
+/// Serializes a set of [`Landform`]s as names, for example `[cliff, ridge]`
+/// in YAML. Rejects unknown names and lists the supported choices in the error.
 mod landform_names {
     use super::*;
 
@@ -536,10 +546,9 @@ impl GroundLayer {
         weight
     }
 
-    /// The least a [`GroundSource`](super::GroundSource) must work out
-    /// about a point for every condition of this layer to read it (see
-    /// [`Condition::detail`]); [`SampleDetail::Gradient`] for a layer with
-    /// no conditions.
+    /// The minimum sampling detail needed by all of this layer's
+    /// conditions (see [`Condition::detail`]). Returns
+    /// [`SampleDetail::Gradient`] when there are no conditions.
     pub fn detail(&self) -> SampleDetail {
         self.when
             .iter()

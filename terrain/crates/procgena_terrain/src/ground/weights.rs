@@ -31,10 +31,11 @@ pub struct GroundWeights {
 }
 
 impl GroundWeights {
-    /// Paints chunk `key` with `painter`, reading sites from `source` at
-    /// `tier` and the painter's [`detail`](GroundPainter::detail):
-    /// [`GROUND_TEXELS`] × [`GROUND_TEXELS`] texels, texel `(i, j)` at
-    /// [`chunk_point`](Self::chunk_point).
+    /// Paints chunk `key` into a [`GROUND_TEXELS`] × [`GROUND_TEXELS`]
+    /// texture, with texel `(i, j)` at [`chunk_point`](Self::chunk_point).
+    /// Samples `source` at `tier`, automatically requesting the painter's
+    /// [`detail`](GroundPainter::detail) so its conditions have the data
+    /// they need, where the source supports it.
     ///
     /// Neighbouring chunks of one level share their edge texels. Where
     /// neither chunk had to drop materials (see [`dropped`](Self::dropped)),
@@ -60,11 +61,10 @@ impl GroundWeights {
     }
 
     /// Paints the rectangle from `min` to `max` (world x and z, metres)
-    /// with `painter`, reading sites from `source` at `tier` and the
-    /// painter's [`detail`](GroundPainter::detail), with `size`
-    /// texels along x and z. The texels are spread evenly, the outer ones
-    /// on the rectangle's edges, so texel `(i, j)` lies at
-    /// `min + (max − min) × (i, j) / (size − 1)`.
+    /// with `size` texels along x and z. Samples `source` at `tier`,
+    /// automatically requesting the painter's [`detail`](GroundPainter::detail).
+    /// Texels are evenly spaced and include the rectangle's edges:
+    /// texel `(i, j)` lies at `min + (max − min) × (i, j) / (size − 1)`.
     ///
     /// Materials past [`PALETTE_SIZE`] are dropped as in
     /// [`chunk`](Self::chunk).
@@ -257,10 +257,12 @@ pub struct GroundGrid {
 }
 
 impl GroundGrid {
-    /// Samples the same texels as [`GroundWeights::chunk`], at `detail`
-    /// (see [`GroundSource::site_at`]). Read at least the
-    /// [`detail`](GroundPainter::detail) of every painter the grid will be
-    /// painted with.
+    /// Samples chunk `key` at `tier` for later painting, using the same
+    /// texel positions as [`GroundWeights::chunk`]. Request at least the
+    /// [`detail`](GroundPainter::detail) of every painter that will use
+    /// the grid. Higher detail costs more to sample but allows painters
+    /// to use additional data without sampling again.
+    /// Sources may leave unsupported data unknown; see [`GroundSource::site_at`].
     ///
     /// # Errors
     /// Returns [`ChunkError::NoGround`] if any site has a non-finite height.
@@ -301,16 +303,18 @@ impl GroundGrid {
         })
     }
 
-    /// The detail the sites were read at. A painter whose
-    /// [`detail`](GroundPainter::detail) is more needs the grid read again.
+    /// The detail requested when this grid was sampled. This does not
+    /// guarantee that the source supplied every field. Sample a new grid
+    /// before using a painter that requires higher [`detail`](GroundPainter::detail).
     pub fn detail(&self) -> SampleDetail {
         self.detail
     }
 
-    /// Repaints these samples, with the same palette and quantisation as
-    /// [`GroundWeights::chunk`], without reading any ground. Measures the
-    /// grid wasn't read with (see [`detail`](Self::detail)) are unknown to
-    /// `painter`.
+    /// Paints the cached sites without querying terrain again, using the
+    /// same palette selection and weight rounding as [`GroundWeights::chunk`].
+    /// Does not check or upgrade the grid's [`detail`](Self::detail).
+    /// Missing data stays unknown, so layer conditions that need it have
+    /// no effect.
     pub fn paint(&self, painter: &(impl GroundPainter + ?Sized)) -> GroundWeights {
         let located: Vec<_> = self.points.iter().zip(&self.sites).collect();
         let mixes = crate::batch::map(&located, |&(p, site)| painter.paint(*p, site));

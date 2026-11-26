@@ -54,14 +54,14 @@ fn tags(tags: RoadTags) -> u32 {
     })
 }
 
-/// The bit of `landform` in a landform mask: its place in [`Landform::ALL`].
+/// Encodes one landform as a bit at its index in [`Landform::ALL`].
 fn landform_bit(landform: Landform) -> u32 {
     let index = Landform::ALL.iter().position(|&l| l == landform);
     1 << index.expect("every landform is in Landform::ALL")
 }
 
-/// `flags` as a mask, one bit per flag in the order [`Flags::names`]
-/// lists them.
+/// Encodes flags for the shader, using one bit per flag in the order
+/// listed by [`Flags::names`].
 fn flag_bits(flags: Flags) -> u32 {
     [
         Flags::UNDERWATER,
@@ -78,7 +78,8 @@ fn flag_bits(flags: Flags) -> u32 {
     })
 }
 
-/// Bits of a site's known-measures word (see `ground_weights.wgsl`).
+/// Availability bits for optional site data. Keep these values in sync
+/// with `ground_weights.wgsl`; a missing bit makes that condition neutral.
 mod known {
     pub(super) const RELIEF: u32 = 1;
     pub(super) const HEIGHT_ABOVE_WATER: u32 = 2;
@@ -116,7 +117,7 @@ impl Program {
                 .unwrap();
             words.push([slot as f32, layer.opacity, layer.when.len() as f32, 0.0]);
             for condition in &layer.when {
-                // Flag rules carry their `none` flags in the band word.
+                // Flag conditions use the ramp storage for their excluded-flags mask.
                 let mut none = 0;
                 let (kind, ramp, mask) = match condition {
                     Condition::Slope(r) => (0, *r, 0),
@@ -213,7 +214,7 @@ impl GpuGroundPaint {
             ],
             [offset.x, offset.y, scale, self.program.palette.len() as f32],
         ];
-        // Three words per site, as `ground_weights.wgsl` reads them.
+        // Pack each site into three four-float vectors matching ground_weights.wgsl.
         for site in self.grid.sites() {
             let water = site.height_above_water();
             let bit = |is_known: bool, bit: u32| if is_known { bit } else { 0 };
@@ -482,8 +483,8 @@ mod tests {
             } else {
                 RoadTags::NONE
             });
-            // Measures are unknown in a strip along the west, and labels
-            // along the east, so unknown conditions are compared too.
+            // Omit distances and curvature along the west edge, and labels
+            // along the east edge, to compare CPU and GPU handling of missing data.
             if p.x >= 10.0 {
                 site.water_distance = Some(p.x as f32 / 4.0);
                 site.road_distance = Some((64.0 - p.y as f32) / 8.0);
@@ -513,9 +514,9 @@ mod tests {
         }
     }
 
-    /// Bare terrain's look with every measure and label condition: mud on
-    /// banks and wet ground, gravel shoulders, moss in hollows and rock on
-    /// cliffs, ridges and peaks. Eight materials, the most one chunk holds.
+    /// Builds a stack exercising every measure and label condition: mud
+    /// near water and on wet ground, gravel shoulders, moss in hollows,
+    /// and rock on cliffs, ridges and peaks. Uses all eight palette slots.
     fn every_condition() -> GroundStack {
         use procgena_terrain::ground::{BARE_SEED_KIND, Condition};
         use procgena_terrain::ground::{FlagRule, GroundLayer, MaterialCatalogue, bare_layers};
@@ -628,7 +629,7 @@ mod tests {
         let detail = stack.detail();
         let grid = Arc::new(GroundGrid::chunk(&Sites, key, FeatureTier::Fine, detail).unwrap());
         let cpu = grid.paint(&stack);
-        // Every new layer lays some of its material somewhere.
+        // Each added material must contribute somewhere in the test chunk.
         assert_eq!(cpu.palette().len(), PALETTE_SIZE, "{:?}", cpu.palette());
         let (paint, surface) = GpuGroundPaint::prepare(&stack, grid, key).unwrap();
         let child = ChunkKey::new(1, 0, 0);

@@ -452,7 +452,7 @@ fn measure_and_label_conditions_read_the_site() {
     });
     let factor = |c: Condition| c.factor(&site, 1.0);
 
-    // Measures through their bands.
+    // Numeric measures produce the expected ramp weights.
     assert_eq!(
         factor(Condition::WaterDistance(Ramp::fall(3.0, 8.0))),
         Some(1.0)
@@ -470,7 +470,7 @@ fn measure_and_label_conditions_read_the_site() {
         Some(0.0)
     );
 
-    // Landforms by set.
+    // Any listed landform matches; an empty set matches nothing.
     let landforms = |set: &[Landform]| Condition::Landform(set.iter().copied().collect());
     assert_eq!(
         factor(landforms(&[Landform::Riverbank, Landform::Shore])),
@@ -479,7 +479,7 @@ fn measure_and_label_conditions_read_the_site() {
     assert_eq!(factor(landforms(&[Landform::Cliff])), Some(0.0));
     assert_eq!(factor(landforms(&[])), Some(0.0));
 
-    // Flags: any of one set, none of another.
+    // Required flags allow a match unless an excluded flag is also present.
     let flags = |any, none| Condition::Flags(FlagRule { any, none });
     assert_eq!(factor(flags(Flags::NONE, Flags::NONE)), Some(1.0));
     assert_eq!(
@@ -490,8 +490,9 @@ fn measure_and_label_conditions_read_the_site() {
     assert_eq!(factor(flags(Flags::WET, Flags::RIVER)), Some(0.0));
     assert_eq!(factor(flags(Flags::NONE, Flags::ROAD)), Some(1.0));
 
-    // Plain ground reads both distances as the reach, and knows neither
-    // its curvature nor its labels, so those conditions have no effect.
+    // Plain ground has no nearby water or roads: both distances are capped
+    // at MEASURE_REACH. Curvature and labels are unknown, so their conditions
+    // return None and do not reduce a layer's weight.
     let plain = GroundSite::new(5.0, Vec2::ZERO);
     let near_water = Condition::WaterDistance(Ramp::fall(3.0, 8.0));
     assert_eq!(near_water.factor(&plain, 1.0), Some(0.0));
@@ -505,8 +506,8 @@ fn measure_and_label_conditions_read_the_site() {
     assert_eq!(layer.weight(DVec2::ZERO, &plain, 0, 1.0), 1.0);
 }
 
-/// Bare terrain's look with mud on river banks, gravel shoulders beside
-/// roads and rock where the terrain labels a cliff.
+/// Builds a test stack with bare terrain materials, mud near water,
+/// gravel road shoulders and rock on ground labelled as a cliff.
 fn banks_and_roads() -> GroundStack {
     let mut layers = procgena_terrain::ground::bare_layers();
     layers.extend([
@@ -557,12 +558,12 @@ fn painters_ask_for_the_detail_their_conditions_need() {
     );
     assert_eq!(stack(&[soil.clone(), mud]).detail(), SampleDetail::Measures);
 
-    // Bare terrain reads the height above the nearby water; the cliff
-    // label needs labels.
+    // The bare stack needs measures for height above nearby water.
+    // Adding a cliff condition raises the requirement to labels.
     assert_eq!(GroundStack::bare(3, 1.0).detail(), SampleDetail::Measures);
     assert_eq!(banks_and_roads().detail(), SampleDetail::Labels);
 
-    // An overlay asks for its own layers' detail.
+    // An overlay reports its own requirements, independently of its base stack.
     let bare = GroundStack::bare(3, 1.0);
     let overlay = |layer: GroundLayer| {
         GroundOverlay::new(&BTreeMap::from([(key("wet"), layer)]), &bare, "test", 1).unwrap()
@@ -576,8 +577,8 @@ fn painters_ask_for_the_detail_their_conditions_need() {
     assert_eq!(empty.detail(), SampleDetail::Gradient);
 }
 
-/// Chunk `key` of `terrain` painted with `stack`, with the sites it was
-/// painted from.
+/// Paints a chunk and returns its sampled sites. Checks that painting a
+/// cached grid produces the same weights as sampling and painting together.
 fn painted(
     terrain: &Terrain,
     stack: &GroundStack,
@@ -601,7 +602,7 @@ fn mud_follows_river_banks_and_gravel_lines_roads() {
     );
     let texel = |n: usize| (n as u32 % GROUND_TEXELS, n as u32 / GROUND_TEXELS);
 
-    // Mud lies on banks only: near the water and low above it.
+    // Mud stays near water and below the height cutoff, including underwater points.
     let river = &plains.rivers()[0].points;
     let key = ChunkKey::containing(river[river.len() / 2], 0);
     let (weights, sites) = painted(&plains, &stack, key);
@@ -619,7 +620,7 @@ fn mud_follows_river_banks_and_gravel_lines_roads() {
     }
     assert!(banks > 50, "mud on {banks} texels of the river's chunk");
 
-    // Gravel lines roads beyond their surface, and fades by 2 m.
+    // Gravel extends beyond the road surface and fades out 2 m from its edge.
     let road = &plains.roads()[0].points;
     let key = ChunkKey::containing(road[road.len() / 2], 0);
     let (weights, sites) = painted(&plains, &stack, key);
@@ -652,7 +653,7 @@ fn a_cliff_label_picks_cliff_rock() {
             flags: Flags::NONE,
         })
     };
-    // Gentle enough that the slope alone lays no rock.
+    // At this gentle slope, only the cliff label can select rock.
     assert_eq!(
         stack
             .paint(DVec2::ZERO, &labelled(Landform::Slope))
@@ -666,8 +667,8 @@ fn a_cliff_label_picks_cliff_rock() {
         1.0
     );
 
-    // On mountains, every texel labelled a cliff is rock: look in a chunk
-    // holding one.
+    // Check a generated mountain chunk too: every texel labelled as a cliff
+    // should be covered in rock.
     let mountains = TerrainGenerator::new(fixtures::mountains_medium().terrain.clone())
         .unwrap()
         .build(
@@ -698,8 +699,8 @@ fn a_cliff_label_picks_cliff_rock() {
     assert!(cliffs > 0, "texels of the chunk are cliffs");
 }
 
-/// A point `terrain` labels a cliff, found on a 4 m lattice over its
-/// region, if there is one.
+/// Searches a 4 m grid within the region for a point labelled as a cliff.
+/// Returns None if no sampled point qualifies.
 fn a_cliff(terrain: &Terrain) -> Option<DVec2> {
     let procgena_terrain::Boundary::Polygon(corners) = &terrain.region().boundary else {
         panic!("test regions have polygons");
@@ -713,17 +714,17 @@ fn a_cliff(terrain: &Terrain) -> Option<DVec2> {
     (0..steps.y)
         .flat_map(|j| (0..steps.x).map(move |i| lo + DVec2::new(f64::from(i), f64::from(j)) * 4.0))
         .filter(|&p| terrain.region().boundary.contains(p))
-        // Cheaply steep first: a cliff is at least 55°, or a road bank.
+        // Filter by slope or a road cliff tag before computing the more costly labels.
         .filter(|&p| {
             terrain.gradient(p).length() > 1.0 || terrain.road_tags(p).contains(RoadTags::CLIFF)
         })
         .find(|&p| terrain.annotate(p).landform == Landform::Cliff)
 }
 
-/// Bare terrain's riverbed reads the height above the nearby water, which
-/// only measures give. Read with them, it lies under the drawn water as it
-/// did when it read only the water covering each point, but for a few
-/// texels where waters at different levels meet.
+/// Sampling nearby water heights should preserve riverbed coverage under
+/// visible water compared with using only the water covering each point.
+/// Allows a small fraction of texels to lose coverage, since nearby waters
+/// can have different surface heights.
 #[test]
 fn bare_riverbeds_lie_under_drawn_water_read_with_measures() {
     use procgena_terrain::ground::{GroundGrid, Water};

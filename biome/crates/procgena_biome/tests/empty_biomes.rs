@@ -242,7 +242,7 @@ fn catalogue_keys_are_unique_and_named_finds_them() {
     assert_eq!(BiomePreset::named("PLAINS"), None);
 }
 
-/// Chunk `key` of `terrain` painted with `painter` at its own detail.
+/// Paints chunk `key`, requesting the sampling detail required by `painter`.
 fn paint(
     painter: &procgena_terrain::ground::GroundStack,
     terrain: &Terrain,
@@ -265,8 +265,8 @@ fn an_empty_biomes_base_ground_replaces_the_bare_look() {
     let bare = GroundStack::bare(0, 1.0);
     let mud = catalogue.id("mud").unwrap();
     let gravel = catalogue.id("gravel_road").unwrap();
-    // Every empty Biome preset has the standard base ground, the bare look
-    // with banks, road sides and cliffs of its own.
+    // Empty Biome presets still provide standard base materials, including
+    // mud near water, gravel shoulders and labelled cliff rock.
     for preset in BiomePreset::BARE_LAND {
         assert_eq!(preset.biome.ground, BiomeGround::Standard, "{}", preset.key);
         let seed = biome_seed(preset.default_seed, RegionId(1));
@@ -277,9 +277,9 @@ fn an_empty_biomes_base_ground_replaces_the_bare_look() {
         assert_eq!(keys.len(), standard_base_layers().len());
     }
 
-    // Plains west of rolling hills, so roads cross their border. Along a
-    // river, the base lays mud the bare look doesn't; along a road, more
-    // gravel than the road's surface.
+    // Adjacent plains and rolling hills provide rivers and connecting roads.
+    // Compared with bare terrain, the Biome base should add mud near rivers
+    // and increase gravel coverage around roads.
     let pairs = [
         (RegionId(1), DVec2::new(-SIDE, 0.0), BiomePreset::PLAINS),
         (RegionId(2), DVec2::ZERO, BiomePreset::ROLLING_HILLS),
@@ -327,8 +327,8 @@ fn an_empty_biomes_base_ground_replaces_the_bare_look() {
     }
     assert!(rivers > 0 && roads > 0, "{rivers} rivers and {roads} roads");
 
-    // Layers given in full replace the standard ones: the bare layers
-    // paint as the bare look does.
+    // Custom layers replace the standard set. Supplying only bare layers
+    // should reproduce the bare terrain's materials.
     let plain = Biome {
         ground: BiomeGround::Layers(bare_layers()),
         ..BiomePreset::PLAINS.biome

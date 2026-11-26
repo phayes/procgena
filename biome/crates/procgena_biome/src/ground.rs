@@ -1,5 +1,5 @@
-//! A Biome's base ground: the ground layers under its Ecotopes, and all of
-//! its ground where no Ecotope covers it.
+//! Base ground materials for a Biome. These layers provide the surface
+//! where no Ecotope is present and combine with Ecotope layers elsewhere.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -12,19 +12,20 @@ use procgena_terrain::ground::{
 
 use crate::Biome;
 
-/// The seed kind of a Biome's base ground layers: layer `key` of a Biome
-/// instance seeded `seed` (see [`biome_seed`](crate::biome_seed)) gets
-/// `child_seed(seed, BASE_GROUND_SEED_KIND, key)` for its noise.
+/// Seed namespace for reproducible noise in a Biome's base ground layers.
+/// Each layer uses `child_seed(seed, BASE_GROUND_SEED_KIND, key)`, where
+/// `seed` is the Biome instance seed from [`biome_seed`](crate::biome_seed).
 pub const BASE_GROUND_SEED_KIND: &str = "biome.child.ground";
 
-/// The base ground of a [`Biome`]: the layers every point of its region
-/// starts from, before any Ecotope's layers.
+/// Chooses the base materials for a [`Biome`], including areas with no
+/// Ecotopes. Ecotope layers combine with these layers by their order.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BiomeGround {
-    /// The built-in base ground, [`standard_base_layers`].
+    /// Uses the built-in materials and rules from [`standard_base_layers`].
     Standard,
-    /// Layers given in full, by key. The lowest must cover everything (see
-    /// [`GroundStack::new`]).
+    /// Replaces all standard layers with this keyed collection. Supply at
+    /// least one layer; the lowest must cover every point at full opacity.
+    /// See [`GroundStack::new`] for validation requirements.
     Layers(BTreeMap<ChildKey, GroundLayer>),
 }
 
@@ -32,19 +33,23 @@ fn key(key: &'static str) -> ChildKey {
     ChildKey::from_static(key)
 }
 
-/// The built-in base ground of a Biome, over
-/// [`MaterialCatalogue::standard`]: bare terrain's look
-/// ([`bare_layers`]) with river banks, road sides and cliffs of their own.
-/// Besides the bare layers, it has:
+/// Returns the built-in Biome layers, using materials from
+/// [`MaterialCatalogue::standard`]. Extends [`bare_layers`] with mud near
+/// water, gravel beside roads and rock on labelled cliffs.
+///
+/// The distance and height limits below fade smoothly; other layers can
+/// cover these materials according to their order.
 ///
 /// | Key | Material | Order | Where |
 /// |-----|----------|-------|-------|
-/// | `bank_mud` | `mud` | 600 | within about 3 to 8 m of a river or pond, up to about 1 to 2 m above it |
-/// | `road_shoulder` | `gravel_road` | 630 | within about 0.5 to 2 m of a road's surface |
+/// | `bank_mud` | `mud` | 600 | full within 3 m of water and at most 1 m above it; fades to zero at 8 m away or 2 m above |
+/// | `road_shoulder` | `gravel_road` | 630 | full on the road and within 0.5 m of its edge; fades to zero 2 m away |
 /// | `cliff` | `cliff_rock` | 660 | where the terrain labels the ground a cliff |
 ///
-/// It reads labels, so painting it costs the most detail
-/// ([`SampleDetail::Labels`](procgena_terrain::SampleDetail::Labels)).
+/// These layers require [`SampleDetail::Labels`](procgena_terrain::SampleDetail::Labels):
+/// terrain measurements plus landform classification. Sampling them costs
+/// more than rules based only on height and slope. The mud rule also
+/// matches underwater points; higher layers determine the visible surface.
 pub fn standard_base_layers() -> BTreeMap<ChildKey, GroundLayer> {
     let mut layers = bare_layers();
     layers.extend([
@@ -69,7 +74,8 @@ pub fn standard_base_layers() -> BTreeMap<ChildKey, GroundLayer> {
 }
 
 impl BiomeGround {
-    /// The layers, by key.
+    /// Returns an owned collection of layers by key: the built-in layers
+    /// for `Standard`, or a copy of the supplied layers for `Layers`.
     pub fn layers(&self) -> BTreeMap<ChildKey, GroundLayer> {
         match self {
             Self::Standard => standard_base_layers(),
@@ -79,16 +85,21 @@ impl BiomeGround {
 }
 
 impl Biome {
-    /// This Biome's base ground as a stack over `catalogue`, for the Biome
-    /// instance seeded `seed` (see [`biome_seed`](crate::biome_seed)) in a
-    /// World of vertical scale `vertical`. Paint a Terrain's chunks with
-    /// it where no Ecotope covers them; lay Ecotope layers over it.
+    /// Builds a painter for this Biome's base ground using `catalogue`.
+    /// Pass the Biome instance `seed` from [`biome_seed`](crate::biome_seed)
+    /// and the World's positive, finite vertical scale as `vertical`.
+    /// The catalogue must contain every material named by the layers.
+    ///
+    /// Use the stack to paint terrain chunks, and combine it with Ecotope
+    /// layers where Ecotopes are present. When sampling sites yourself,
+    /// request the stack's [`detail`](GroundStack::detail).
     ///
     /// # Errors
     ///
-    /// Any error of [`GroundStack::new`]: unusable layers, a lowest layer
-    /// that doesn't cover everything, a material `catalogue` lacks, or a
-    /// `vertical` that isn't more than 0.
+    /// Returns the validation errors documented by [`GroundStack::new`],
+    /// including empty or invalid layers, an incomplete lowest layer,
+    /// missing materials, conflicting orders or seed salts, unsupported
+    /// Scatter influences, and a non-positive or non-finite `vertical`.
     pub fn ground(
         &self,
         catalogue: Arc<MaterialCatalogue>,

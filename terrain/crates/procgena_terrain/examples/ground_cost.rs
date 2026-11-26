@@ -13,8 +13,10 @@
 //! first so region builds don't count, then prints for each chunk level
 //! the median time to sample a chunk ([`ChunkSamples::sample`]) and to
 //! paint its weights ([`GroundWeights::chunk`]), both at the fine tier,
-//! and to read the chunk's ground sites alone ([`GroundGrid::chunk`]) at
-//! each detail a painter may ask for: gradient, measures and labels.
+//! and to sample ground sites without painting ([`GroundGrid::chunk`]).
+//! Site timings compare gradient detail (including slope), measures
+//! (adding distances and curvature), and labels (adding landform categories
+//! and flags), showing the sampling cost of more demanding ground rules.
 //!
 //! For the seam, it paints pairs of side-by-side chunks one level apart.
 //! Every second texel along the finer chunk's edge lies on a texel of the
@@ -94,7 +96,7 @@ fn main() {
             let start = Instant::now();
             GroundWeights::chunk(&bare, &world, key, tier).expect("the world has ground");
             weights.push(start.elapsed());
-            // Reading the sites alone, at each detail a painter may ask for.
+            // Time sampling separately from painting at each supported detail level.
             for (times, &detail) in sites.iter_mut().zip(&details) {
                 let start = Instant::now();
                 GroundGrid::chunk(&world, key, tier, detail).expect("the world has ground");

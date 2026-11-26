@@ -3,10 +3,10 @@
 //!
 //! - A [`MaterialCatalogue`] names a World's materials by key, each with a
 //!   colour.
-//! - A [`GroundLayer`] lays one material where its rule says: conditions
-//!   over the ground's slope, height and water, road tags, distances to
-//!   water and roads, curvature and the terrain's labels, patchy noise,
-//!   and (in an Ecotope) the Ecotope's own Scatters.
+//! - A [`GroundLayer`] controls where one material appears. Conditions can
+//!   select slopes, heights, water, roads, distances, curvature (how the
+//!   ground bends), or labels such as cliff and wet ground. Noise adds
+//!   patches; Ecotope layers can also follow their own Scatters.
 //! - A [`GroundStack`] lays layers over each other by `order`, bottom to
 //!   top, into a [`GroundMix`] of materials at each point.
 //!   [`GroundStack::bare`] is the look of bare terrain.

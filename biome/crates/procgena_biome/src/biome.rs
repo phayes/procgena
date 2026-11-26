@@ -25,8 +25,8 @@ pub struct Biome {
     /// Which Ecotope grows on which kind of ground. Always empty for now,
     /// because Ecotopes don't exist yet: every Biome is bare land.
     pub ecotope_rules: Vec<EcotopeRule>,
-    /// What the ground is made of under the Ecotopes, and where none
-    /// covers it (see [`ground`](Self::ground)).
+    /// Base materials and rules used alongside Ecotope layers and where
+    /// no Ecotope is present. Build a painter with [`Biome::ground()`].
     pub ground: BiomeGround,
 }
 
@@ -112,8 +112,9 @@ pub fn biome_seed(world_seed: u32, region: RegionId) -> u32 {
 }
 
 impl Biome {
-    /// An empty Biome: `terrain` with no Ecotope rules, which builds bare
-    /// land, on the [standard](BiomeGround::Standard) base ground.
+    /// Creates a Biome from `terrain` with no Ecotope rules and the
+    /// [standard base ground](BiomeGround::Standard). Empty means no
+    /// Ecotopes; the ground still has materials such as grass, mud and gravel.
     pub const fn empty(terrain: BiomeTerrain) -> Self {
         Self {
             terrain,

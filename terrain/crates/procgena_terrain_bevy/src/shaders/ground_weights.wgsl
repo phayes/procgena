@@ -10,12 +10,15 @@ fn edge(a: f32, b: f32, x: f32) -> f32 {
     let t = clamp((x - a) / (b - a), 0.0, 1.0);
     return t * t * (3.0 - 2.0 * t);
 }
-// Each site is three words: [height, slope, relief height, height above
-// water], [known bits, road tag bits, landform bit, flag bits] and [water
-// distance, road distance, curvature, unused]. Known bits: 1 relief height,
-// 2 height above water, 4 road tags, 8 water distance, 16 road distance,
-// 32 curvature, 64 labels. A condition on an unknown measure counts as 1.
+// Each site occupies three vec4<f32> values, packed by GpuGroundPaint::words:
+//   [height, slope, relief height, height above water]
+//   [availability bits, road tag bits, landform bit, flag bits]
+//   [water distance, road distance, curvature, unused]
+// Availability bits: 1 relief height, 2 height above water, 4 road tags,
+// 8 water distance, 16 road distance, 32 curvature, 64 labels.
+// A condition with unavailable data contributes 1, leaving coverage unchanged.
 const SITE_WORDS: u32 = 3u;
+// Whether the site supplies the data identified by this availability bit.
 fn known(bits: u32, bit: u32) -> bool {
     return (bits & bit) != 0u;
 }
@@ -68,7 +71,7 @@ fn weights(at: vec2<u32>) -> array<f32, 8> {
                 continue;
             }
             if kind == 9u {
-                // Any of rule.w (or none asked for), and none of band.x.
+                // Require any flag in rule.w unless empty; reject any flag in band.x.
                 if known(bits, 64u) {
                     let flags = u32(labels.w);
                     let any = u32(rule.w);

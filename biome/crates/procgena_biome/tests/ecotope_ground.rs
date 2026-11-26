@@ -307,19 +307,19 @@ ecotope:
     assert_eq!(mud.detail(), SampleDetail::Labels);
     ecotope.validate().expect("the merged Ecotope is valid");
 
-    // The Ecotope's painter asks for its layers' detail.
+    // The Ecotope painter must request labels to evaluate these conditions.
     let (placement, _) = placed(ecotope);
     let bare = GroundStack::bare(1, 1.0);
     let painter = ecotope.ground(&bare, &placement).unwrap();
     assert_eq!(painter.detail(), SampleDetail::Labels);
 
-    // It writes and reads back the same.
+    // Saving and loading the preset must preserve the complete Ecotope.
     let written = read.to_file(Some(EcotopePreset::pine_forest_floor()));
     assert!(written.contains("riverbank"), "{written}");
     let again = EcotopePreset::from_yaml("mine", &written).expect(&written);
     assert_eq!(&again.ecotope, ecotope);
 
-    // Unknown names are errors that list the known ones.
+    // Invalid landform and flag names should produce errors listing valid names.
     for (bad, known) in [
         ("landform: [beach]", "riverbank"),
         ("flags: { any: [snow] }", "road_bank"),

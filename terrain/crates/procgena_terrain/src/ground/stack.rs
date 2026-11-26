@@ -211,9 +211,9 @@ impl GroundStack {
         self.vertical
     }
 
-    /// The least a [`GroundSource`](super::GroundSource) must work out
-    /// about each point for every layer's conditions to read it (see
-    /// [`GroundLayer::detail`]).
+    /// The minimum sampling detail needed by all layers in this stack.
+    /// Pass it to the [`GroundSource`](super::GroundSource) when sampling
+    /// sites for painting; see [`GroundLayer::detail`].
     pub fn detail(&self) -> SampleDetail {
         detail_of(&self.layers)
     }
@@ -339,15 +339,16 @@ impl GroundOverlay {
         self.layers.is_empty()
     }
 
-    /// The least a [`GroundSource`](super::GroundSource) must work out
-    /// about each point for every layer's conditions to read it (see
-    /// [`GroundLayer::detail`]); [`SampleDetail::Gradient`] with no layers.
+    /// The minimum sampling detail needed by this overlay's layers.
+    /// Returns [`SampleDetail::Gradient`] for an empty overlay. When
+    /// painting over a stack, request the higher of the stack's and
+    /// overlay's detail levels.
     pub fn detail(&self) -> SampleDetail {
         detail_of(&self.layers)
     }
 }
 
-/// The most detail any of `layers` needs, at least the gradient.
+/// Returns the highest layer requirement, or gradient detail for no layers.
 fn detail_of(layers: &[Prepared]) -> SampleDetail {
     layers
         .iter()
@@ -369,11 +370,15 @@ pub trait GroundPainter: Sync {
         None
     }
 
-    /// The least a [`GroundSource`](super::GroundSource) must work out
-    /// about each point for `paint` to read everything it needs. Sites
-    /// read with less leave the extra measures unknown, and conditions on
-    /// unknown measures have no effect. The default is
-    /// [`SampleDetail::Gradient`]: height, slope, water and road tags.
+    /// The sampling detail this painter needs from a ground source.
+    /// Override this when `paint` uses measures (distances, nearby water
+    /// height or curvature) or labels (landform categories and flags).
+    /// The default, [`SampleDetail::Gradient`], requests height, slope,
+    /// water and road tags.
+    ///
+    /// Higher detail requires more terrain calculations. Sampling with
+    /// less detail may leave data unknown; ground layers ignore conditions
+    /// on unknown data, which can change the resulting materials.
     fn detail(&self) -> SampleDetail {
         SampleDetail::Gradient
     }

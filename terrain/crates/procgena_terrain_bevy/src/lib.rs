@@ -238,10 +238,11 @@ impl<T: ChunkSource + GroundSource + Send + ?Sized> TerrainSource for T {}
 ///
 /// Replacing its source or tier policy reads every chunk again; the old
 /// chunks stay until replacements are ready. Changing only `ground` reuses
-/// retained sites and updates materials without reading or remeshing
-/// terrain, unless the new painter's
-/// [`detail`](procgena_terrain::ground::GroundPainter::detail) is more than
-/// the old one's: then every chunk is read again.
+/// cached sites to update materials without sampling or remeshing terrain.
+/// If the new painter requests higher
+/// [`detail`](procgena_terrain::ground::GroundPainter::detail) than the
+/// previous painter, every chunk is sampled again to obtain the additional
+/// measurements or labels.
 /// To signal changed contents of a source, replace its `Arc`.
 #[derive(Component, Clone)]
 #[require(Transform, Visibility, TerrainProgress)]
@@ -680,8 +681,8 @@ fn reset_streams(
                 });
             }
             Some(mut state) if stream.is_changed() && !stream.is_added() => {
-                // A painter that reads more of the ground than the chunks
-                // were read with needs them read again.
+                // Higher detail may require data missing from cached sites,
+                // so a higher painter requirement triggers a full resample.
                 let same_ground = state.last.as_ref().is_some_and(|last| {
                     Arc::ptr_eq(&last.source, &stream.source)
                         && last.rough_from == stream.rough_from
@@ -1293,7 +1294,7 @@ mod tests {
         use std::collections::BTreeMap;
         use std::sync::Mutex;
 
-        /// Flat ground that remembers the most detail its sites were read at.
+        /// Flat test source recording the highest sampling detail requested.
         struct Recorded(Mutex<SampleDetail>);
         impl ChunkSource for Recorded {
             fn surface(&self, _: DVec2, _: FeatureTier) -> SurfacePoint {
@@ -1320,7 +1321,7 @@ mod tests {
             }
         }
 
-        // Grass alone reads the gradient; grass with rock on cliffs, labels.
+        // Unconditional grass needs gradient detail; a cliff condition needs labels.
         let key = |k: &'static str| ChildKey::from_static(k);
         let stack = |cliffs: bool| {
             let mut layers = BTreeMap::from([(key("soil"), GroundLayer::new(key("grass"), 0))]);
@@ -1357,7 +1358,7 @@ mod tests {
         );
         assert_eq!(*source.0.lock().unwrap(), SampleDetail::Gradient);
 
-        // The labels painter reads every chunk again, with labels.
+        // Switching to the cliff painter must trigger new sampling at label detail.
         app.world_mut()
             .get_mut::<TerrainStream>(stream)
             .unwrap()

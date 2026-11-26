@@ -11,9 +11,11 @@
 //! default empty Biome for every
 //! [`TerrainPreset`](procgena_terrain::TerrainPreset).
 //!
-//! Each Biome has a base ground ([`BiomeGround`]): what its ground is made
-//! of, such as grass, mud on river banks and gravel beside roads. Paint a
-//! Terrain's chunks with [`Biome::ground`].
+//! Each Biome has base ground materials ([`BiomeGround`]), even when it has
+//! no Ecotopes. The standard layers add mud near water, gravel beside roads
+//! and rock on cliffs to the bare terrain materials. [`Biome::ground()`]
+//! builds a painter for terrain chunks; Ecotope layers combine with this
+//! base by layer order. Custom base layers replace the standard set.
 //!
 //! # Ecotopes
 //!

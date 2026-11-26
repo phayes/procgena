@@ -19,14 +19,17 @@ pub enum Water {
     Level(f32),
 }
 
-/// What ground rules read at one point.
+/// Terrain data at one point, used to decide which ground materials appear.
 ///
-/// A measure that is `None` is unknown, not absent: a rule's condition on
-/// it counts as 1. (`nearby_water_height` is the exception: it is also
-/// `None` where no water is near.) A plain [`Ground`] has no water and no
-/// roads; a [`Terrain`] knows where its water and roads are, and with
-/// measures how far they are and how the ground bends. Neither knows the
-/// relief height yet. A terrain gives labels at [`SampleDetail::Labels`].
+/// Optional data is generally unknown when `None`, rather than known to
+/// be absent. A layer ignores conditions whose data is unknown. The
+/// exception is `nearby_water_height`, which is also `None` when no water
+/// is nearby; see [`height_above_water`](Self::height_above_water) for its fallback.
+///
+/// A plain [`Ground`] is treated as having no water or roads. A [`Terrain`]
+/// supplies those features, adds distances and curvature at
+/// [`SampleDetail::Measures`], and adds landform categories and flags at
+/// [`SampleDetail::Labels`]. Neither source supplies relief height.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub struct GroundSite {
@@ -58,8 +61,8 @@ pub struct GroundSite {
     /// How the ground bends, per metre: positive convex, negative concave
     /// (see [`Measures::curvature`](crate::Measures::curvature)).
     pub curvature: Option<f32>,
-    /// What kind of land the point is, and its flags (see
-    /// [`Terrain::annotate`]).
+    /// The landform category (such as cliff or riverbank) and flags (such
+    /// as wet or road). `None` means unclassified; see [`Terrain::annotate`].
     pub labels: Option<Labels>,
 }
 
@@ -90,13 +93,13 @@ impl GroundSite {
         Self::new(sample.height, sample.gradient)
     }
 
-    /// A site from a terrain sample (see [`Terrain::query`]): height,
-    /// slope, water and road tags; with [`SampleDetail::Measures`] the
-    /// distances to water and roads, the height above nearby water and the
-    /// curvature; with [`SampleDetail::Labels`] the labels. Without a
-    /// gradient the slope is 0; without measures the distances, nearby
-    /// water height and curvature are unknown, and without labels the
-    /// labels.
+    /// Converts a [`Terrain::query`] result into a site without sampling again.
+    /// Copies height, water and road tags, plus any measures and labels
+    /// included in the sample. Measures contain distances, height above
+    /// nearby water and curvature; labels contain the landform and flags.
+    ///
+    /// A missing gradient gives a slope of 0. Missing measures or labels
+    /// remain unknown, and relief height is always unknown.
     pub fn from_query(sample: &TerrainSample) -> Self {
         let measures = sample.measures;
         Self {
@@ -111,7 +114,8 @@ impl GroundSite {
         }
     }
 
-    /// The same site with its labels.
+    /// Returns this site with the supplied landform and flags, replacing
+    /// any existing labels. Other site data is unchanged.
     #[must_use]
     pub fn with_labels(mut self, labels: Labels) -> Self {
         self.labels = Some(labels);
@@ -145,19 +149,21 @@ impl GroundSite {
     }
 }
 
-/// Something ground sites can be read from: a terrain, a world of them, or
-/// any [`Ground`] wrapped in [`OnGround`].
+/// Supplies ground data for painting, from a terrain, a world of terrains,
+/// or a [`Ground`] wrapped in [`OnGround`].
 ///
-/// A source may work out more about a point when asked for more detail:
-/// [`site_at`](Self::site_at) and [`sites_at`](Self::sites_at) take the
-/// [`SampleDetail`] a painter needs (see [`GroundPainter::detail`](super::GroundPainter::detail)).
-/// Sources that know nothing beyond height, slope, water and roads need
-/// only [`site`](Self::site).
+/// Pass the painter's [`detail`](super::GroundPainter::detail) to
+/// [`site_at`](Self::site_at) or [`sites_at`](Self::sites_at). Higher detail
+/// requests extra measurements or classifications, which cost more to
+/// compute. A source may leave unsupported data unknown.
+///
+/// Implementors that cannot supply extra detail need only implement
+/// [`site`](Self::site); the default methods delegate to it.
 pub trait GroundSource: Sync {
-    /// The site at world position `p` (x and z, metres), from the ground
-    /// with its features planned to `tier` where the source has tiers, at
-    /// [`SampleDetail::Gradient`]. Its height is NaN where there is no
-    /// ground.
+    /// Samples world position `p` (x and z, metres) at
+    /// [`SampleDetail::Gradient`]. `tier` selects the planned terrain
+    /// features for sources that support tiers. Returns a site with NaN
+    /// height where ground is unavailable.
     fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite;
 
     /// Sites in the order of `points`, with exactly the same values as
@@ -167,19 +173,21 @@ pub trait GroundSource: Sync {
         crate::batch::map(points, |&p| self.site(p, tier))
     }
 
-    /// The site at `p` as [`site`](Self::site) gives it, with as much more
-    /// as the source knows up to `detail`: measures from
-    /// [`SampleDetail::Measures`], labels from [`SampleDetail::Labels`].
-    /// The default is [`site`](Self::site), for sources that know nothing
-    /// more.
+    /// Samples world position `p` (x and z, metres) at `tier`, requesting
+    /// the data needed by `detail`. Measures add distances and curvature;
+    /// labels add landform categories and flags. Unsupported data may
+    /// remain unknown. Returns NaN height where ground is unavailable.
+    ///
+    /// The default calls [`site`](Self::site) and ignores `detail`.
+    /// Terrain sources always request at least gradient detail for slope.
     fn site_at(&self, p: DVec2, tier: FeatureTier, detail: SampleDetail) -> GroundSite {
         let _ = detail;
         self.site(p, tier)
     }
 
-    /// Sites in the order of `points`, with exactly the same values as
-    /// [`site_at`](Self::site_at). The default samples points
-    /// independently with [`site_at`](Self::site_at).
+    /// Samples all `points` at `tier` and `detail`, returning one site per
+    /// point in the same order. Values must match [`site_at`](Self::site_at).
+    /// The default calls that method independently for each point.
     fn sites_at(
         &self,
         points: &[DVec2],
@@ -190,7 +198,7 @@ pub trait GroundSource: Sync {
     }
 }
 
-/// `detail`, but never less than the gradient, which every site needs.
+/// Raises lower detail requests to gradient detail so sites include slope.
 fn at_least_gradient(detail: SampleDetail) -> SampleDetail {
     detail.max(SampleDetail::Gradient)
 }
@@ -201,7 +209,9 @@ impl GroundSource for Terrain {
         self.site_at(p, tier, SampleDetail::Gradient)
     }
 
-    /// The terrain's own ground, whatever tier is asked for.
+    /// Samples this terrain at the requested `detail`, with a minimum of
+    /// gradient detail so the site includes slope.
+    /// Ignores `tier`: the terrain's features are already built.
     fn site_at(&self, p: DVec2, _: FeatureTier, detail: SampleDetail) -> GroundSite {
         GroundSite::from_query(&self.query(p, at_least_gradient(detail)))
     }
@@ -219,8 +229,9 @@ impl GroundSource for WorldTerrain {
         self.site_at(p, tier, SampleDetail::Gradient)
     }
 
-    /// The ground of the region holding `p`, at `tier` and `detail`. NaN
-    /// height where the region can't be built.
+    /// Samples the region containing `p` at `tier` and the requested
+    /// `detail`, with a minimum of gradient detail. Returns a site with
+    /// NaN height if the region cannot be built.
     fn site_at(&self, p: DVec2, tier: FeatureTier, detail: SampleDetail) -> GroundSite {
         match self.terrain_tier(self.region_at(p), tier) {
             Ok(terrain) => terrain.site_at(p, tier, detail),
