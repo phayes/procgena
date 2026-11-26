@@ -39,7 +39,12 @@
 //! - `--headless`: with `--screenshot`, `--measure` or `--autowalk`, draw
 //!   into an image instead of a window, with frames uncapped;
 //! - `--resolution <w> <h>`: the image size with `--headless` (default
-//!   1280 × 720).
+//!   1280 × 720);
+//! - `--profile`: with `--measure`, also print how long the main and
+//!   render schedules took;
+//! - `--without <keys>`: leave these Scatters of the forest out, such as
+//!   `--without pines,undergrowth`;
+//! - `--no-shadows`: the sun casts no shadows.
 
 use std::time::Duration;
 
@@ -55,6 +60,7 @@ mod camera;
 mod capture;
 mod land;
 mod player;
+mod profile;
 mod settings;
 mod sky;
 mod timing;
@@ -64,6 +70,7 @@ use camera::CameraPlugin;
 use capture::{Capture, CapturePlugin};
 use land::LandPlugin;
 use player::{PlayerPlugin, View};
+use profile::ProfilePlugin;
 use settings::DemoOptions;
 use sky::SkyPlugin;
 
@@ -90,6 +97,10 @@ pub struct Launch {
     pub headless: bool,
     /// The image size with `headless`.
     pub resolution: UVec2,
+    /// The forest's Scatters to leave out, by key.
+    pub without: Vec<String>,
+    /// The sun casts shadows.
+    pub shadows: bool,
 }
 
 fn main() -> AppExit {
@@ -138,7 +149,16 @@ fn main() -> AppExit {
         quality,
         headless,
         resolution,
+        without: value("--without")
+            .map(|keys| keys.split(',').map(str::to_owned).collect())
+            .unwrap_or_default(),
+        shadows: !has("--no-shadows"),
     };
+    let profile = has("--profile");
+    assert!(
+        !profile || capture.measure.is_some(),
+        "--profile needs --measure <frames>"
+    );
 
     // The demo's tunables.
     let options = match value("--settings") {
@@ -149,7 +169,7 @@ fn main() -> AppExit {
     // Only time placing, without Bevy, if asked.
     if let Some(runs) = value("--time-placing") {
         let runs = runs.parse().expect("--time-placing needs a number of runs");
-        let land = land::Land::new(launch.seed, &options.land);
+        let land = land::Land::new(&launch, &options.land);
         timing::time_placing(&land, &options, runs);
         return AppExit::Success;
     }
@@ -205,6 +225,9 @@ fn main() -> AppExit {
             },
             CapturePlugin,
         ));
+    if profile {
+        app.add_plugins(ProfilePlugin);
+    }
     if autowalk {
         app.add_plugins(AutowalkPlugin);
     }

@@ -61,7 +61,7 @@ impl Plugin for LandPlugin {
     fn build(&self, app: &mut App) {
         let launch = app.world().resource::<Launch>().clone();
         let features = app.world().resource::<DemoOptions>().land.clone();
-        let land = Land::new(launch.seed, &features);
+        let land = Land::new(&launch, &features);
         let plugin = TerrainPlugin::detailed(ChunkDetail::DEFAULT, VIEW_DISTANCE)
             .expect("the view distance is positive");
         app.add_plugins((
@@ -117,22 +117,44 @@ pub struct Land {
 }
 
 impl Land {
-    /// The demo's World, with `seed` instead of its own if given and only
-    /// the land `features` asked for, and its forest.
-    pub fn new(seed: Option<u32>, features: &LandFeatures) -> Self {
+    /// The demo's World, with the launch's seed instead of its own if given
+    /// and only the land `features` asked for, and its forest without the
+    /// Scatters the launch leaves out.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the launch leaves out a Scatter the forest doesn't have.
+    pub fn new(launch: &Launch, features: &LandFeatures) -> Self {
         let mut options = WorldPreset::from_yaml("lumberjack", WORLD_FILE)
             .expect("the demo's World preset is valid")
             .world;
-        if let Some(seed) = seed {
+        if let Some(seed) = launch.seed {
             options.seed = seed;
         }
         let regions = RegionTracker::default();
         let world = World::with_biomes(options, biomes(features))
             .expect("the demo's World builds")
             .with_progress(regions.hook());
-        let forest = EcotopePreset::from_yaml("lumberjack_forest", FOREST_FILE)
+
+        // The forest, less the Scatters left out.
+        let mut forest = EcotopePreset::from_yaml("lumberjack_forest", FOREST_FILE)
             .expect("the demo's forest preset is valid")
             .ecotope;
+        let known: Vec<_> = forest
+            .scatters
+            .keys()
+            .map(|k| k.as_str().to_owned())
+            .collect();
+        for key in &launch.without {
+            assert!(
+                known.contains(key),
+                "--without {key}: the forest's Scatters are {}",
+                known.join(", ")
+            );
+        }
+        forest
+            .scatters
+            .retain(|k, _| !launch.without.iter().any(|key| key == k.as_str()));
         Self {
             terrain: world.terrain().clone(),
             regions,

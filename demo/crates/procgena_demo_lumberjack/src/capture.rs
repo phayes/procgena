@@ -5,6 +5,7 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 
 use crate::GameState;
 use crate::camera::Offscreen;
+use crate::profile::Profile;
 
 /// Frames to wait after loading before a screenshot or measuring, so
 /// shaders, textures and the copies' assets are ready.
@@ -70,6 +71,7 @@ fn capture(
     offscreen: Option<Res<Offscreen>>,
     time: Res<Time<Real>>,
     mut frames: ResMut<Frames>,
+    profile: Option<Res<Profile>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if frames.done || (request.screenshot.is_none() && request.measure.is_none()) {
@@ -80,13 +82,21 @@ fn capture(
         return;
     }
 
-    // Time the frames asked for.
+    // Time the frames asked for, profiling them if asked.
     if let Some(count) = request.measure {
+        if frames.times.is_empty()
+            && let Some(profile) = &profile
+        {
+            profile.start();
+        }
         frames.times.push(time.delta_secs());
         if frames.times.len() < count as usize {
             return;
         }
         report(&frames.times);
+        if let Some(profile) = &profile {
+            profile.report();
+        }
     }
     frames.done = true;
 

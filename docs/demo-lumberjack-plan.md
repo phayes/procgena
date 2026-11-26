@@ -719,6 +719,7 @@ all-time / last 90 days.
 | Synthesis (optional) | `fundsp` | 0.23.0 | 288k / 95k | MIT or Apache-2.0 | For a synthesised wind bed or generative music |
 | Input | `bevy_enhanced_input` | 0.27.2 | 247k / 97k | MIT or Apache-2.0 | Contexts and gamepad mapping |
 | Input (alt.) | `leafwing-input-manager` | 0.22.0 | 670k / 146k | MIT or Apache-2.0 | Older, widely used |
+| Profiling (optional) | Bevy's `trace` feature | 0.20.1 | — | MIT or Apache-2.0 | The demo's `profile` feature, off by default; no crate beyond Bevy's own `tracing-error` |
 
 No sky or fog crate: `bevy_atmosphere` (last release May 2025) is
 superseded by Bevy's own `Atmosphere`.

@@ -5,6 +5,7 @@ use bevy::light::CascadeShadowConfigBuilder;
 use bevy::prelude::*;
 use procgena_plant_bevy::PlantSun;
 
+use crate::Launch;
 use crate::camera::MainCamera;
 
 /// The colour of the sky, and of the fog that fades the far land into it.
@@ -32,14 +33,14 @@ impl Plugin for SkyPlugin {
 }
 
 /// Spawns a morning sun, low in the south-east, casting shadows sharpest
-/// near the camera.
-fn spawn_sun(mut commands: Commands) {
+/// near the camera unless the launch turned shadows off.
+fn spawn_sun(mut commands: Commands, launch: Res<Launch>) {
     commands.spawn((
         PlantSun,
         DirectionalLight {
             illuminance: 15_000.0,
             color: Color::srgb(1.0, 0.95, 0.86),
-            shadow_maps_enabled: true,
+            shadow_maps_enabled: launch.shadows,
             ..default()
         },
         CascadeShadowConfigBuilder {
