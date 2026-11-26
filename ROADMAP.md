@@ -79,7 +79,6 @@ flowchart TD
     D1{{"D1 Crate names, YAML crate, coordinates (OQ 8)"}}
     D2{{"D2 GPU masks and placement (OQ 1), chunk reach (OQ 6)"}}
     D3{{"D3 Stable keys (OQ 4, 5), slot choice"}}
-    D4{{"D4 Region size and shape"}}
 
     F1["F1 Shared crates, specimen rename, Ground slope"]
     F2["F2 Content hash, SpecimenId, seed hashing"]
@@ -221,8 +220,6 @@ flowchart TD
     G5 --> W0
     F2 --> W0
     D3 --> W0
-    D3 --> D4
-    D4 --> W0
 
     B0 --> B1
     C3 --> B1
@@ -336,7 +333,7 @@ blocks. Until then, nothing that depends on it starts.
 | D1 | Names of the engine-free core crate and the shared Bevy crate; the YAML crate; whether `Ground` takes chunk-local `f32` or World `f64` coordinates (open question 8) | F1 (names, coordinates), F3 (YAML) | Decided 2026-11-23 ([docs/decisions/D1.md](docs/decisions/D1.md)): `procgena_core` and `procgena_core_bevy`, core at the bottom, `serde-saphyr` 2.2 (added in F3), `Ground` on World `f64` positions with `height`, `gradient` and `sample`. |
 | D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
-| D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | W0's final region size only. W0's Biome choice is not blocked: it picks each region's Biome type freely and starts on today's 4 km default | Opened by the user in D3, 2026-11-23, as "one region per Biome"; premise corrected 2026-11-24 (neighbouring regions may share a Biome type, so no graph, warp or W4-cache change is needed). Waits on the quiet-machine rerun of the G3 step 2 cold benchmarks; W0's image example is done (world_plan.md, "W0 image example": nothing in it argues against 4 km). Region size sets how long a whole-region plan takes, which S1's "Region plans ahead of view" depends on (through W0 and W1). **G5 is not gated.** B1 is not blocked: it works inside one Biome. Draft, not decided: [docs/decisions/D4.md](docs/decisions/D4.md). Region size becomes a per-class World setting under D5. |
+| D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | Nothing now | **Settled by milestone RS** (the user, 2026-11-25): region size is a World setting, regions can be about 1 km, and larger Biome areas are same-preset neighbours with invisible borders (see RS and the world-generation plan). Research record: [docs/decisions/D4.md](docs/decisions/D4.md). |
 | D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | G7 (scale-aware terrain lengths), and W0's scale pair and class presets (built at scale 1; its image examples tune the class numbers) | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Scale 1 is the Valheim-like medium-small class and the default World (the user, 2026-11-24): small 0.5, medium 2, large 6 × 4, real-life 20 × 8; the earlier presets are test fixtures. Draft: the other class numbers. Open: a World-level river-size field, the region floor, Ecotope geometry, floating origin. |
 | D6 | **Canonical ground** (opened 2026-11-25 by the reviews of the road and TIN plans): D6a the deterministic profile (cross-platform bitwise with pinned maths, or same-platform first); D6b what is authoritative at a distance (TIN, `H*`, or `H*` for placement and labels with the TIN for physical ground); D6c whether region borders are mesh constraints; D6d coordinate units and range | CT0 and RB4, and everything after them. RB0–RB3 are not gated | **Decided 2026-11-25:** same-platform bitwise first; `H*` for spots, masks, slope and labels with the TIN for collision and near rest heights; chunk borders only; integer millimetres (`i64` x/z, `i32` heights). Details under "D6 (gate)". |
 
@@ -562,9 +559,8 @@ the follow-ups).
   measurement, with a closure source). TODO "WorldTerrain". W5 moved to
   W0.
 - **Needs:** M0. W1 needs only Phase 2.5, which is built, so G5 doesn't
-  wait for G1. G5 does not wait for D4 (region size and shape). D4 may
-  change the region graph's size options, but not the graph's
-  construction, W3's warp or W4's region cache.
+  wait for G1. Region size and shape (RS) come later and change the
+  graph's merge rule and warp, not W4's region cache.
 - **Done when:** a lattice world of many regions builds on demand from a
   closure source, and the seam suites pass on warped borders.
 - **Status (2026-11-24):** W1–W3 and W3b are built. W3b skips border pulls
@@ -635,11 +631,14 @@ From D5 (decided by the user 2026-11-24; see
 
 #### RS: Region size and shape
 
-Decided by the user 2026-11-25. A Biome and its region are the same
-thing and change together, so the region size is the Biome area size.
-The goal is regions that can be smaller (about 1 km, so a 1 km² smallest
-Biome, against 4 km² today) and more varied in shape, set directly at
-the World level.
+Decided by the user 2026-11-25; it settles gate D4. Each region holds
+one Biome instance. A larger Biome area is not a thing of its own: it is
+what appears where neighbouring regions pick the same Biome preset, and
+[docs/procgena-world-generation-plan.md](docs/procgena-world-generation-plan.md)
+(the guide for how regions and Biomes relate) makes the borders between
+them invisible. The goal is regions that can be smaller (about 1 km,
+against 4 km² today) and more varied in shape, set directly at the World
+level.
 
 - **Today:** `regions.size` is already a World setting, floored at
   1.95 km. The floor is 5 × the minimum edge (390 m), and the minimum
@@ -653,12 +652,14 @@ the World level.
     sliver), checked directly; a sweep test over size, jitter, warp and
     seed finds the real limit. Regions losing borders or getting
     irregular outlines is wanted.
-  - **Compound regions:** neighbouring cells join into one region where
-    a noise field says so, giving elongated, L- and C-shaped regions and
-    a mix of sizes. A joined region is one region and one Biome.
-  - **Stronger border warp:** larger amplitude and a second, longer
-    wavelength on the existing border wiggle, so borders meander,
-    limited only by the self-crossing check.
+  - **No compound regions.** Regions are never merged into larger
+    addressable units; elongated or irregular Biome areas come from
+    same-preset neighbours meeting across invisible borders.
+  - **Stronger border warp** on borders between different Biomes or
+    Terrains: larger amplitude and a second, longer wavelength on the
+    existing border wiggle, so borders meander, limited only by the
+    self-crossing check. Borders between same-Biome, same-Terrain
+    regions stay straight, as the world-generation plan specifies.
   - **Rivers and roads on small regions:** revisit whether they can
     cross smaller regions (for example, sizing the crossing clearance
     from the widest river or road this World's presets make, not a fixed
@@ -1373,6 +1374,22 @@ R3.
   P2, as ED's does.
 - **Done when:** the pine forest floor's stones come from the GPU in the
   studio, matching the CPU meshes within stone's parity tolerance.
+- **Status (2026-11-25): done.** Built 2026-11-24 (`70f01ff`) and checked
+  again after IX Steps 2–4 changed the pool:
+  - `procgena_biome_bevy`'s `gpu` feature (the studio turns it on) draws
+    each stone class as one `StonePool` (`src/stones.rs`), with one
+    `PooledStone` per stone.
+  - Each pool variant's impostor is baked from its CPU-built game-level
+    mesh (`pool/impostor.rs`), now the last step of IX's chain.
+  - The footprint measure stays on the CPU, and an edit reuses the
+    shapes.
+  - Stone's GPU parity tests pass, `gpu_ecotope_stones_match_cpu_at_every_level`
+    among them, as does `procgena_biome_bevy`'s pool test.
+  - Headless viewer shots, with and without `gpu`, show the same stones,
+    and the studio's pine forest floor draws them from the pools.
+  - **Left:** the user's OK on the look change. Pooled stones cast a
+    ground shadow and shade slightly differently from the old
+    per-copy rocks; see [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md).
 - **Then R3's other assets, in this order:** deadwood, mushroom, tree
   (each cheap per variant today, but pools reach 256 specimens at World
   scale). Plant's part follows its own plan.
@@ -2269,7 +2286,7 @@ a cell run in order within the wave.
 
 | Wave | Run together | Notes |
 |------|--------------|-------|
-| 1–7 | Landed | Every milestone in them is done except R3 (plant P1–P3 only), C3, R4, B1, I2 and X1, which carry over to wave 8, and D4 (see RS). |
+| 1–7 | Landed | Every milestone in them is done except R3 (plant P1–P3 only), C3, R4, B1, I2 and X1, which carry over to wave 8; D4 is settled by RS. |
 | 8 | C3; R4; B1; I2; X1 (Scatter part); ED; R3a → R3's remaining asset parts (deadwood → mushroom → tree); GP (after C3 and plant P4; D2's owed timing runs any time); W1; S1 (single Biome; see GP's question); GM3; GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8; IX Step 4 and Step 5 | Each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers. ST4 touches `procgena_impostor` and agrees it with IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. R3a works in `stone/` plus one studio feature flag. |
 | 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's chain preview); IX2 and FF (after IX's experiment); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
 | Terrain results (any wave with no other terrain work in flight) | G7 → RS; LK; TE6; TE7 | Each changes terrain results everywhere, so each runs in a wave of its own. LK, TE6 and CT3 share the river, plan and carve files, so they run one at a time. |
