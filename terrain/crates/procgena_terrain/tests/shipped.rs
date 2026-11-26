@@ -1,7 +1,8 @@
 //! The shipped, Valheim-sized presets on the default world layout (2 km
 //! regions, the default border warp and world elevation): borders join,
-//! rivers and roads carry on across them, and relief stays within about
-//! 500 m.
+//! the presets make no rivers, ponds or roads, with rivers and roads
+//! switched back on they carry on across borders, and relief stays within
+//! about 500 m.
 
 use std::sync::Arc;
 
@@ -15,15 +16,45 @@ use procgena_terrain::{
 const SEEDS: [u32; 3] = [1, 2, 3];
 
 /// The shipped preset for `region`, picked by a hash of its id.
-fn mixed(region: RegionId) -> TerrainOptions {
+fn mixed_preset(region: RegionId) -> &'static TerrainPreset {
     let presets: Vec<&TerrainPreset> = TerrainPreset::all().collect();
     let hash = region.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 40;
-    presets[hash as usize % presets.len()].terrain.clone()
+    presets[hash as usize % presets.len()]
+}
+
+/// The settings of [`mixed_preset`].
+fn mixed(region: RegionId) -> TerrainOptions {
+    mixed_preset(region).terrain.clone()
 }
 
 /// A default world seeded with `seed`, each region with a shipped preset.
 fn world(seed: u32) -> WorldTerrain {
     let source = |region: RegionId, _: DVec2, _: &Elevation| mixed(region);
+    let options = WorldTerrainOptions {
+        seed,
+        ..WorldTerrainOptions::default()
+    };
+    WorldTerrain::new(options, Arc::new(source)).expect("the default world is valid")
+}
+
+/// The river sources per km² each shipped preset was tuned for. The
+/// presets ship with rivers and roads switched off.
+const RIVER_DENSITIES: [(&str, f32); 3] =
+    [("plains", 0.6), ("rolling_hills", 1.0), ("mountains", 1.2)];
+
+/// [`world`] with each preset's rivers and roads switched back on.
+fn world_with_features(seed: u32) -> WorldTerrain {
+    let source = |region: RegionId, _: DVec2, _: &Elevation| {
+        let preset = mixed_preset(region);
+        let mut options = preset.terrain.clone();
+        let (_, density) = RIVER_DENSITIES
+            .iter()
+            .find(|(key, _)| *key == preset.key)
+            .expect("every shipped preset has a river density");
+        options.features.rivers.density = *density;
+        options.features.roads.enabled = true;
+        options
+    };
     let options = WorldTerrainOptions {
         seed,
         ..WorldTerrainOptions::default()
@@ -161,12 +192,25 @@ fn outside_point(terrain: &Terrain, line: &FeatureLine) -> Option<DVec2> {
 }
 
 #[test]
+fn the_presets_make_no_rivers_ponds_or_roads() {
+    for seed in SEEDS {
+        let world = world(seed);
+        for id in patch(&world) {
+            let terrain = world.terrain(id).expect("regions build");
+            assert!(terrain.rivers().is_empty(), "seed {seed}: rivers in {id:?}");
+            assert!(terrain.ponds().is_empty(), "seed {seed}: ponds in {id:?}");
+            assert!(terrain.roads().is_empty(), "seed {seed}: roads in {id:?}");
+        }
+    }
+}
+
+#[test]
 fn rivers_and_roads_carry_on_across_borders() {
     // Every piece crossing a border is carved the same by the terrain on
     // the other side.
     let (mut rivers, mut roads, mut crossings) = (0, 0, 0);
     for seed in SEEDS {
-        let world = world(seed);
+        let world = world_with_features(seed);
         for id in patch(&world) {
             let terrain = world.terrain(id).expect("regions build");
             rivers += terrain.rivers().len();

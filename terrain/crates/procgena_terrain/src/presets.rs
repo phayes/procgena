@@ -3,6 +3,11 @@
 //! [`TerrainPreset::all`] lists the built-in presets in display order, and
 //! [`TerrainPreset::named`] looks one up by its key. A `.terrain.yml` file
 //! loads as a preset with [`TerrainPreset::from_yaml`].
+//!
+//! The built-in presets have no rivers and no roads: their
+//! `features.rivers.density` is 0 and `features.roads.enabled` is off.
+//! Their other river and road settings are tuned, so switching those two
+//! back on gives rivers and roads that suit the land.
 
 use std::borrow::Cow;
 
@@ -89,7 +94,7 @@ fn plains() -> TerrainOptions {
             margin: 125.0,
             roughness: 0.25,
         },
-        features: features(0.6, 8.0, 250.0, 300.0, 0.06),
+        features: switched_off(features(0.6, 8.0, 250.0, 300.0, 0.06)),
     }
 }
 
@@ -118,7 +123,7 @@ fn rolling_hills() -> TerrainOptions {
             margin: 125.0,
             roughness: 1.0,
         },
-        features: features(1.0, 5.0, 250.0, 200.0, 0.1),
+        features: switched_off(features(1.0, 5.0, 250.0, 200.0, 0.1)),
     }
 }
 
@@ -152,7 +157,7 @@ fn mountains() -> TerrainOptions {
             margin: 250.0,
             roughness: 2.5,
         },
-        features: features(1.2, 4.0, 250.0, 150.0, 0.14),
+        features: switched_off(features(1.2, 4.0, 250.0, 150.0, 0.14)),
     }
 }
 
@@ -181,6 +186,16 @@ pub(crate) fn features(
             ..RoadOptions::default()
         },
     }
+}
+
+/// `features` with no rivers starting in the region and no roads. The other
+/// river and road settings are kept, so raising
+/// `features.rivers.density` and setting `features.roads.enabled` brings
+/// them back as tuned.
+fn switched_off(mut features: FeatureOptions) -> FeatureOptions {
+    features.rivers.density = 0.0;
+    features.roads.enabled = false;
+    features
 }
 
 #[cfg(test)]
