@@ -31,7 +31,7 @@ The terrain crate already implements a specialized feature engine:
 | [relief.rs](crates/procgena_terrain/src/relief.rs) | Natural relief, shared world noise and convergence |
 | [plan.rs](crates/procgena_terrain/src/plan.rs) | River sources, port wishes, river/pond/road planning, valley profiles |
 | [carve.rs](crates/procgena_terrain/src/carve.rs) | FeatureLine, Pond, Features, Carved, RoadTags and spatially indexed carving |
-| [road.rs](crates/procgena_terrain/src/road.rs) | Routing, grade fit, cut/fill, crossing costs |
+| [road/](crates/procgena_terrain/src/road/mod.rs) | Routing, grade fit, cut/fill, crossing costs |
 | [river.rs](crates/procgena_terrain/src/river.rs) | Downhill tracing and joins |
 | [terrain.rs](crates/procgena_terrain/src/terrain.rs) | TerrainGenerator, Terrain, seam conformance, point and tile queries |
 | [seam.rs](crates/procgena_terrain/src/seam.rs), [ports.rs](crates/procgena_terrain/src/ports.rs) | Symmetric border agreements and agreed crossings |

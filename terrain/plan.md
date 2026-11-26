@@ -37,8 +37,8 @@ differ a little from side to side.
 - **Two new crates**, in the stone/tree split:
   - `terrain/crates/procgena_terrain`: engine-free core. It holds the
     options, presets, field, the seam protocol, features, classification,
-    the chunk mesher and `procgena_mesh::Object` output. It depends on
-    `glam`, `procgena_mesh`, `serde`, `serde_json`, and optionally
+    the chunk mesher and `procgena_specimen::Specimen` output. It depends on
+    `glam`, `procgena_specimen`, `serde`, `serde_json`, and optionally
     `rayon`. **No new dependencies.**
   - `terrain/crates/procgena_terrain_bevy`: chunk streaming around cameras,
     async builds, LOD, a label-driven triplanar material, a debug label
@@ -103,7 +103,7 @@ differ a little from side to side.
 
   Classification gives each surface point one primary `Landform`, a
   `Flags` bitset and continuous `Measures`. Meshes carry per-vertex label
-  weights. They are also split into `procgena_mesh` `Part`s by primary
+  weights. They are also split into `procgena_specimen` `Part`s by primary
   label. A separate
   water `Part` comes with each chunk: the water surface's geometry,
   tagged water, with no material of ours. Vector features (road polylines,
@@ -133,7 +133,7 @@ Phase C, generator   Terrain::new(options, region, agreements) -> Terrain
   │
   ├─ height(xz), annotate(xz), density(xyz), features(rect)   pure queries
   ├─ tile(key) -> HeightTile          2D grids: height, water level, labels
-  └─ chunk(key, lod, transitions) -> TerrainChunk -> procgena_mesh::Object
+  └─ chunk(key, lod, transitions) -> TerrainChunk -> procgena_specimen::Specimen
 ```
 
 Inside one `Terrain`, the field is built in stages. Each stage is pure:
@@ -202,18 +202,18 @@ infinigen was copied from `mushroom/prior_art/`.
   stone's noise style. No `rand`. New: gradient noise with analytic
   derivatives, Worley/Voronoi (our own; infinigen's is GPL), and 1D noise
   along an edge.
-- **Object model:** `procgena_mesh::{Object, Level, Part, Tag, TagSet,
-  TagFilter, SurfaceMesh}`.
+- **Object model:** `procgena_specimen::{Specimen, Level, Part, Tag,
+  TagSet, TagFilter, SurfaceMesh}`.
 - **Bevy crate shape:** `TerrainPlugin`, `TerrainParams`, a `.terrain.json`
   loader, `TerrainGenerating` / `TerrainFinished`, `AsyncComputeTaskPool`,
   headless `MinimalPlugins` tests, `examples/viewer.rs`.
 - **Materials:** clump's triplanar texturing, weighted by label.
-- **Plant integration:** `PlantField::with_ground_from_fn(|p| terrain.height(p))`
+- **Plant integration:** `PlantScatter::with_ground_from_fn(|p| terrain.height(p))`
   and `with_density_from_fn(|p| …annotate(p)…)` work, given a `Vec2` to
   `DVec2` conversion (plus the field's world offset) in the closure.
 - **Units:** metres, Y up. The terrain plane is XZ, as in plant.
 - **Marching-cube tables:** stone has them in `stone/.../mesh/tables.rs`.
-  Moving them into `procgena_mesh` so both crates can use them would be a
+  Moving them into `procgena_specimen` so both crates can use them would be a
   refactor; this plan does not require it.
 
 ---
@@ -715,7 +715,7 @@ pub struct Annotation { landform: Landform, flags: Flags, measures: Measures, we
   - Water is its own `Part`, tagged `water` plus `sea`, `lake` or `river`,
     and `closed: false`.
 - **Tags.** Generic tags (`TERRAIN`, `WATER`, `ROAD`, `CLIFF`, `BEACH`,
-  `UNDERWATER`, `CAVE`) are added to `procgena_mesh::tags`. That file is a
+  `UNDERWATER`, `CAVE`) are added to `procgena_specimen::tags`. That file is a
   coordinator edit. The rest live in `procgena_terrain::tags` (open
   question).
 
@@ -837,7 +837,7 @@ colours, and the options go into `asset.extras`. `HeightTile` can export as
 - **Debug.** A label overlay (colour by landform or flag), seam-band and
   margin visualisation, and chunk borders.
 - **Out of scope for now:** hooking terrain tags up to clump, mushroom or
-  stone scatter (`GeneratedObject` on chunk entities). This plan is just
+  stone scatter (`Specimen` on chunk entities). This plan is just
   terrain.
 - `examples/viewer.rs`: presets; "two terrains" and "triple junction" scenes;
   a fly camera.
@@ -2017,7 +2017,7 @@ What that asks of this crate, and where it stands:
   `Flags` (WET, SNOW, ROAD …) and `Measures` (slope, height above water,
   distance to water or road). Today's `RoadTags` (road, cut, embankment,
   retaining wall, bluff, cliff) become provenance labels and `Flags`
-  there, with the tag names living in `procgena_mesh::tags`. Distance to
+  there, with the tag names living in `procgena_specimen::tags`. Distance to
   road and to water can come from the features' spatial index.
 - [ ] **Seeds from outside.** `TerrainOptions::seed` becomes
   `default_seed`, used only when a terrain is built alone; inside a
@@ -2033,7 +2033,7 @@ What that asks of this crate, and where it stands:
 
 | Phase | Work | Depends on |
 |---|---|---|
-| 0 | **Coordinator only:** add both crates to the root `Cargo.toml`; add `terrain/prior_art/` to `.gitignore` and the `_typos.toml` excludes; add `CLAUDE.md` package rows and a README row; add the generic tags to `procgena_mesh/src/tag.rs`. | — |
+| 0 | **Coordinator only:** add both crates to the root `Cargo.toml`; add `terrain/prior_art/` to `.gitignore` and the `_typos.toml` excludes; add `CLAUDE.md` package rows and a README row; add the generic tags to `procgena_specimen/src/tag.rs`. | — |
 | 1 ✅ | **Seam spike (2D heightfield only).** Done 2026-11-22: three presets (plains, rolling hills, mountains); continuity in height and slope tested for every pair, at a triple junction and at 10⁷ m. Signed off by the user 2026-11-23. Hash, noise with derivatives, calibration, a minimal base relief for two presets, `Region` types, offers, `negotiate`, `negotiate_corner`, conformance, the reference stitcher, and an image dump of two terrains and a triple junction. Includes the symmetry, seam and triple-junction tests. | 0 |
 | 2 ✅ | River and road ports across one edge in the spike (monotone check, fallback ending). Done 2026-11-22, see "Phase 2 as built". Signed off 2026-11-23. | 1 |
 | 2.5 ✅ | **Shared world noise and relief convergence** (built 2026-11-22; exit results recorded under "Relief convergence (Phase 2.5)") (replaces the relief taper; see "Relief convergence (Phase 2.5)" above): layer seeds come from the world seed and the layer's role, not the region seed; near each edge both sides fade their relief toward one agreed relief amplitude, so same-family neighbours match before negotiation. Exit: the border gap probe (239 m mean, plains–mountains) and the crossing count (6 in 300 seeds) re-run with both on. Done already: 16-direction river and road routing, 3 smoothing passes, rivers merge on meeting and never double back. | 2 |
@@ -2191,7 +2191,7 @@ The worlds signed off on 2026-11-23 stay identical through steps 1 and 2.
    A river that crosses into a neighbour ends there or merges into the
    neighbour's own drainage. Its width and flow do not add up downstream
    across regions.
-4. **Tags.** Which terrain tags go into `procgena_mesh` (shared), and which
+4. **Tags.** Which terrain tags go into `procgena_specimen` (shared), and which
    stay in `procgena_terrain`?
 5. **Transvoxel licence.** Lengyel's terms for the tables were not found.
    If they are not permissive: our own surface nets with skirts, or the

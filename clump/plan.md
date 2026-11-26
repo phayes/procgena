@@ -530,7 +530,7 @@ rocks. Output stays on the GPU, ready for indirect drawing.
 
 - Integration: done in `procgena_clump_bevy` and the studio's Clumps tab (see
   `PLAN-clump-bevy.md` at the repository root). Stone and tree describe
-  their meshes as tagged `procgena_mesh::Object`s, and presets choose what
+  their meshes as tagged `procgena_specimen::Specimen`s, and presets choose what
   they grow on with `ClumpOptions::grows_on`. Still open there: using
   `Part::shells` in the "inside another part" checks, wind on tree clumps,
   and one clump level per host level. A zeapp panel remains later work.

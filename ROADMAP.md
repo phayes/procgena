@@ -56,10 +56,9 @@ asks.
   - then GP, whose payoff comes with streaming.
 - **Decisions are gates.** Each gate (D1–D6, see "Decision gates") sits
   just before the first work it blocks, not all up front.
-- **Two churn windows.** The crate rename and the preset and file rewrite
-  each touch every crate and rebuild most of the workspace. Each runs once,
-  in a wave of its own, with everything that touches the same code
-  batched into it.
+- **Churn windows.** A change that touches every crate and rebuilds most
+  of the workspace runs once, in a wave of its own (see "Churn
+  windows").
 - **Canonical ground and roads** (2026-11-25): a road builder redesign
   (RB) and a canonical, feature-constrained ground mesh (CT). The road
   wins that need no new representation (RB0–RB3) start at once. The rest
@@ -334,19 +333,11 @@ in D3.
 
 ## Churn windows
 
-Two milestones rewrite code in every crate. While one is running, other
-agents' work in the same files stalls or conflicts, and every agent
-rebuilds Bevy. Each runs in a wave of its own.
-
-- **Window 1 = F1.** The crate move and rename, the type renames, `Ground`
-  moving into the core crate with its settled coordinates, and `Ground`
-  gaining slope, in one change, as ARCHITECTURE.md asks. Shared hashing
-  and random numbers move first.
-- **Window 2 = F3.** Preset structs and catalogues, YAML files,
-  `seed` → `default_seed`, and the `TreeGrove` → `TreeScatter` and
-  `PlantField` → `PlantScatter` renames. The renames change file formats
-  (`.grove.json`, `.field.ron`) that F3 rewrites anyway, so they go
-  together. F3 lands before C2, which reworks the same grove types.
+A change that rewrites code in every crate is a churn window. While one
+is running, other agents' work in the same files stalls or conflicts, and
+every agent rebuilds Bevy. So each runs in a wave of its own, with
+everything that touches the same code batched into it. F1 and F3 were
+the first two.
 
 Before each window: every in-flight change is committed, and the user
 confirms no other agent is active. No compatibility shims are kept for old
@@ -369,9 +360,7 @@ ARCHITECTURE.md.
   user (see "For the user").
 - **Needs:** nothing.
 - **Done when:** the coordinator's full suite passes on a clean tree.
-  Both churn windows can then start from a committed base, and TODO
-  "Rename `TreeGrove` → `TreeScatter`", which waits for the grove work, is
-  unblocked.
+  Both churn windows (F1 and F3) can then start from a committed base.
 
 ### Foundations track
 
@@ -380,8 +369,8 @@ ARCHITECTURE.md.
 **Done 2026-11-23** (merged at `6055455`; full suite green except plant
 goldens, which have no baseline on this machine).
 
-- **Covers:** TODOs "Shared crates", "Rename `procgena_mesh` →
-  `procgena_specimen`" and "Add a gradient to `Ground`". Shared hashing,
+- **Covers:** TODOs "Shared crates", the rename to `procgena_specimen`,
+  and "Add a gradient to `Ground`". Shared hashing,
   seeds and random numbers move first (clump drops its copy of stone's).
   Mushroom's local tags move into `procgena_specimen::tags` (first half of
   TODO "Tags"). Per D1: F1 creates only `procgena_core` (the Bevy crate
@@ -416,8 +405,8 @@ goldens, which have no baseline on this machine).
 the follow-ups).
 
 - **Covers:** TODO "One preset and file pattern" (rule 10), the `seed` →
-  `default_seed` half of "Seeds from outside", TODOs "Rename `TreeGrove` →
-  `TreeScatter`" and "Rename `PlantField` → `PlantScatter`", and the
+  `default_seed` half of "Seeds from outside", the renames to
+  `TreeScatter` and `PlantScatter`, and the
   scatter file kind from "Decisions to make". Serde on every Scatter's
   options.
 - **Needs:** F1, M0, D1 (YAML crate).
@@ -1272,7 +1261,7 @@ go to the few copies near the camera.
     below.
   - **Step 5:** the experiment, including the memory cost of Low-sized
     impostor frames against High-sized ones.
-  - **Other TODOs:** the Codex comment rewrite for Steps 1–2 (item 21);
+  - **Other TODOs:** the comment pass for Steps 1–2 (item 21);
     IX2 (the quality-independent impostor switch, later).
 - **Follow-up (from IX Step 2, 2026-11-25): real bounds for stones.**
   Done 2026-11-25: a rock's size on screen is now its game-level mesh's
@@ -3164,9 +3153,11 @@ Done (2026-11-24): items 10, 15 and 16 above.
     20 GB free during wave 5; agents may not delete under `target/`.
     Clearing it (or parts of it, such as `target/wave5/`, a leftover
     shared build folder nothing uses now) is the user's call.
-21. **Codex comment rewrites.** Paused while Codex has no credits. Every
-    package's list is in
+21. **Comment rewrites.** Codex no longer rewrites comments. The
+    backlog of comments waiting for a rewrite is kept for later (the
+    user, 2026-11-26), with every package's list in
     [docs/coordination/codex-comment-backlog.md](docs/coordination/codex-comment-backlog.md).
+    How and when it is worked off is the user's call.
 
 ### Follow-ups noted, no decision needed
 
@@ -3179,8 +3170,8 @@ Done (2026-11-24): items 10, 15 and 16 above.
   two with `tools/plant/bench_ab.py` on a quiet machine, and the look
   side by side. Not yet done for P3: the bench run (the user sets the
   speed bar), golden blessing (no goldens for this Mac; the stored
-  NVIDIA, llvmpipe and WARP goldens are now stale), and the Codex
-  comment pass (list in the P3 worker's report).
+  NVIDIA, llvmpipe and WARP goldens are now stale), and the comment
+  pass (item 21; list in the P3 worker's report).
 - **The full workspace suite** (CLAUDE.md, "The full suite") has not
   run since wave 5. Run it on a quiet machine: under load, two studio
   GPU tests that reopen a project (`ecotopes_save_and_load` and the
@@ -3209,8 +3200,8 @@ Done (2026-11-24): items 10, 15 and 16 above.
   - check by eye that the overlay lines up with drawn roads on terrain
     chunks (the start camera has none in reach, and fog hides far views);
   - take a Landform shot and record its cost per chunk;
-  - the Codex comment pass (Codex was out of credits; the item list is
-    in the overlay worker's report, `seg-overlay-report.md`).
+  - the comment pass (item 21; the item list is in the overlay
+    worker's report, `seg-overlay-report.md`).
 - Long term: keep comments and layout when the studio updates a preset
   file. Decided by the user on 2026-11-24: for now, writing a preset is
   lossy for comments (a full rewrite through serde). The ST2 spike
