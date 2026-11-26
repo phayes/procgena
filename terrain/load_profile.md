@@ -134,9 +134,12 @@ full table, with counts and budgets, is in the shared notes folder at
 
 ### Roads and rivers on against off
 
-- **Single thread:** not measured. In the tree of about 01:20, roads
-  reached no chunk (`--footprint` counted 0 of 252), although the presets
-  have roads on. Something in-progress in that tree produces no roads.
+- **Single thread:** not measured yet. Since 55b5638 the built-in presets
+  have roads and rivers switched off, so those runs had none
+  (`--footprint` counted 0 of 252). A comparison needs the features
+  switched on explicitly in the measuring example: river densities
+  0.6/1.0/1.2 and `roads.enabled = true`, as
+  `tests/shipped.rs::rivers_and_roads_carry_on_across_borders` does.
 - **From the profiles with features on (10 cores):** the feature-only work
   is small:
   - river carving 0.6–1.6%;
