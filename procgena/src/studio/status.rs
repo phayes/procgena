@@ -370,9 +370,9 @@ pub fn terrain_line(state: &BuildState) -> (String, bool) {
         let doing = match progress.stage {
             Some(RegionStage::Plan) => "planning regions",
             Some(RegionStage::Tier(FeatureTier::Rough)) => "shaping ground",
-            Some(RegionStage::Tier(FeatureTier::Mid)) => "outlining roads",
-            Some(RegionStage::Tier(FeatureTier::Fine)) => "adding roads",
-            None if progress.refining > 0 => "adding roads to near ground",
+            Some(RegionStage::Tier(FeatureTier::Mid)) => "outlining features",
+            Some(RegionStage::Tier(FeatureTier::Fine)) => "adding features",
+            None if progress.refining > 0 => "refining near ground",
             None => "reading chunks",
         };
         let percent = (progress.fraction * 100.0).floor();
@@ -471,7 +471,7 @@ mod tests {
         };
         assert_eq!(
             line(Some(progress)),
-            ("Building terrain… 42% · adding roads".into(), false)
+            ("Building terrain… 42% · adding features".into(), false)
         );
         progress.stage = None;
         assert_eq!(
@@ -481,10 +481,7 @@ mod tests {
         progress.refining = 30;
         assert_eq!(
             line(Some(progress)),
-            (
-                "Building terrain… 42% · adding roads to near ground".into(),
-                false
-            )
+            ("Building terrain… 42% · refining near ground".into(), false)
         );
         progress = TerrainProgress {
             drawn: 1200,

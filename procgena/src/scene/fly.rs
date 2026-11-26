@@ -1,5 +1,5 @@
-//! Flying the scene camera: WASD to move, drag to look, Space and Shift to
-//! rise and drop.
+//! Flying the scene camera: W and S fly where it looks, A and D sideways,
+//! drag to look, Space and Shift to rise and drop.
 
 use bevy::ecs::system::SystemParam;
 use bevy::input_focus::InputFocus;
@@ -12,12 +12,13 @@ use super::viewport::{ViewportActivity, ViewportCamera, ViewportInput};
 /// Flying speed, in metres per second, per metre of orbit distance when
 /// flying starts.
 const SPEED_PER_DISTANCE: f32 = 0.5;
-/// Speed change per logical pixel scrolled; each pixel scales the speed by
-/// `exp(SPEED_PER_PIXEL)`.
-const SPEED_PER_PIXEL: f32 = 0.01;
-/// The slowest and fastest the wheel can make flying, as factors of the
-/// speed flying starts at.
-const SPEED_SCALE: (f32, f32) = (0.01, 100.0);
+/// How much one wheel notch (16 logical pixels) changes the speed, as a
+/// fraction of the current speed.
+const SPEED_STEP_PER_NOTCH: f32 = 0.10;
+/// Logical pixels in one wheel notch.
+const PIXELS_PER_NOTCH: f32 = 16.0;
+/// The slowest and fastest the camera can fly, in metres per second.
+const SPEED_LIMITS: (f32, f32) = (0.05, 500.0);
 /// The longest frame counted when moving, in seconds, so the first frame
 /// after the window wakes from sleep doesn't jump.
 const MAX_STEP: f32 = 0.1;
@@ -31,10 +32,11 @@ pub enum CameraMode {
     /// another button to pan, scroll to zoom.
     #[default]
     Orbit,
-    /// Fly freely: W, A, S and D move across, Space rises and Shift drops,
+    /// Fly freely: W and S fly where the camera looks (up or down
+    /// included), A and D move sideways, Space rises and Shift drops,
     /// dragging with any button looks around, and scrolling changes the
-    /// speed. Keys move the camera only while no UI element has keyboard
-    /// focus; clicking the 3D view takes it back.
+    /// speed by a tenth per wheel notch. Keys move the camera only while no
+    /// UI element has keyboard focus; clicking the 3D view takes it back.
     Fly,
 }
 
@@ -43,7 +45,8 @@ pub enum CameraMode {
 /// Each time flying starts, and each time the camera is set while flying
 /// (for example when another subject is shown), the speed is fitted to how
 /// far the camera is from what it looks at, so a terrain flies far faster
-/// than a mushroom. Scrolling scales that speed, and the scale is kept.
+/// than a mushroom. Scrolling scales that speed, and the scale is kept. The
+/// speed always stays between 0.05 and 500 metres per second.
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
 pub struct FlySpeed {
     /// The speed fitted to the view, in metres per second.
@@ -64,7 +67,8 @@ impl Default for FlySpeed {
 impl FlySpeed {
     /// The flying speed, in metres per second.
     pub fn speed(&self) -> f32 {
-        self.base * self.scale
+        let (slowest, fastest) = SPEED_LIMITS;
+        (self.base * self.scale).clamp(slowest, fastest)
     }
 
     /// Fits the speed to a view `distance` metres from what it looks at,
@@ -74,10 +78,16 @@ impl FlySpeed {
     }
 
     /// Changes the speed for a scroll of `amount` logical pixels; positive
-    /// values fly faster.
+    /// values fly faster. Each wheel notch changes it by a tenth of the
+    /// current speed.
     pub(crate) fn scroll(&mut self, amount: f32) {
-        let (slowest, fastest) = SPEED_SCALE;
-        self.scale = (self.scale * (amount * SPEED_PER_PIXEL).exp()).clamp(slowest, fastest);
+        // Scale per notch, compounded, so a notch up then down returns.
+        let notches = amount / PIXELS_PER_NOTCH;
+        self.scale *= (1.0 + SPEED_STEP_PER_NOTCH).powf(notches);
+        // Keep the factor where the speed stays within its limits.
+        let (slowest, fastest) = SPEED_LIMITS;
+        let base = self.base.max(f32::EPSILON);
+        self.scale = self.scale.clamp(slowest / base, fastest / base);
     }
 }
 
@@ -140,15 +150,14 @@ impl ViewKeys<'_, '_> {
 }
 
 /// The world-space step for flying in `direction` (camera frame: x right,
-/// y up, z forward) while facing `yaw`, `distance` metres long.
+/// y up, z forward) from a camera facing `forward` and turned so that
+/// `right` is its right, `distance` metres long.
 ///
-/// Forward and sideways stay level whatever the pitch, and up is always
-/// straight up, as in a creative-mode game. Diagonals are no faster than
-/// straight lines.
-fn fly_step(yaw: f32, direction: Vec3, distance: f32) -> Vec3 {
-    let turn = Quat::from_rotation_y(yaw);
-    let step =
-        turn * Vec3::X * direction.x + Vec3::Y * direction.y + turn * Vec3::NEG_Z * direction.z;
+/// Forward flies exactly where the camera looks, up or down included.
+/// Sideways follows the camera's right, and up is always straight up.
+/// Diagonals are no faster than straight lines.
+fn fly_step(forward: Vec3, right: Vec3, direction: Vec3, distance: f32) -> Vec3 {
+    let step = right * direction.x + Vec3::Y * direction.y + forward * direction.z;
     step.normalize_or_zero() * distance
 }
 
@@ -191,7 +200,8 @@ pub(crate) fn drive_fly(
     if direction != Vec3::ZERO {
         activity.request_frames(ViewportActivity::SETTLE_FRAMES);
         let step = time.delta_secs().min(MAX_STEP) * speed.speed();
-        let offset = fly_step(camera.yaw, direction, step);
+        let pose = camera.transform();
+        let offset = fly_step(*pose.forward(), *pose.right(), direction, step);
         camera.focus += offset;
     }
 }
@@ -298,26 +308,45 @@ mod tests {
     }
 
     #[test]
-    fn forward_and_sideways_stay_level_and_up_is_straight_up() {
-        let yaw = 0.6;
-        let forward = fly_step(yaw, Vec3::Z, 2.0);
-        let facing = orbit().transform().forward();
-        assert!(forward.y.abs() < 1e-6);
+    fn forward_flies_where_the_camera_looks_and_up_is_straight_up() {
+        let pose = orbit().transform();
+        let (facing, right) = (*pose.forward(), *pose.right());
+        // The test camera looks down a little, so forward drops.
+        let forward = fly_step(facing, right, Vec3::Z, 2.0);
         assert!((forward.length() - 2.0).abs() < 1e-5);
-        assert!(
-            forward
-                .normalize()
-                .dot(Vec3::new(facing.x, 0.0, facing.z).normalize())
-                > 0.9999
-        );
+        assert!(forward.normalize().dot(facing) > 0.9999);
+        assert!(forward.y < 0.0);
 
-        let right = fly_step(yaw, Vec3::X, 1.0);
-        assert!(right.dot(*orbit().transform().right()) > 0.99);
-        assert!(fly_step(yaw, Vec3::Y, 3.0).abs_diff_eq(Vec3::new(0.0, 3.0, 0.0), 1e-6));
-        assert!(fly_step(yaw, Vec3::NEG_Y, 1.0).y < 0.0);
+        let sideways = fly_step(facing, right, Vec3::X, 1.0);
+        assert!(sideways.dot(right) > 0.9999);
+        assert!(fly_step(facing, right, Vec3::Y, 3.0).abs_diff_eq(Vec3::new(0.0, 3.0, 0.0), 1e-6));
+        assert!(fly_step(facing, right, Vec3::NEG_Y, 1.0).y < 0.0);
 
         // A diagonal is as long as a straight step.
-        assert!((fly_step(yaw, Vec3::new(1.0, 1.0, 1.0), 1.0).length() - 1.0).abs() < 1e-5);
+        assert!(
+            (fly_step(facing, right, Vec3::new(1.0, 1.0, 1.0), 1.0).length() - 1.0).abs() < 1e-5
+        );
+    }
+
+    #[test]
+    fn each_wheel_notch_changes_the_speed_by_a_tenth_within_limits() {
+        let mut speed = FlySpeed::default();
+        speed.fit(10.0);
+        let start = speed.speed();
+        speed.scroll(PIXELS_PER_NOTCH);
+        assert!((speed.speed() / start - 1.1).abs() < 1e-4);
+        speed.scroll(-PIXELS_PER_NOTCH);
+        assert!((speed.speed() / start - 1.0).abs() < 1e-4);
+
+        // Scrolling far either way stops at the limits, and turns back at
+        // once.
+        let (slowest, fastest) = SPEED_LIMITS;
+        speed.scroll(PIXELS_PER_NOTCH * 1000.0);
+        assert!((speed.speed() - fastest).abs() < 1e-2);
+        speed.scroll(-PIXELS_PER_NOTCH);
+        assert!(speed.speed() < fastest);
+        speed.scroll(-PIXELS_PER_NOTCH * 1000.0);
+        assert!((speed.speed() - slowest).abs() < 1e-5);
     }
 
     #[test]
@@ -348,10 +377,9 @@ mod tests {
         let facing = start.transform().forward();
         hold(&mut app, KeyCode::KeyW, 5);
         let moved = camera(&mut app).eye() - start.eye();
-        // Five frames of 1/10 s, level along the view.
+        // Five frames of 1/10 s, straight along the view.
         assert!((moved.length() - 0.5 * speed).abs() < 1e-3, "{moved}");
-        assert!(moved.y.abs() < 1e-5);
-        assert!(moved.dot(*facing) > 0.0);
+        assert!(moved.normalize().dot(*facing) > 0.9999);
 
         let before = camera(&mut app).eye();
         hold(&mut app, KeyCode::Space, 2);
