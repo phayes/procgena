@@ -334,7 +334,7 @@ blocks. Until then, nothing that depends on it starts.
 | D2 | **Masks on the GPU** (TODO, open question 1): how masks live on the GPU and how Scatters place there; tree's lattice or plant's blue-noise tiles; each Scatter's reach across chunks, and how grove spacing stays chunk-local (open question 6) | C2, D3 | Research and design decided 2026-11-23 ([docs/decisions/D2.md](docs/decisions/D2.md), "Masks and placement" in ARCHITECTURE.md). The GPU spike passed on an M1 Max (parity, build order, the stack budget with window B); a timing run on a low-end integrated GPU and on a discrete GPU is still owed. |
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
 | D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | Nothing now | **Settled by milestone RS** (the user, 2026-11-25): region size is a World setting, regions can be about 1 km, and larger Biome areas are same-preset neighbours with invisible borders (see RS and the world-generation plan). Research record: [docs/decisions/D4.md](docs/decisions/D4.md). |
-| D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | G7 (scale-aware terrain lengths), and W0's scale pair and class presets (built at scale 1; its image examples tune the class numbers) | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Scale 1 is the Valheim-like medium-small class and the default World (the user, 2026-11-24): small 0.5, medium 2, large 6 × 4, real-life 20 × 8; the earlier presets are test fixtures. Draft: the other class numbers. Open: a World-level river-size field, the region floor, Ecotope geometry, floating origin. |
+| D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | G7 (scale-aware terrain lengths), and W0's scale pair and class presets (built at scale 1; its image examples tune the class numbers) | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Scale 1 is the Valheim-like medium-small class and the default World (the user, 2026-11-24): small 0.5, medium 2, large 6 × 4, real-life 20 × 8; the earlier presets are test fixtures. Draft: the other class numbers. Open: a World-level river-size field, whether the bank reach scales (the rest of the region floor is settled by RS), Ecotope geometry, floating origin. |
 | D6 | **Canonical ground** (opened 2026-11-25 by the reviews of the road and TIN plans): D6a the deterministic profile (cross-platform bitwise with pinned maths, or same-platform first); D6b what is authoritative at a distance (TIN, `H*`, or `H*` for placement and labels with the TIN for physical ground); D6c whether region borders are mesh constraints; D6d coordinate units and range | CT0 and RB4, and everything after them. RB0–RB3 are not gated | **Decided 2026-11-25:** same-platform bitwise first; `H*` for spots, masks, slope and labels with the TIN for collision and near rest heights; chunk borders only; integer millimetres (`i64` x/z, `i32` heights). Details under "D6 (gate)". |
 
 Questions that wait for later milestones, and are decided inside them:
@@ -572,10 +572,10 @@ the follow-ups).
   regions on demand from a `TerrainSource` closure, caching each region's
   settings, plan (converged generator and offers) and terrain; its seams
   pass on warped borders on flat, tilted and curved land, and its centre
-  region matches a `StitchedWorld` of the same polygons bit for bit. Not
-  done: the region size check, and the equal preset offsets, which wait
-  for the user (world_plan open question 5). W6 (image example and
-  drainage measurement) is next.
+  region matches a `StitchedWorld` of the same polygons bit for bit. The
+  region size check moves to RS; the equal preset offsets are item 11
+  (deferred, blocking nothing). W6 (image example and drainage
+  measurement) is next.
 
 #### G6: Terrain volume, mesher, Bevy crate and studio (Phases 6–10)
 
@@ -2325,31 +2325,8 @@ where the details are.
 
 ### Blocking a milestone
 
-5. **Region size and shape (D4, no longer blocks W0).**
-   - *Premise corrected 2026-11-24:* D3 was first recorded as "two
-     neighbouring regions never share a Biome". The user clarified that
-     neighbours never share a Biome *instance* (each region has its own,
-     seeded per region) but may share a Biome *type* (preset). Two
-     neighbouring "pine forest" regions differ in seed, and the Ecotope
-     border protocol blends them like any other border. The forced
-     differ-from-neighbours choice, fallback Biomes and options A, B1, B2
-     and C in D4.md are superseded.
-   - *What is still open:* how large regions are, and whether they are
-     even or a multi-scale mix (world_plan.md open question 2). Today's
-     graph uses cells of about 4 km. Region size sets how long a region's
-     plan takes (and so the plan-ahead ring and its memory), the share of
-     land in border blend zones, and how large one Biome patch can be.
-   - *What W0 needs:* only a region size. W0 chooses each region's Biome
-     type freely from the selector fields and pins, on today's region
-     graph, and can start on the 4 km default.
-   - *Waits on:* the quiet-machine rerun of the G3 step 2 cold benchmarks
-     (item 14). W0's image example is done: see world_plan.md, "W0 image
-     example" (4 km regions make Biome areas clusters of regions; nothing
-     argues against 4 km).
-   - *Details:* [docs/decisions/D4.md](docs/decisions/D4.md), "Bottom
-     line" and "Region size".
-   - *Scale (D5, 2026-11-24):* region size becomes a per-class World
-     setting. D4 still sets the default shape and the medium class's size.
+5. ~~**Region size and shape (D4).**~~ Settled by milestone RS (the user,
+   2026-11-25).
 6. ~~**Fruit cluster cards versus the fruit crate.**~~ Decided by the user
    2026-11-24. The cluster cards (built in wave 5 under I1b's earlier
    scope, set by `LodDetail::cluster_cards`, off by default) are removed
@@ -2371,11 +2348,8 @@ where the details are.
       - The class numbers (pair, region size, Biome extent and E per
         class), tuned with W0's image examples. Scale 1 is the
         medium-small (Valheim) class since 2026-11-24 (the user).
-      - How low the region floor goes. With road and river widths fixed
-        (the user's choice), the floor is about 1.4 km unless the 40 m
-        bank reach also scales. If Minecraft-sized regions of about 1 km
-        need narrower roads and rivers, fixed widths would have to be
-        revisited (D5, open question 3).
+      - Whether the 40 m bank reach scales with the World (in G7). The
+        rest of the region floor question is settled by RS.
       - A World-level, analytic river-size field, so rivers widen
         downstream across regions. Opened by the user.
       - Whether Ecotope geometry scales.
@@ -2580,7 +2554,7 @@ where the details are.
     worlds, and the border-gap and river-crossing figures are re-recorded.
     **Deferred by the user (2026-11-24),** who is considering a hybrid: a
     terrain preset declares where on the large low-frequency E it wants to
-    sit, and can also adjust E locally in its own region. Needed by W0.
+    sit, and can also adjust E locally in its own region. Blocks nothing.
     Details: [terrain/world_plan.md](terrain/world_plan.md), open
     question 5.
 
@@ -2606,15 +2580,9 @@ where the details are.
     the exact slope and the old estimate is gone. Agreed borders moved by
     at most 3.3 cm in the test worlds; every test, seed and probe figure
     stayed the same. Details: terrain/plan.md, G2 notes.
-14. **Macro cells, after a quiet benchmark rerun.** The user decided
-    macro cells (planning on coarse 1 km cells inside a region) are added
-    only if the benchmarks call for them. G3 step 2 measured a cold
-    region plan at p50 0.50 s and p95 2.0 s with roads, and 0.12 s and
-    0.43 s without; roads are most of the cost. Those numbers were taken
-    with the machine under heavy load and need a rerun on a quiet machine
-    (`cargo test -p procgena_terrain --release --test bench -- --ignored
-    --nocapture --test-threads 1`). Then: are macro cells needed? The
-    rerun also feeds D4's region size.
+14. ~~**Macro cells.**~~ Dropped by the user (2026-11-25): with regions of
+    about 1 km (RS), coarse 1 km cells inside a region are moot, and RB0's
+    road corpus replaced the benchmark rerun.
 
 ### Shared settings and release (earlier waves)
 

@@ -359,7 +359,11 @@ regions may use the same Biome type (preset): two "pine forest" regions
 side by side differ in seed, and the Ecotope border protocol blends their
 cover across the border like any other region border. Nothing forces
 neighbours to choose different types (decided by the user in D3,
-corrected 2026-11-24). Region size and shape are decision gate D4. Terrain is still its
+corrected 2026-11-24). Where same-type neighbours meet, the World leaves
+their border straight and invisible, so a large Biome area is simply
+several such regions; it is not a thing with an id of its own (see
+[docs/procgena-world-generation-plan.md](docs/procgena-world-generation-plan.md)).
+Region size and shape are roadmap milestone RS. Terrain is still its
 own type: it is edited on its own (its own kind in the studio), and one Terrain
 preset can be reused by many Biome presets ("alpine forest" and "alpine
 meadow" on the same mountains).
@@ -616,7 +620,7 @@ The World holds the Biomes; it does not hold Terrains directly.
   neighbouring regions never share an instance, though they may share a
   Biome type (D3, corrected 2026-11-24). Each `RegionId` stays stable and
   computable from the World's options and seed alone. Region size and
-  shape are decision gate D4.
+  shape are roadmap milestone RS.
 - Which Biome fills each region, chosen field first: rules match the
   world elevation E and the World's own selector fields (ruggedness,
   moisture) at each region, and a user can pin a region's Biome. A pin
@@ -1846,17 +1850,20 @@ it starts.
   the steps and the open points). Feature seeds follow "Seeds": 32-bit,
   from code seed keys for built-in families and frozen data keys for
   children named in data. Proposed, not decided: local features sit on
-  World cells wherever they can, so D4 can't move them.
+  World cells wherever they can, so a change of region size can't move
+  them.
 - [x] **Empty Biomes**: the Biome type with a Terrain and no Ecotopes, a
   default empty Biome per Terrain preset. Done in `procgena_biome` (B0).
   As D3 settled, the Terrain takes the World seed for its noise
   (`Biome::terrain_options` sets it; `terrain_seed` was removed in W0).
-- [ ] **Region size and shape** (decision gate D4): the region graph's
-  size and shape (even regions or a multi-scale mix), after the G3 step 2
-  cold benchmarks and W0's image example. Each region already has its own
-  Biome instance and a stable id computable from the World's options and
-  seed alone; neighbours may share a Biome type (D3, corrected
-  2026-11-24).
+- [ ] **Region size and shape** (roadmap RS, decided by the user
+  2026-11-25): regions of about 1 km set at the World level, short
+  borders merged by a share of the region size, outlines refused only
+  when they cross themselves, a stronger warp on borders between
+  different Biomes or Terrains, and straight, invisible borders between
+  same-Biome, same-Terrain regions. Regions are never merged into larger
+  units. Each region has its own Biome instance and a stable id
+  computable from the World's options and seed alone.
 - [ ] **World crate**: region graph options, Biome choice per region
   (fields, rules, pins), seed derivation for every level below, specimen
   budgets per pool, and running the two-step Biome border negotiation.
