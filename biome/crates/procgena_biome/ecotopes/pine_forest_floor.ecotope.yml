@@ -76,24 +76,3 @@ ecotope:
       kind: plant
       base: forest_floor
       max_slope: 40.0
-  ground:
-    soil:
-      material: forest_soil
-      order: 100
-    moss:
-      material: moss
-      order: 320
-      opacity: 0.85
-      noise: { wavelength: 6.0, contrast: 3.0, threshold: 0.55 }
-    litter:
-      material: needle_litter
-      order: 400
-      opacity: 0.95
-      noise: { wavelength: 2.5, contrast: 1.5, threshold: 0.3 }
-      under:
-        - { scatter: pines, reach: { metres: 3.0 } }
-    dirt:
-      material: bare_dirt
-      order: 450
-      under:
-        - { scatter: boulders, reach: { metres: 0.6 }, falloff: { fall: [0.5, 1.0] } }

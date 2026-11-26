@@ -11,12 +11,6 @@
 //! default empty Biome for every
 //! [`TerrainPreset`](procgena_terrain::TerrainPreset).
 //!
-//! Each Biome has base ground materials ([`BiomeGround`]), even when it has
-//! no Ecotopes. The standard layers add mud near water, gravel beside roads
-//! and rock on cliffs to the bare terrain materials. [`Biome::ground()`]
-//! builds a painter for terrain chunks; Ecotope layers combine with this
-//! base by layer order. Custom base layers replace the standard set.
-//!
 //! # Ecotopes
 //!
 //! An [`Ecotope`] is one kind of ground cover, such as "pine forest floor":
@@ -67,7 +61,6 @@
 
 mod biome;
 mod ecotope;
-mod ground;
 mod presets;
 
 pub use biome::{BIOME_SEED_ROLE, Biome, BiomeError, BiomeTerrain, EcotopeRule, biome_seed};
@@ -76,6 +69,4 @@ pub use ecotope::{
     Footprints, PLANT_CELL, PlacedScatter, SCATTER_SEED_KIND, ScatterCopies, ScatterFailure,
     ScatterKind, scatter_seed,
 };
-pub use ecotope::{EcotopeGround, GROUND_SEED_KIND};
-pub use ground::{BASE_GROUND_SEED_KIND, BiomeGround, standard_base_layers};
 pub use presets::BiomePreset;

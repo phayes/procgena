@@ -28,7 +28,6 @@ use procgena_mushroom::{
 };
 use procgena_plant::{PlantScatterOptions, PlantScatterPreset};
 use procgena_stone::{StoneClass, StoneOptions, StonePreset, StoneScatterOptions};
-use procgena_terrain::ground::GroundLayer;
 use procgena_tree::{TreeScatter, TreeScatterPreset};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -226,29 +225,14 @@ pub(crate) fn settings_over(base: Option<&Ecotope>, ecotope: &Ecotope) -> Option
         for (key, scatter) in &ecotope.scatters {
             value["scatters"][key.as_str()] = to_file(scatter, true);
         }
-        for (key, layer) in &ecotope.ground {
-            value["ground"][key.as_str()] = short_layer(layer);
-        }
         return diff(&to_value(&Ecotope::default()), &value);
     };
 
-    // Exact differences, with new ground layers written short.
+    // Exact differences, and the removed Scatters.
     let mut settings = diff(&to_value(base), &to_value(ecotope));
-    for (key, layer) in &ecotope.ground {
-        if !base.ground.contains_key(key) {
-            entry(&mut settings, "ground")[key.as_str()] = short_layer(layer);
-        }
-    }
-
-    // The removed Scatters and ground layers.
     for key in base.scatters.keys() {
         if !ecotope.scatters.contains_key(key) {
             entry(&mut settings, "scatters")[key.as_str()] = Value::Null;
-        }
-    }
-    for key in base.ground.keys() {
-        if !ecotope.ground.contains_key(key) {
-            entry(&mut settings, "ground")[key.as_str()] = Value::Null;
         }
     }
     settings
@@ -261,17 +245,6 @@ fn entry<'a>(settings: &'a mut Option<Value>, field: &str) -> &'a mut Value {
         settings[field] = Value::Object(Map::new());
     }
     &mut settings[field]
-}
-
-/// A ground layer's settings, leaving out those equal to a new layer's of
-/// the same material and order.
-fn short_layer(layer: &GroundLayer) -> Value {
-    let defaults = GroundLayer::new(layer.material.clone(), layer.order);
-    let mut value =
-        diff(&to_value(&defaults), &to_value(layer)).unwrap_or_else(|| Value::Object(Map::new()));
-    value["material"] = Value::String(layer.material.as_str().to_owned());
-    value["order"] = Value::from(layer.order);
-    value
 }
 
 /// Writes one Scatter as its file settings. With `short`, the settings of

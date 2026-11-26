@@ -3,7 +3,6 @@
 
 mod file;
 mod footprints;
-mod ground;
 mod presets;
 mod scatters;
 
@@ -13,11 +12,9 @@ use std::sync::Arc;
 
 use procgena_core::scatter::{Mask, ScatterInput};
 use procgena_core::{ChildKey, child_seed};
-use procgena_terrain::ground::{GroundError, GroundLayer};
 use serde::{Deserialize, Serialize};
 
 pub use footprints::{FootprintMask, Footprints};
-pub use ground::{EcotopeGround, GROUND_SEED_KIND};
 pub use presets::EcotopePreset;
 pub use scatters::{PLANT_CELL, ScatterCopies, ScatterFailure, ScatterKind};
 
@@ -60,12 +57,6 @@ pub struct Ecotope {
     /// from it, so renaming a key moves every copy of that Scatter.
     #[serde(with = "file::keyed")]
     pub scatters: BTreeMap<ChildKey, EcotopeScatter>,
-    /// The ground layers, by key, laid over the ground below the Ecotope
-    /// (a Biome's base ground, or bare terrain's look) by their `order`.
-    /// A layer may follow the Ecotope's own Scatters, such as needle
-    /// litter under pines. Paint them with [`ground`](Self::ground).
-    #[serde(with = "file::keyed")]
-    pub ground: BTreeMap<ChildKey, GroundLayer>,
 }
 
 /// One Scatter in an [`Ecotope`], with its place in the Ecotope's order.
@@ -120,14 +111,6 @@ impl Ecotope {
         self
     }
 
-    /// The same Ecotope with ground `layer` added under `key`, replacing
-    /// any layer already there.
-    #[must_use]
-    pub fn with_ground(mut self, key: ChildKey, layer: GroundLayer) -> Self {
-        self.ground.insert(key, layer);
-        self
-    }
-
     /// The Scatters in the order they are placed: highest priority first.
     pub fn order(&self) -> Vec<(&ChildKey, &EcotopeScatter)> {
         let mut order: Vec<_> = self.scatters.iter().collect();
@@ -135,16 +118,13 @@ impl Ecotope {
         order
     }
 
-    /// Checks every setting, including each Scatter's own and the ground
-    /// layers' (as far as can be done without the World's material
-    /// catalogue).
+    /// Checks every setting, including each Scatter's own.
     ///
     /// # Errors
     ///
     /// Returns the first problem found as an [`EcotopeError`].
     pub fn validate(&self) -> Result<(), EcotopeError> {
-        self.validate_scatters()?;
-        self.validate_ground()
+        self.validate_scatters()
     }
 
     /// Checks the Scatters' settings.
@@ -181,39 +161,6 @@ impl Ecotope {
         Ok(())
     }
 
-    /// Checks the ground layers, as far as can be done without the World's
-    /// material catalogue. A layer may follow a Scatter the Ecotope
-    /// doesn't have: it is simply absent.
-    fn validate_ground(&self) -> Result<(), EcotopeError> {
-        let mut orders: Vec<(&ChildKey, u32)> =
-            self.ground.iter().map(|(k, l)| (k, l.order)).collect();
-        orders.sort_by_key(|&(_, order)| order);
-        for pair in orders.windows(2) {
-            if pair[0].1 == pair[1].1 {
-                return Err(EcotopeError::Ground(GroundError::SharedOrder {
-                    order: pair[0].1,
-                    keys: [pair[0].0.clone(), pair[1].0.clone()],
-                }));
-            }
-        }
-        let keys: Vec<&ChildKey> = self.ground.keys().collect();
-        for (i, a) in keys.iter().enumerate() {
-            if let Some(b) = keys[i + 1..].iter().find(|b| b.salt() == a.salt()) {
-                return Err(EcotopeError::Ground(GroundError::SharedSalt {
-                    keys: [(*a).clone(), (*b).clone()],
-                }));
-            }
-        }
-        for (key, layer) in &self.ground {
-            if !layer.is_valid() {
-                return Err(EcotopeError::Ground(GroundError::Layer {
-                    key: key.clone(),
-                }));
-            }
-        }
-        Ok(())
-    }
-
     /// Places every Scatter over `input`'s ground and area, highest
     /// priority first.
     ///
@@ -227,11 +174,9 @@ impl Ecotope {
     ///
     /// # Errors
     ///
-    /// Returns any error from [`validate`](Self::validate) about the
-    /// Scatters, and [`EcotopeError::Scatter`] for the first Scatter that
-    /// can't be placed over the input, for example because its area is too
-    /// large. The ground layers are not checked: they never change what is
-    /// placed.
+    /// Returns any error from [`validate`](Self::validate), and
+    /// [`EcotopeError::Scatter`] for the first Scatter that can't be placed
+    /// over the input, for example because its area is too large.
     pub fn place(&self, input: &ScatterInput<'_>) -> Result<EcotopePlacement, EcotopeError> {
         self.place_reusing(input, None)
     }
@@ -453,9 +398,6 @@ pub enum EcotopeError {
         /// The error from the Scatter's own crate.
         error: ScatterFailure,
     },
-    /// The ground layers are invalid, or don't fit the World's material
-    /// catalogue.
-    Ground(GroundError),
 }
 
 impl fmt::Display for EcotopeError {
@@ -475,7 +417,6 @@ impl fmt::Display for EcotopeError {
                 write!(f, "Scatter {key}: clearance must be 0 or more")
             }
             Self::Scatter { key, error } => write!(f, "Scatter {key}: {error}"),
-            Self::Ground(error) => error.fmt(f),
         }
     }
 }
@@ -484,7 +425,6 @@ impl std::error::Error for EcotopeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Scatter { error, .. } => Some(error),
-            Self::Ground(error) => Some(error),
             _ => None,
         }
     }

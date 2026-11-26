@@ -99,29 +99,3 @@ ecotope:
       base: forest_understory
       density_scale: 1.5
       max_slope: 40.0
-  ground:
-    soil:
-      material: forest_soil
-      order: 100
-    old_leaves:
-      material: decayed_leaves
-      order: 300
-      opacity: 0.9
-      noise: { wavelength: 10.0, contrast: 1.5, threshold: 0.35 }
-    moss:
-      material: moss
-      order: 320
-      opacity: 0.8
-      noise: { wavelength: 8.0, contrast: 2.5, threshold: 0.5 }
-    litter:
-      material: leaf_litter
-      order: 400
-      opacity: 0.95
-      noise: { wavelength: 4.0, contrast: 1.2, threshold: 0.25 }
-      under:
-        - { scatter: canopy, reach: { metres: 6.0 } }
-    dirt:
-      material: bare_dirt
-      order: 450
-      under:
-        - { scatter: boulders, reach: { metres: 0.6 }, falloff: { fall: [0.5, 1.0] } }
