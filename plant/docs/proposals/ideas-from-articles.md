@@ -16,8 +16,8 @@ Sources:
 ## Pipeline and geometry
 
 - **Mesh shaders, one thread group per patch** [1]. Blades are generated in
-  the stage that feeds the rasteriser, with no instance buffer. Declined
-  ([roadmap](../roadmap.md#non-goals)): WebGPU has no mesh-shader stage and
+  the stage that feeds the rasteriser, with no instance buffer. Declined:
+  WebGPU has no mesh-shader stage and
   our cost is pixels; retry if Bevy exposes mesh shaders and compute plus
   instance traffic grow into a real share of the frame.
 - **A fixed 8-vertex, 3-segment blade** [1]. It fits the 256-vertex mesh
@@ -101,8 +101,9 @@ Sources:
 - **Bake distant grass into the terrain texture** [2]. `FarPlantMaterial`
   does the same job procedurally, with gusts; retry a bake only for a tier
   that cannot afford the far material.
-- **Billboards for sparse far grass** [1, future work]. Impostor cards are a
-  non-goal ([roadmap](../roadmap.md#non-goals)); retry if the gap between
+- **Billboards for sparse far grass** [1, future work]. Declined for now:
+  grass keeps its far ground colour (ROADMAP IX, "Grass is deferred");
+  retry if the gap between
   the last blade and the far ground ever shows.
 - **Biome blending** [2]. Soft transitions between grass types across one
   field. A non-goal (no splatmaps); overlapping fields with masks does it.

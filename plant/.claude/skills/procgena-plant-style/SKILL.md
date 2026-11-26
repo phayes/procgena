@@ -122,8 +122,8 @@ Rules:
 
 - Public types, functions, methods and consts: one summary line (under ~15
   words), a blank line, then the extended explanation. The summary is what
-  docs.rs shows in its item lists. `PlantField::from_ron` / `to_ron` in
-  `src/files.rs` are the shape to copy. Field docs never appear in those
+  docs.rs shows in its item lists. `PlantScatterOptions::from_yaml` /
+  `to_yaml` in `procgena_plant/src/files.rs` are the shape to copy. Field docs never appear in those
   lists and may open with a longer paragraph (`PlantSettings`' fields do).
 - `# Errors` on every fallible public function, naming the conditions;
   `# Panics` on anything that can panic, saying why it cannot in practice. No
@@ -160,19 +160,20 @@ Rules:
   import path, no per-module prelude.
 - `Debug` on all public types; `Clone`, `Copy`, `PartialEq`, `Default` where
   they make sense. Components use `#[require(...)]` for what they need
-  (`PlantField` requires `Transform` and `Visibility`).
-- Public fields plus `Default` (and named consts such as `FieldPreset::MEADOW`
-  or `PlantSettings::ULTRA`) are preferred over builders. Consuming `with_*`
-  setters next to public fields are fine for a value usually written inline
-  (`PlantField::with_density`, `PlantEdit::with_strength`,
-  `FarPlants::with_fade`); they never replace the field. A constructor that
-  does real work stays inherent (`PlantField::new`, `FarPlants::new`), and one
+  (`PlantScatter` requires `Transform` and `Visibility`).
+- Public fields plus `Default` (and named consts such as
+  `PlantParams::MEADOW_GRASS` or `PlantSettings::ULTRA`) are preferred over
+  builders. Consuming `with_*` setters next to public fields are fine for a
+  value usually written inline (`PlantScatterOptions::with_density`,
+  `PlantEdit::with_strength`, `FarPlants::with_fade`); they never replace
+  the field. A constructor that does real work stays inherent
+  (`PlantScatter::new`, `FarPlants::new`), and one
   that enforces an invariant returns `Result`.
 
 ## Failure policy
 
 - Library code returns `Result`; a panic means a bug in the caller or in us.
-  `PlantFileError` and `PlantField::from_ron` are the pattern.
+  `PlantFileError` and `PlantScatterOptions::from_yaml` are the pattern.
 - `.expect("a sentence saying why this cannot fail")` is acceptable where the
   invariant is local and checked by construction (`src/files.rs`,
   `src/render/bevy_glue.rs`). No bare `unwrap()` or `panic!()` outside tests
@@ -239,7 +240,7 @@ Code shape for hot paths:
 
 ## A new plant or field look term
 
-A new look term (a field of `PlantParams`, `PlantAccent` or `PlantField` the
+A new look term (a field of `PlantParams`, `PlantAccent` or `PlantScatter` the
 shaders read) touches, in one commit:
 
 1. `procgena_plant/src/look.rs` (plant terms) or
