@@ -299,7 +299,9 @@ pub struct WorldContext { pub seed: u64, pub sea_level: f32 }  // see open quest
 5. **Water features.**
    - Coast: a C2 ramp against `sea_level`.
    - Lakes: a flat surface at the pour level, with the bed carved to a
-     shore profile.
+     shore profile. (Superseded by ROADMAP milestone LK, which holds the
+     lake design: fill and spill from a hollow, bounded by area, rise and
+     the border clearance.)
    - Rivers: a parabolic bed plus a bank shoulder, at monotone levels
      (to become valleys shaped by cut depth and river type, at
      stream-power profiles: Phase 2.8).
@@ -360,7 +362,7 @@ pub struct EdgeOffer {
     pub styles: EdgeStyleSet,       // which styles it can build: Blend, Escarpment{up/down}, Shore
     pub river_out: Vec<PortWish>,   // its own rivers that want to leave here (own drainage only)
     pub road_out: Vec<PortWish>,    // its own roads that want to leave here
-    pub lake: Option<LakeWish>,     // a lake that wants to span the edge, with its level
+    pub lake: Option<LakeWish>,     // superseded: lakes stay inside their region for now (ROADMAP LK)
 }
 pub struct CornerOffer { pub region: RegionId, pub height: f32, pub gradient: Vec2, pub stiffness: f32 }
 pub struct PortWish { pub s: f32,              // arc-length position along the edge
@@ -410,7 +412,9 @@ arguments gives the same bits. Then:
 4. **Road ports.** The union of both sides' wishes, snapped to the
    low-grade points of the agreed profile and merged by spacing. The road
    level is the agreed height.
-5. **Lakes across an edge.** Both sides' wishes must overlap. The level is
+5. **Lakes across an edge** (superseded: under ROADMAP milestone LK,
+   lakes stay inside their region's border clearance for now; lakes
+   shared across a border are a later step). Both sides' wishes must overlap. The level is
    the lower of the two wishes, and both sides flatten to it. Along the
    shared stretch, the agreed profile is lowered below the lake level (to
    the lake-bed shore profile), so the seam leaves no ridge through the
@@ -586,7 +590,9 @@ Within a region, rivers follow the drainage of that coarse base field:
 2. Flow accumulation is limited to a window of K cells (K = 8), so it stays
    bounded.
 3. Sinks become lakes, up to a maximum size. A larger sink is forced to
-   spill along a carved channel.
+   spill along a carved channel. (Superseded by ROADMAP milestone LK: a
+   lake that reaches its limit before finding an outlet stays a terminal
+   lake with no outflow.)
 
 Paths are traced on a coarse grid per cell. Dead ends are discarded whole,
 and levels are remapped to be monotone (from the plate-local paper). Caches
@@ -1584,9 +1590,9 @@ symmetric cross-section is swept along a smooth river line. To fix:
     float checks all change, and it needs its own preview), or lower
     `breach` (keeps "carving only lowers", but rivers end in ponds
     sooner, and that may undo crossings).
-  - **Decided (user, 2026-11-23): leave it until lakes** (Phase 4, lakes
-    at hollows). When lakes come, cap the river's cut and flood the dips
-    along it; the table above is the starting point.
+  - **Decided (user, 2026-11-23): leave it until lakes**, now milestone
+    LK. LK's design does this: the breach shrinks to a few metres, and a
+    river that can't cut through floods the hollow (ROADMAP, LK).
 
 **As built (2026-11-23).**
 
@@ -2029,7 +2035,7 @@ What that asks of this crate, and where it stands:
 | 2.8 ✅ | **River valleys and erosion** (built 2026-11-23 and 2026-11-24 (G1); exit measurements recorded under "As built in G1"). Built: valleys from the distance to the river that keep the ground's relief, wider for deeper cuts, shaped by river type (from slope); gullies; rivers stepping down at crossings; rivers from one side crossing closer together; drainage area per region and along rivers, and the steady-state stream-power profile, as measurements. Deep cuts come from rivers breaching hollow rims, and wait for lakes (Phase 4). For the user: whether river levels, widths and types should follow drainage area (stream-power levels would cut up to 176 m deeper in mountains). | 2.7 |
 | W | **WorldTerrain** (the big follow-up): world elevation field E (its slope is the drainage tilt, its zero the sea level), region graph and region edges, biome choice. See `terrain/world_plan.md`. | 2.6 |
 | 3 | Full options and presets as data, base relief, landforms, analytic erosion | 1 |
-| 4 | Macro-cell caches: drainage, **lakes at hollows** (fill to spill level, overflow as a river), rivers, roads, **bridges** (where a road crosses a river it stops cutting or filling and carries a bridge label), with the spatial index | 2, 3 |
+| 4 | Drainage, rivers, roads, **bridges** (where a road crosses a river it stops cutting or filling and carries a bridge label), with the spatial index. Lakes at hollows are ROADMAP milestone LK. | 2, 3 |
 | 5 | Classification, `annotate`, `HeightTile` | 3 (water labels after 4) |
 | 6 | SDF, volumetric modifiers, top-surface search | 3 |
 | 7 | Chunk mesher: band, marching cubes, Transvoxel transitions (after the licence check), parts by label, water parts | 5, 6 |
@@ -2145,9 +2151,8 @@ the review's "Decisions"):
 - Phases 6 and 7 mesh a heightfield by default, with volume patches only
   for caves and overhangs;
 - rock outcrops in Phase 6 are meshes the terrain builds;
-- lakes stay in Phase 4;
-- Phase 4 plans per region, with macro cells only if step 2's benchmarks
-  call for them.
+- lakes are ROADMAP milestone LK;
+- Phase 4 plans per region (macro cells were dropped, 2026-11-25).
 
 Step 2's one sample path is where Phase 5's `annotate` and the gradient
 for `Ground` (roadmap G2) belong; the review's "Milestone order" gives the

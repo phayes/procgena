@@ -36,7 +36,7 @@ asks.
   the full Ecotope (moved forward by the user, 2026-11-24).
 - **The terrain is the likely long pole.** Slope, labels (Phase 5) and the
   heightfield mesher and Bevy crate (Phases 7 and 8) are built; Phase 3's
-  landforms, Phase 4's lakes and bridges, volume patches (Phase 6) and
+  landforms, Phase 4's bridges, lakes (LK), volume patches (Phase 6) and
   exports (Phase 9) are not.
 - **The first Ecotope needs no Terrain.** Two or more Scatters with masks in
   and out, on a `HeightGrid` or `FlatGround`, are enough to prove mask
@@ -442,7 +442,7 @@ the follow-ups).
 - **Covers:** the planned rest of Phase 2.8 in
   [terrain/plan.md](terrain/plan.md) (valleys from the distance to the
   river, stream-power profiles). Deep cuts from breached hollows wait for
-  lakes in G3, as the user decided.
+  lakes (LK), as the user decided.
 - **Needs:** M0.
 - **Done when:** the Phase 2.8 exit measurements are recorded.
 - **Status (2026-11-24): done, as a first cut.** Valleys were already
@@ -474,20 +474,18 @@ the follow-ups).
 #### G3: Terrain Phases 3 and 4
 
 - **Covers:** Phase 3 (options and presets as data, base relief,
-  landforms, analytic erosion) and Phase 4 (macro-cell caches, lakes at
-  hollows, rivers, roads, bridges).
+  landforms, analytic erosion) and Phase 4 (rivers, roads, bridges).
+  Lakes are milestone LK.
 - **Needs:** G1. Not `Ground` or slope.
-- **Done when:** lakes fill hollows and overflow as rivers, and the feature
-  suites pass with them.
+- **Done when:** Phase 3's landforms and Phase 4's rivers, roads and
+  bridges are built, and the feature suites pass with them.
 - **Terrain features:** steps 1 and 2 of
   [terrain/features_plan.md](terrain/features_plan.md) (one feature type,
   staged planning, one sample path, benchmarks) come first in G3, before
   Phase 3's landforms and Phase 4. Step 2's sample path is where G2's
   gradient and G4's labels live; see the review's "Milestone order" for
-  which goes first. Lakes stay in G3, and planning stays per region, with
-  macro cells added only if step 2's benchmarks call for them (decided
-  2026-11-23, see
-  [terrain/features_plan_review.md](terrain/features_plan_review.md)).
+  which goes first. Planning stays per region (macro cells were dropped
+  by the user, 2026-11-25).
 - **Status (2026-11-24):** steps 1 and 2 are built, with results
   unchanged: one feature type and index, stable ids, a river trace shared
   by offers and build, roads as a stage of their own
@@ -681,33 +679,57 @@ level.
 
 #### LK: Lakes, with rivers flowing in and out
 
-Decided by the user 2026-11-25. Today a river that reaches a hollow
-looks for the lowest rim and cuts through it, by up to `breach` metres
-(a few metres plus a share of the relief). That stays: it suits small,
-local rises. Only when the rim is too high does the river stop, with a
-small pond at its end sized from its width. Instead:
+Decided by the user 2026-11-25. LK owns lakes. Today a river that
+reaches a hollow cuts through its lowest rim by up to `breach` metres
+(about 32 m in mountains), which leaves deep trenches (31% of mountain
+river points are cut more than 10 m), and stops in a small pond only
+where the rim is higher still. Instead, when a river can't cut through a
+small rise, it floods the hollow until it finds a way out or reaches its
+limit.
 
-- **Flood the whole hollow.** When the cut can't escape, the hollow fills
-  to its spill level (the lowest rim), making a lake. The river flows in,
-  and a new river flows out from the spill point and carries on
-  downhill. A lake can take several inflowing rivers.
-- **How high is configurable:** a terrain setting caps how far a lake
-  may rise above the inflowing water. If the spill level is above the
-  cap, the lake fills to the cap and has no outflow (a terminal lake).
+**Tentative design** (agreed by the user 2026-11-25; a more efficient
+algorithm may replace it):
+
+- **A small breach first.** A river may still cut through a low rim, but
+  only by a few metres (`breach` made much smaller). Anything deeper
+  floods, so most of today's trenches become lakes.
+- **Fill upwards from the hollow's floor** (a bounded priority flood): a
+  queue of the lake's edge cells by ground height. The lowest edge cell
+  at or above the water raises the water to its height and joins the
+  lake. A cell below the water means the flood has gone over a saddle:
+  a candidate outlet.
+- **What counts as a way out.** From the far side of the saddle, walk
+  downhill for a bounded number of steps:
+  - reaching ground that drains (an existing river, a border port, the
+    sea, or ground at least `D` metres below the lake) is an outlet: a
+    new river starts at the saddle and is traced onward;
+  - bottoming out in a shallow dip (floor less than `D` below the lake)
+    is more lake: the dip joins it and flooding continues;
+  - bottoming out in a deep, separate hollow is a short river into it,
+    and that hollow floods as its own lake, giving chains of lakes.
+
+  `D` is a few metres, scaled with the World's `vertical`.
+- **Limits:** the lake's area (the "lake size" setting, in m², scaled
+  with the World; it also replaces the escape search's fixed 4,096-cell
+  limit), its rise above the inflowing water, and the region's border
+  clearance (lakes stay inside their region for now). A limit reached
+  before an outlet leaves a **terminal lake** with no outflow, where the
+  river ends.
+- **Stays analytic:** every lake's work is bounded by its limits, and
+  everything is per region; no iteration over the World and no
+  simulation.
 - **Lakebed:** a new label (`Landform::Lakebed` or a flag), carved below
   the water level across the whole flooded area, with shores labelled as
   today. Ground materials and the segmentation overlay pick it up.
-- **Points to settle when it starts:**
-  - lakes that would reach a region's border zone: stop at the border
-    clearance and spill there, or agree lakes across borders like river
-    crossings;
-  - the escape search's 4,096-cell limit, which a lake would exceed;
-  - lake depth and bed shape below the water;
-  - whether small ponds remain as their own feature.
+- **Still to settle when it starts:** the defaults for `D`, area and
+  rise; lake depth and bed shape below the water; whether small ponds
+  remain as their own feature; lakes shared across region borders
+  (later).
 - **Needs:** nothing blocking; keeps to the river, plan and carve files,
   so it is sequenced with TE5 and TE6, which also edit them.
 - **Done when:** basins in the shipped presets fill as lakes with rivers
-  in and out, terminal lakes appear where the cap applies, the labels
+  in and out, terminal lakes appear where a limit applies, mountain
+  rivers no longer cut deep trenches, the labels
   and overlay show lakebed, and the seam, feature and shipped suites
   pass.
 
@@ -2584,7 +2606,7 @@ where the details are.
     would set river levels, widths and types from how much water flows
     along them, which is more natural, but it only ever deepens cuts: up
     to 176 m deeper in mountains. The user decided earlier to leave deep
-    cuts until lakes exist (Phase 4), so nothing changed. **Waiting, by the
+    cuts until lakes exist (milestone LK), so nothing changed. **Waiting, by the
     user's choice (2026-11-24).** The user's guiding concern: terrain stays
     analytic and fast. Drainage and erosion can easily grow into
     simulation (iterated flow, erosion passes, global solves), and any
