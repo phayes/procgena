@@ -2571,6 +2571,15 @@ largest place range).
   4. **Drawing per level.** TE7 still picks levels by size on screen, and
      draws each level's canonical TIN. Seams between drawn levels are a
      drawing matter only (skirts or transitions).
+     **Status:** built (`b38bef9`): the stream builds the draw selection
+     and the build radii (`BuildRadii`, scaled by quality) and draws only
+     canonical TINs, with skirts sized from the neighbours drawn now. The
+     default view builds 528 chunks and draws 252 in 16–17 k triangles
+     (2.2 M before). **Known regression with features on:** every level
+     samples `FeatureLevel::FINEST`, so even the coarsest chunks wait for
+     road planning, and level 0 first draws at about 9.3 s (0.4 s with
+     features off). Features are off by default, and TF gives each
+     feature type its levels, so it is left until then.
   5. **Shading normals come purely from the TIN.** Border normals are
      carried in the edge contract, so seams stay exact without `H*`
      (since `34e10a7` interior vertices already use the TIN's own faces).
