@@ -720,3 +720,8 @@ in these files (`git show <commits> -- <file>` shows which).
   `road_earthworks_are_valid_and_leave_crossings_untouched`),
   `examples/road_cost.rs` (`EarthworkCheck`, `check_earthworks`,
   `crosses_itself`).
+
+## procgena_terrain (TE6 river speed, 2026-11-26)
+
+- `terrain/crates/procgena_terrain/src/plan.rs` (the ranking comment in
+  `own_rivers`), `examples/river_cost.rs` (every item).

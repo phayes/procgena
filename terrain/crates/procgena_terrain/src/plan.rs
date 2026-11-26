@@ -132,7 +132,17 @@ pub(crate) fn own_rivers(
     let Boundary::Polygon(polygon) = &region.boundary else {
         return None;
     };
-    let grid = Grid::new(polygon, |p| relief.height(p));
+    // Sources are ranked by the relief alone: on sloping land E would put
+    // every source at the region's high end. The rivers still run down E,
+    // which is added to the same relief heights, so each is read once.
+    let mut grid = Grid::new(polygon, |p| relief.height_above_elevation(p));
+    let rank = grid.heights.clone();
+    let elevation = relief.elevation();
+    for i in 0..grid.heights.len() {
+        if grid.inside[i] {
+            grid.heights[i] += elevation.height(grid.centre(i));
+        }
+    }
     let r = &options.features.rivers;
     let tracing = Tracing {
         source_zone: source_zone(options),
@@ -141,11 +151,6 @@ pub(crate) fn own_rivers(
         min_length: r.min_length,
         breach: breach(options),
     };
-    // Sources are ranked by the relief alone: on sloping land E would put
-    // every source at the region's high end. The rivers still run down E.
-    let rank: Vec<f32> = (0..grid.heights.len())
-        .map(|i| relief.height_above_elevation(grid.centre(i)))
-        .collect();
     let (rivers, occupied) = trace_own(&grid, &rank, region, polygon, &tracing);
     Some(OwnRivers {
         grid,

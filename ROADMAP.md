@@ -1863,36 +1863,47 @@ the border pulls are 78–86% of every height read (measured 2026-11-24).
 Ways to cut it: fewer border pieces; cheaper far-piece integrals;
 neighbours' relief evaluated only where its blend share is non-zero.
 
-#### TE6: River speed, to investigate
+#### TE6: River speed
 
-Asked for by the user 2026-11-25. Rivers look like the opposite of
-roads: their planning is probably cheap and their carving is the cost.
-Read from the code, not measured; profile first.
+**Status (2026-11-26): done.** Asked for by the user 2026-11-25. Profiled
+with `--example river_cost` (stage times, fingerprints of the rivers and
+of a block of chunks, and a per-point split) and the macOS Time Profiler.
 
-- **Likely costs, largest first:**
-  1. carving per height read: a valley reaches up to 300 m from the
-     water, so a large share of all samples (chunks, overlays, labels,
-     measures) finds nearby river segments and works out the valley
-     profile, bank, gully grooves and smooth blends between rivers, on
-     top of the border pulls in the same read, and more again with
-     slope;
-  2. the second pass over the 25 m grid with blended heights
-     (`with_heights(base)`), about 10,000 full height reads;
-  3. hollow escapes, a priority flood of up to 4,096 cells per hollow;
-  4. the downhill walk itself, which is cheap.
-- **Speed-ups to investigate:**
-  - bake the river carving per region once, as a height-change grid at
-    2–4 m near rivers, and look it up instead of recomputing per sample
-    (a natural fit for the GPU and the TE3 edit cache);
-  - tighter feature-index lookups, and skip the gully and groove work
-    outside the valley floor;
-  - check whether neighbours' river traces are kept across regions
-    while agreeing crossings; cache them if each region traces about
-    seven times.
-- **Needs:** nothing blocking; keeps to the river and carve files, so it
-  can run beside TE5 if they agree on `plan.rs`.
-- **Done when:** a profile says where river time goes, and the chosen
-  speed-ups land with the seam, feature and shipped suites passing.
+- **Where river time goes** (mountains, seed 1, release, one thread: a
+  cold build of the region at the origin and its 5 neighbours, 20 plans,
+  then a 4 × 4 block of chunks read every metre round a river), as shares
+  of all CPU time:
+  - **The river trace** (`own_rivers`), 18.5%. 95% of it is reading the
+    faded relief on the 25 m grid. The downhill walk and the hollow
+    escapes are about 0.1%. Each plan is built once and cached, so no
+    region is traced more than once.
+  - **Hydrology**, 3.6%. Nearly all of it is bent-height reads on the
+    25 m grid, plus fitting the valleys.
+  - **Carving**, 5.9%, and more than half of that is roads. In the chunks
+    read round the river, carving is 9.5% of the read. The border fade
+    and pulls are 88%.
+  - **Valleys cover little ground.** Only 6% of a hills region's points
+    lie within a river's valley reach, and 3.4% on mountains.
+- **No river bake.** Decided by the coordinator with the advisor while
+  the user was away, 2026-11-26. `H*` stays the analytic carve. A
+  per-region grid of height changes would:
+  - save at most about a tenth of the chunk reads along rivers;
+  - cost a base read per grid point over every valley up front;
+  - break exact seams, since each region would read its own grid across
+    the border;
+  - and leak relief below the grid spacing into river beds.
+- **Landed, with bitwise-identical results.** The fingerprints of every
+  region's rivers and ponds, and of the chunk block, are unchanged.
+  - The trace reads the faded relief once per cell, not twice: once
+    for the heights and again for the source ranks.
+- **Result**, on one thread, measured with `/usr/bin/time -l` over the
+  same run, which holds even under load:
+  - mountains: 147.9 G instructions became 132.8 G (−10%), and cycles
+    fell 13%;
+  - hills: 71.8 G became 66.5 G (−7%), and cycles fell 8%.
+  - Wall times were too noisy to report: the load average was about 100.
+- **The real per-point cost** is the border fade and pulls, in every
+  height read, the trace included (see "Border-pull cost" above).
 
 #### TE7: Intermediate terrain detail levels
 
