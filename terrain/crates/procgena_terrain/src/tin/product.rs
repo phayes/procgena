@@ -5,13 +5,13 @@
 
 use std::collections::HashMap;
 
-use glam::{DVec2, Vec3};
+use glam::{DVec2, DVec3, Vec3};
 
 use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkMesh, ChunkSide, ChunkSource, Transitions};
 use crate::feature::FeatureTier;
 
 use super::contract::ChunkEdgeKey;
-use super::mesh::TinChunk;
+use super::mesh::{TinChunk, TinVertex};
 use super::numeric::{CM_PER_M, Cm};
 use super::probe::{ProbeAddr, TinError};
 
@@ -70,50 +70,86 @@ impl TinChunk {
     }
 
     /// One upward unit normal for each of the chunk's vertices, for smooth
-    /// shading, from the ground of `source` at the fine tier one metre
-    /// either side of the vertex along x and z.
+    /// shading.
     ///
-    /// Regular chunks shade their vertices the same way, so this chunk and
-    /// a regular neighbour shade alike where they meet. These normals are
-    /// for drawing only; for slope tests read the terrain's own ground.
+    /// A vertex on the chunk's border takes its normal from the ground of
+    /// `source` at the fine tier one metre either side of it along x and
+    /// z, as regular chunks shade their vertices. The chunks either side
+    /// of a border hold the same vertices there and read the same ground,
+    /// so their shading meets without a seam, and a regular neighbour
+    /// shades alike too. A vertex inside the chunk takes the average of
+    /// the normals of the triangles around it, weighted by their area,
+    /// and reads no ground. These normals are for drawing only; for slope
+    /// tests read the terrain's own ground.
     ///
     /// # Errors
     ///
     /// [`TinError::NotFine`] if `source` can't give the fine tier, and
     /// [`TinError::NoGround`] (at the vertex) if the ground is missing
-    /// beside a vertex.
+    /// beside a border vertex.
     pub fn shading_normals(&self, source: &dyn ChunkSource) -> Result<Vec<Vec3>, TinError> {
         let tier = source.tier(FeatureTier::Fine);
         if tier != FeatureTier::Fine {
             return Err(TinError::NotFine(tier));
         }
+
+        // Inside: the area-weighted normals of the triangles round each
+        // vertex (each triangle's cross product is twice its area long).
+        let (x0, z0) = self.origin_cm();
+        let at = |i: u32| {
+            let v = self.vertices[i as usize];
+            DVec3::new(
+                (v.x.0 - x0) as f64 / CM_PER_M,
+                f64::from(v.h.0) / CM_PER_M,
+                (v.z.0 - z0) as f64 / CM_PER_M,
+            )
+        };
+        let mut sums = vec![DVec3::ZERO; self.vertices.len()];
+        for t in &self.triangles {
+            let [a, b, c] = t.0;
+            let n = (at(b) - at(a)).cross(at(c) - at(a));
+            let n = if n.y < 0.0 { -n } else { n };
+            for i in t.0 {
+                sums[i as usize] += n;
+            }
+        }
+        let mut normals: Vec<Vec3> = sums
+            .iter()
+            .map(|n| n.normalize_or(DVec3::Y).as_vec3())
+            .collect();
+
+        // On the border: the ground's own slope, a metre either side.
+        let on_border = |v: &TinVertex| {
+            v.x.0 == x0 || v.x.0 == x0 + CHUNK_CM || v.z.0 == z0 || v.z.0 == z0 + CHUNK_CM
+        };
+        let border: Vec<usize> = (0..self.vertices.len())
+            .filter(|&i| on_border(&self.vertices[i]))
+            .collect();
         let offsets = [
             DVec2::new(NORMAL_STEP, 0.0),
             DVec2::new(-NORMAL_STEP, 0.0),
             DVec2::new(0.0, NORMAL_STEP),
             DVec2::new(0.0, -NORMAL_STEP),
         ];
-        let points: Vec<DVec2> = self
-            .vertices
+        let points: Vec<DVec2> = border
             .iter()
-            .flat_map(|v| {
+            .flat_map(|&i| {
+                let v = self.vertices[i];
                 let at = DVec2::new(v.x.to_m(), v.z.to_m());
                 offsets.map(|o| at + o)
             })
             .collect();
         let samples = source.surfaces(&points, FeatureTier::Fine);
-        self.vertices
-            .iter()
-            .zip(samples.as_chunks::<4>().0)
-            .map(|(v, s)| {
-                let [east, west, north, south] = s.map(|p| p.height);
-                if [east, west, north, south].iter().any(|h| h.is_nan()) {
-                    return Err(TinError::NoGround(ProbeAddr::new(v.x, v.z)));
-                }
-                let spacing = (2.0 * NORMAL_STEP) as f32;
-                Ok(Vec3::new(west - east, spacing, south - north).normalize())
-            })
-            .collect()
+        for (&i, s) in border.iter().zip(samples.as_chunks::<4>().0) {
+            let [east, west, north, south] = s.map(|p| p.height);
+            if [east, west, north, south].iter().any(|h| h.is_nan()) {
+                let v = self.vertices[i];
+                return Err(TinError::NoGround(ProbeAddr::new(v.x, v.z)));
+            }
+            let spacing = (2.0 * NORMAL_STEP) as f32;
+            normals[i] = Vec3::new(west - east, spacing, south - north).normalize();
+        }
+        Ok(normals)
     }
 
     /// The height, in metres, of the mesh's border at the point `(x, z)`,

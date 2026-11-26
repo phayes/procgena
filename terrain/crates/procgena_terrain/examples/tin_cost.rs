@@ -147,8 +147,8 @@ fn main() {
         "build ms"
     );
     println!(
-        "{:<16} {:>8} {:>8} {:>8} {:>8} {:>8}",
-        "", "reads", "edge rd", "edge ms", "1m over", "worst"
+        "{:<16} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+        "", "reads", "edge rd", "edge ms", "1m over", "worst", "norm rd", "norm ms"
     );
 
     let presets: Vec<&TerrainPreset> = if use_fixtures {
@@ -252,6 +252,9 @@ struct Stats {
     reads: Vec<f64>,
     /// Heights read building each chunk's four edge contracts alone.
     edge_reads: Vec<f64>,
+    /// Heights read for each chunk's shading normals, and the time taken.
+    normal_reads: Vec<f64>,
+    normal_ms: Vec<f64>,
     /// Time building each chunk's four edge contracts alone.
     edge_ms: Vec<f64>,
     /// How many times each chunk is built; the fastest build is reported.
@@ -290,6 +293,11 @@ impl Stats {
         let mesh = mesh.expect("built at least once");
         self.build_ms.push(fastest);
         self.reads.push((counting.take() / self.repeats) as f64);
+        let started = Instant::now();
+        mesh.shading_normals(&counting).map_err(|e| e.to_string())?;
+        self.normal_ms
+            .push(started.elapsed().as_secs_f64() * 1000.0);
+        self.normal_reads.push(counting.take() as f64);
         let mut fastest = f64::INFINITY;
         for _ in 0..self.repeats {
             let started = Instant::now();
@@ -396,13 +404,15 @@ impl Stats {
             mean(&self.build_ms),
         );
         println!(
-            "{:<16} {:>8.0} {:>8.0} {:>8.2} {:>8} {:>8.0}",
+            "{:<16} {:>8.0} {:>8.0} {:>8.2} {:>8} {:>8.0} {:>8.0} {:>8.2}",
             "",
             mean(&self.reads),
             mean(&self.edge_reads),
             mean(&self.edge_ms),
             self.over,
             self.over_worst,
+            mean(&self.normal_reads),
+            mean(&self.normal_ms),
         );
     }
 }

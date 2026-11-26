@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use glam::{DVec2, DVec3, Vec3};
 use procgena_terrain::tin::{
@@ -344,19 +345,108 @@ fn the_drawn_mesh_is_the_canonical_one_with_split_sides() {
     }
 }
 
+/// Whether `v` is on the border of `chunk`'s square.
+fn on_border(chunk: &TinChunk, v: &TinVertex) -> bool {
+    let (x0, z0) = (chunk.key.x * 6_400, chunk.key.z * 6_400);
+    v.x.0 == x0 || v.x.0 == x0 + 6_400 || v.z.0 == z0 || v.z.0 == z0 + 6_400
+}
+
 #[test]
-fn shading_matches_regular_chunks_where_they_share_vertices() {
+fn border_shading_matches_regular_chunks_where_they_share_vertices() {
+    // On the border, where a regular neighbour may meet it, a canonical
+    // chunk shades its vertices as regular chunks do.
     let source = Analytic(hills);
     let chunk = hill_chunk(0, 0);
     let normals = chunk.shading_normals(&source).unwrap();
     let regular = ChunkSamples::sample(&source, chunk.key, FeatureTier::Fine)
         .unwrap()
         .mesh(Transitions::NONE, 0.0);
+    let mut checked = 0;
     for (v, n) in chunk.vertices.iter().zip(&normals) {
+        if !on_border(&chunk, v) {
+            continue;
+        }
         // Lattice vertex (i, j) is regular vertex j × 65 + i.
         let (i, j) = (v.x.0 / 100, v.z.0 / 100);
         let r = regular.normals[(j * 65 + i) as usize];
         assert!((*n - r).length() < 1e-5, "{n} against {r} at {v:?}");
+        checked += 1;
+    }
+    assert!(checked >= 4);
+}
+
+#[test]
+fn neighbours_shade_their_shared_border_alike() {
+    // The chunks either side of an edge give its vertices the same normals,
+    // bit for bit, so the lighting has no seam there.
+    let source = Analytic(hills);
+    let (a, b) = (hill_chunk(0, 0), hill_chunk(1, 0));
+    let (na, nb) = (
+        a.shading_normals(&source).unwrap(),
+        b.shading_normals(&source).unwrap(),
+    );
+    let shared = |chunk: &TinChunk, normals: &[Vec3]| -> BTreeMap<(i64, i64), Vec3> {
+        chunk
+            .vertices
+            .iter()
+            .zip(normals)
+            .filter(|(v, _)| v.x.0 == 6_400)
+            .map(|(v, &n)| ((v.x.0, v.z.0), n))
+            .collect()
+    };
+    let (sa, sb) = (shared(&a, &na), shared(&b, &nb));
+    assert!(sa.len() >= 2);
+    assert_eq!(sa, sb);
+}
+
+#[test]
+fn shading_inside_a_chunk_reads_no_ground() {
+    // Only border vertices read the ground (four heights each); a vertex
+    // inside takes the area-weighted normal of its own triangles.
+    let source = Counted(Analytic(hills), AtomicUsize::new(0));
+    let chunk = hill_chunk(0, 0);
+    let normals = chunk.shading_normals(&source).unwrap();
+    let border = chunk
+        .vertices
+        .iter()
+        .filter(|v| on_border(&chunk, v))
+        .count();
+    assert!(
+        border < chunk.vertices.len(),
+        "the chunk has inside vertices"
+    );
+    assert_eq!(source.1.load(Ordering::Relaxed), 4 * border);
+    for (i, (v, n)) in chunk.vertices.iter().zip(&normals).enumerate() {
+        assert!((n.length() - 1.0).abs() < 1e-5 && n.y > 0.0, "{v:?}");
+        if on_border(&chunk, v) {
+            continue;
+        }
+        let mut sum = Vec3::ZERO;
+        for t in chunk.triangles.iter().filter(|t| t.0.contains(&(i as u32))) {
+            let [p, q, r] = t.0.map(|k| {
+                let w = chunk.vertices[k as usize];
+                Vec3::new(w.x.0 as f32, w.h.0 as f32, w.z.0 as f32) / 100.0
+            });
+            let face = (q - p).cross(r - p);
+            sum += if face.y < 0.0 { -face } else { face };
+        }
+        assert!((*n - sum.normalize()).length() < 1e-4, "{v:?}");
+    }
+}
+
+/// Ground from another source, counting the heights read from it.
+struct Counted<S>(S, AtomicUsize);
+
+impl<S: ChunkSource> ChunkSource for Counted<S> {
+    fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
+        self.1.fetch_add(1, Ordering::Relaxed);
+        self.0.surface(p, tier)
+    }
+    fn tier(&self, tier: FeatureTier) -> FeatureTier {
+        self.0.tier(tier)
+    }
+    fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
+        self.0.tier_difference(min, max, from)
     }
 }
 
