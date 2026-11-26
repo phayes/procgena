@@ -428,6 +428,17 @@ pub trait ChunkSource: Sync {
         Vec::new()
     }
 
+    /// How closely canonical ground meshes of this source follow its
+    /// ground (see [`tin`](crate::tin)). Build every chunk of one source
+    /// within it, so neighbours meet exactly.
+    ///
+    /// The default is [`TinTolerance::GENERAL`](crate::tin::TinTolerance::GENERAL);
+    /// a world gives its own
+    /// [`WorldTerrainOptions::tin`](crate::WorldTerrainOptions::tin).
+    fn tin_tolerance(&self) -> crate::tin::TinTolerance {
+        crate::tin::TinTolerance::GENERAL
+    }
+
     /// Whether reading chunk `key` at tier `to` could give anything
     /// different from reading it at tier `from`: its samples, or any
     /// ground site a painter reads inside it, at any detail. `false` means
@@ -491,6 +502,11 @@ impl ChunkSource for Terrain {
 }
 
 impl ChunkSource for WorldTerrain {
+    /// The world's own [`WorldTerrainOptions::tin`](crate::WorldTerrainOptions::tin).
+    fn tin_tolerance(&self) -> crate::tin::TinTolerance {
+        self.options().tin
+    }
+
     fn surfaces(&self, points: &[DVec2], tier: FeatureTier) -> Vec<SurfacePoint> {
         self.sample_batch(points, tier, |terrain, p| {
             terrain.map_or(

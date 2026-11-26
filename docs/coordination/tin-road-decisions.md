@@ -90,7 +90,8 @@ lives in ROADMAP.md ("Canonical ground and roads track").
   32 m and 4,096 vertices. `min_spacing` was removed. Since CT-A it also has
   `sampling` (`TinSampling::Adaptive` or `EveryMetre`), and named levels
   `DENSE`, `GENERAL` (the default), `LOW_POLY` and `VERY_LOW_POLY`; one
-  tolerance serves a whole world, so chunk edges match (see ROADMAP CT-A).
+  tolerance serves a whole world (`WorldTerrainOptions::tin`, read through
+  `ChunkSource::tin_tolerance`), so chunk edges match (see ROADMAP CT-A).
 - **Edge contracts:** `EdgeContract::build` samples every 1 m along the edge and
   splits at the worst sample, or at the midpoint when a segment is too long.
   Since CT3 a contract also carries `crossings`. It is a pure function of the

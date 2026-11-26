@@ -36,8 +36,8 @@ mod world;
 pub use options::{
     BIOME_SELECTION_VERSION, BiomeCompatibility, BiomePin, BiomeRule, BiomeRules,
     BiomeSelectionOptions, BiomeSuitability, CompatibilityPair, FieldPreference, FieldRange,
-    MAX_ITERATIONS, SelectionError, SelectorField, SelectorFields, WorldOptions, WorldOptionsError,
-    WorldScale,
+    GroundMesh, GroundMeshLevel, MAX_ITERATIONS, SelectionError, SelectorField, SelectorFields,
+    WorldOptions, WorldOptionsError, WorldScale,
 };
 pub use presets::WorldPreset;
 

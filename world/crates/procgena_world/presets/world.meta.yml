@@ -44,6 +44,9 @@ sections:
   - title: Biomes
     part: biomes
     settings: [biomes.fallback]
+  - title: Ground Mesh
+    part: land
+    settings: [ground_mesh.level, ground_mesh.error]
 settings:
   seed:
     label: Seed
@@ -214,3 +217,18 @@ settings:
     label: Pins
     description: "Regions whose Biome is set by hand, by a point in the region or by its id."
     hidden: true
+  ground_mesh.level:
+    label: Detail
+    description: "How closely the ground mesh, which collision and nearby ground use, follows the land. Low-poly levels give a faceted look and cost less to build. River and pond banks stay within 10 cm at every level."
+    choices:
+      - { value: dense, label: Dense }
+      - { value: general, label: General }
+      - { value: low_poly, label: Low Poly }
+      - { value: very_low_poly, label: Very Low Poly }
+  ground_mesh.error:
+    label: Allowed Error
+    description: "How far open land may stray from the ground mesh, in metres, instead of the level's own allowance."
+    range: [0.05, 10]
+    step: 0.05
+    scale: exponential
+    optional: 0.5

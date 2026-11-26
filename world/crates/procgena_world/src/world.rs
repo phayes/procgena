@@ -379,6 +379,7 @@ impl World {
                 convergence: options.convergence,
                 cache: DEFAULT_CACHE,
                 scale: options.scale,
+                tin: options.ground_mesh.tolerance(),
             },
             Arc::new(source),
         )

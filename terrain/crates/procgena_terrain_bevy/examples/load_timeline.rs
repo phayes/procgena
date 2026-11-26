@@ -65,7 +65,6 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use glam::DVec2;
 use procgena_terrain::ground::GroundStack;
-use procgena_terrain::tin::TinTolerance;
 use procgena_terrain::{
     ChunkDetail, ChunkKey, ChunkSource, Elevation, FeatureKind, FeatureTier, RegionId,
     RegionProgress, RegionStage, TerrainPreset, WorldTerrain, WorldTerrainOptions,
@@ -235,7 +234,7 @@ fn main() {
     let stream = TerrainStream {
         rough_from,
         mid_from,
-        tin: tin.then_some(TinTolerance::GENERAL),
+        tin,
         regions: Some(tracker),
         paint: has("--paint"),
         ..TerrainStream {

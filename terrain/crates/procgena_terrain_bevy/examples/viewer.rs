@@ -145,9 +145,9 @@ struct Scene {
     target: Vec3,
     rough_from: Option<u8>,
     mid_from: Option<u8>,
-    /// Draw the finest chunks from their canonical meshes, within this
-    /// tolerance.
-    tin: Option<TinTolerance>,
+    /// Draw the finest chunks from their canonical meshes (within the
+    /// world's tolerance).
+    tin: bool,
     /// Paint the ground; otherwise it is all plain grass.
     paint: bool,
     headless: bool,
@@ -191,8 +191,10 @@ fn main() {
             _ => TerrainPreset::mountains().terrain.clone(),
         }
     };
+    let tin = tin_tolerance(has("--tin"), value("--tin-level"), value("--tin-error"));
     let options = WorldTerrainOptions {
         seed: value("--seed").map_or(1, |s| s.parse().expect("--seed needs a number")),
+        tin: tin.unwrap_or(TinTolerance::GENERAL),
         ..WorldTerrainOptions::default()
     };
     let world = WorldTerrain::new(options, Arc::new(source)).expect("a valid world");
@@ -313,7 +315,7 @@ fn main() {
             rough_from: value("--rough-from")
                 .map(|v| v.parse().expect("--rough-from needs a level")),
             mid_from: value("--mid-from").map(|v| v.parse().expect("--mid-from needs a level")),
-            tin: tin_tolerance(has("--tin"), value("--tin-level"), value("--tin-error")),
+            tin: tin.is_some(),
             paint: has("--paint"),
             headless,
         })

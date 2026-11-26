@@ -63,7 +63,7 @@ mod stream;
 mod textures;
 mod worker;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
@@ -74,7 +74,7 @@ use glam::{DVec2, DVec3};
 use procgena_core::chain::ViewScale;
 use procgena_core_bevy::{LodPlugin, LodQuality};
 use procgena_terrain::ground::{GroundGrid, GroundPainter, GroundSource, GroundStack};
-use procgena_terrain::tin::{ResidentTins, TinError, TinTolerance};
+use procgena_terrain::tin::{ChunkEdgeKey, ContractCache, ResidentTins, TinError};
 use procgena_terrain::{
     ChunkDetail, ChunkKey, ChunkLevels, ChunkMesh, ChunkSamples, ChunkSelection,
     ChunkSelectionError, ChunkSide, ChunkSource, FeatureTier, RegionStage, Transitions, WaterMesh,
@@ -267,15 +267,15 @@ pub struct TerrainStream {
     /// chunk's own tier before drawing anything.
     pub coarse_first: bool,
     /// Draw finest-level chunks at the [`Fine`](FeatureTier::Fine) tier
-    /// from their canonical meshes, built within this tolerance (see
-    /// [`procgena_terrain::tin`]), and load them into the stream's
-    /// [`CanonicalGround`]. Coarser levels and tiers stay regular. Where
-    /// the source can't give the fine tier, chunks stay regular too.
-    /// `None`, the default, draws every chunk regular. One tolerance serves
-    /// the whole world, so neighbouring chunks meet exactly; a coarser
-    /// level such as [`TinTolerance::LOW_POLY`] gives a faceted look from
-    /// fewer triangles.
-    pub tin: Option<TinTolerance>,
+    /// from their canonical meshes (see [`procgena_terrain::tin`]), built
+    /// within the source's own
+    /// [`tin_tolerance`](procgena_terrain::ChunkSource::tin_tolerance)
+    /// (for a world, [`WorldTerrainOptions::tin`](procgena_terrain::WorldTerrainOptions::tin)),
+    /// and load them into the stream's [`CanonicalGround`]. Coarser levels
+    /// and tiers stay regular. Where the source can't give the fine tier,
+    /// chunks stay regular too. `false`, the default, draws every chunk
+    /// regular.
+    pub tin: bool,
     /// Paint the ground with [`ground`](Self::ground), which reads ground
     /// sites for every chunk and costs far more than its mesh. `false`
     /// reads no sites and draws every chunk in the painter's one
@@ -296,7 +296,7 @@ impl TerrainStream {
             mid_from: None,
             regions: None,
             coarse_first: true,
-            tin: None,
+            tin: false,
             paint: true,
         }
     }
@@ -318,7 +318,7 @@ impl TerrainStream {
             mid_from: None,
             regions: Some(tracker),
             coarse_first: true,
-            tin: None,
+            tin: false,
             paint: true,
         }
     }
@@ -475,22 +475,22 @@ impl ChunkRead {
     }
 
     /// Reads chunk `key` of `source` at `tier` (from its canonical mesh,
-    /// built within `tin`, if given and the chunk is a fine finest-level
-    /// one), and paints its ground with `painter`, on the GPU if `gpu`. If
-    /// not `paint`, it reads no ground sites and draws the painter's plain
-    /// material.
+    /// with edge contracts from `tin`, if given and the chunk is a fine
+    /// finest-level one), and paints its ground with `painter`, on the GPU
+    /// if `gpu`. If not `paint`, it reads no ground sites and draws the
+    /// painter's plain material.
     fn read_with_gpu(
         source: &(impl TerrainSource + ?Sized),
         painter: &(impl GroundPainter + ?Sized),
         key: ChunkKey,
         tier: FeatureTier,
         gpu: bool,
-        tin: Option<TinTolerance>,
+        tin: Option<&ContractCache>,
         paint: bool,
     ) -> Result<Self, ReadError> {
         let fine = source.tier(tier) == FeatureTier::Fine;
         let canonical = tin.filter(|_| key.level == 0 && fine);
-        let geometry = match canonical.map(|tolerance| TinRead::build(source, key, &tolerance)) {
+        let geometry = match canonical.map(|contracts| TinRead::build(source, key, contracts)) {
             Some(Ok(read)) => Geometry::Tin(read),
             // A source without the fine tier has no canonical ground.
             None | Some(Err(ReadError::Tin(TinError::NotFine(_)))) => {
@@ -702,6 +702,9 @@ struct StreamState {
     /// How each drawn chunk was meshed to meet the canonical chunks
     /// beside it.
     seams: HashMap<ChunkKey, Seams>,
+    /// Edge contracts the canonical chunks share, made when the first one
+    /// is read and dropped when the stream starts over.
+    contracts: Option<Arc<ContractCache>>,
 }
 
 /// How chunk `key`, drawn from `read`, meets the canonical chunks drawn
@@ -908,6 +911,7 @@ fn reset_streams(
                     state.promoted = 0;
                     state.skirts.clear();
                     state.seams.clear();
+                    state.contracts = None;
                     commands.entity(entity).remove::<CanonicalGround>();
                 }
                 state.last = Some((*stream).clone());
@@ -1076,9 +1080,8 @@ fn stream_chunks(
             // A drawn chunk being read again at a later tier: if that tier
             // changes nothing about it, the drawn read stands for it as it
             // is. A canonical chunk always needs its own read.
-            let canonical = source.tin.is_some()
-                && key.level == 0
-                && source.source.tier(tier) == FeatureTier::Fine;
+            let canonical =
+                source.tin && key.level == 0 && source.source.tier(tier) == FeatureTier::Fine;
             let drawn = state
                 .stream
                 .is_upgrade(key)
@@ -1089,7 +1092,14 @@ fn stream_chunks(
             let ground = Arc::clone(&source.source);
             let painter = Arc::clone(&source.ground);
             let use_gpu = gpu.as_ref().is_some_and(|g| g.0);
-            let tin = source.tin;
+            let tin = source.tin.then(|| {
+                state
+                    .contracts
+                    .get_or_insert_with(|| {
+                        Arc::new(ContractCache::new(&source.source.tin_tolerance()))
+                    })
+                    .clone()
+            });
             let paint = source.paint;
             let task = worker::spawn(move || {
                 if let Some(drawn) = drawn
@@ -1097,7 +1107,15 @@ fn stream_chunks(
                 {
                     return Ok(drawn.promoted(tier));
                 }
-                ChunkRead::read_with_gpu(&*ground, &*painter, key, tier, use_gpu, tin, paint)
+                ChunkRead::read_with_gpu(
+                    &*ground,
+                    &*painter,
+                    key,
+                    tier,
+                    use_gpu,
+                    tin.as_deref(),
+                    paint,
+                )
             });
             state
                 .tasks
@@ -1219,13 +1237,19 @@ fn stream_chunks(
             }
         }
 
-        // The canonical chunks drawn now, for ground queries.
-        if changed && source.tin.is_some() {
+        // The canonical chunks drawn now, for ground queries; the shared
+        // edge contracts are kept only for their edges.
+        if changed && source.tin {
             let mut tins = ResidentTins::new();
+            let mut edges = HashSet::new();
             for key in state.entities.keys() {
                 if let Some(tin) = state.stream.read_of(*key).as_ref().and_then(|r| r.tin()) {
                     tins.insert(tin.index.clone());
+                    edges.extend(ChunkEdgeKey::of_chunk(*key));
                 }
+            }
+            if let Some(contracts) = &state.contracts {
+                contracts.retain(|edge| edges.contains(&edge));
             }
             commands.entity(entity).insert(CanonicalGround { tins });
         }
@@ -1966,7 +1990,7 @@ mod tests {
         let source = hills();
         let mut app = app();
         app.world_mut().spawn(TerrainStream {
-            tin: Some(TinTolerance::GENERAL),
+            tin: true,
             ..TerrainStream::new(source.clone())
         });
         let camera = app
@@ -1986,7 +2010,7 @@ mod tests {
         assert_eq!(canonical.len(), first.len());
         assert!(drawn.iter().any(|c| !c.1), "regular chunks beside them");
         let built = |key: ChunkKey| {
-            procgena_terrain::tin::build_chunk(&*source, key, &TinTolerance::GENERAL)
+            procgena_terrain::tin::build_chunk(&*source, key, &source.tin_tolerance())
                 .unwrap()
                 .content_hash()
         };

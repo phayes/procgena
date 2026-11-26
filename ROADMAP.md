@@ -2340,11 +2340,14 @@ in a `tin` module of `procgena_terrain`.
   metres long that hide 5–17× what smooth ground would
   (`--example tin_detail`), so a little more can slip between samples.
 - **The setting:** `TinTolerance` gains `sampling` (`Adaptive` or
-  `EveryMetre`) and named levels; one tolerance serves a whole world
-  (`TerrainStream::tin`), so edges match. The river and pond band keeps
-  0.10 m at every level. **Default `GENERAL`, chosen by the coordinator
-  2026-11-26 while the user was away, for the user's review.** The viewer
-  takes `--tin-level <name>` and `--tin-error <m>`.
+  `EveryMetre`) and named levels. One tolerance serves a whole world, so
+  edges match: `WorldTerrainOptions::tin`, which every `ChunkSource`
+  gives as `tin_tolerance()` (so physics and non-Bevy users build with
+  it too), set in a World preset as `ground_mesh` (a `level` and an
+  optional open-land `error`, in `world.meta.yml`). The river and pond
+  band keeps 0.10 m at every level. **Default `GENERAL`, chosen by the
+  coordinator 2026-11-26 while the user was away, for the user's
+  review.** The viewer takes `--tin-level <name>` and `--tin-error <m>`.
 - **The curve** (`tin_cost`, 4 seeds × 8 × 8 chunks of the shipped
   presets and the fixtures; reads per chunk; open-land error on
   independent half-metre probes, p95 / max in mm; "over" counts 1 m
@@ -2383,11 +2386,15 @@ in a `tin` module of `procgena_terrain`.
   8 × 8 block of the shipped presets (seed 1) reads per chunk fall from
   356 to 242 (plains), 2,334 to 2,220 (rolling hills) and 3,634 to 3,520
   (mountains). The tolerance's hash is part of each chunk's hash.
-- **Left:** the stream doesn't share a cache yet, and each streamed TIN
-  chunk still reads the full regular 65 × 65 samples for its water and
-  four heights a vertex for its shading normals, which outweigh what
-  CT-A saved; the bend limit scales with the level, so low-poly
-  mountains still read most of the lattice; quiet-machine timing.
+- **Streaming:** the stream shares one `ContractCache` (cleared when it
+  starts over, trimmed to the drawn chunks' edges), and a TIN chunk reads
+  the regular 65 × 65 samples for its water only where a river or pond
+  reaches it. Fixed on the way: the stream's sources passed to the TIN
+  didn't list their feature lines, so streamed TIN chunks had no river
+  lines.
+- **Left:** shading normals still read `H*` four times a vertex; the
+  bend limit scales with the level, so low-poly mountains still read
+  most of the lattice; quiet-machine timing.
 
 #### RB4: Canonical road network and alignments
 
@@ -2486,7 +2493,8 @@ in a `tin` module of `procgena_terrain`.
   - **Collision:** `TinCollider`, the canonical triangles in the chunk's
     frame, ready for one trimesh collider per chunk (R8).
   - **Streaming:** `TerrainStream::tin` (off by default; the viewer's
-    `--tin`) draws Fine level-0 chunks from their TIN; Rough and Mid stay
+    `--tin`; the tolerance is the world's since CT-A) draws Fine level-0
+    chunks from their TIN; Rough and Mid stay
     regular with stand-ins. The stream's `CanonicalGround` holds the
     loaded chunks for queries. The viewer also gained a wireframe (`T`,
     `--wireframe`).

@@ -685,3 +685,58 @@ fn bad_settings_are_refused() {
         WorldError::DuplicateBiome("plains".to_owned())
     );
 }
+
+#[test]
+fn the_ground_mesh_setting_reaches_the_terrain_and_round_trips() {
+    use procgena_terrain::ChunkSource;
+    use procgena_terrain::tin::{DomainTolerance, TinTolerance};
+    use procgena_world::{GroundMesh, GroundMeshLevel};
+
+    // A World's ground mesh is built within its own level, with its own
+    // error for open land.
+    let ground_mesh = GroundMesh {
+        level: GroundMeshLevel::LowPoly,
+        error: Some(1.5),
+    };
+    let world = World::new(WorldOptions {
+        ground_mesh,
+        ..WorldOptions::default()
+    })
+    .unwrap();
+    let expected = TinTolerance {
+        general: DomainTolerance {
+            height: 1.5,
+            ..TinTolerance::LOW_POLY.general
+        },
+        ..TinTolerance::LOW_POLY
+    };
+    assert_eq!(world.terrain().tin_tolerance(), expected);
+    assert_eq!(
+        World::new(WorldOptions::default())
+            .unwrap()
+            .terrain()
+            .tin_tolerance(),
+        TinTolerance::GENERAL
+    );
+
+    // Written to a file and read back.
+    let mut preset = WorldPreset::large().clone();
+    preset.key = Cow::Borrowed("mine");
+    preset.world.ground_mesh = ground_mesh;
+    let text = preset.to_yaml(Some(WorldPreset::large()));
+    let read = WorldPreset::from_yaml("mine", &text).expect("written file reads back");
+    assert_eq!(read.world.ground_mesh, ground_mesh);
+
+    // An error that isn't positive is refused.
+    let bad = WorldOptions {
+        ground_mesh: GroundMesh {
+            error: Some(0.0),
+            ..GroundMesh::default()
+        },
+        ..WorldOptions::default()
+    };
+    assert_eq!(
+        World::new(bad).map(|_| ()).unwrap_err(),
+        WorldError::Options(WorldOptionsError::GroundMeshError(0.0))
+    );
+}

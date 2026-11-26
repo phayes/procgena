@@ -23,6 +23,7 @@ use crate::seam::{CornerAgreement, EdgeOffer, SeamError, negotiate, negotiate_co
 use crate::terrain::{
     HeightField, LabelField, RiverTrace, Terrain, TerrainError, TerrainGenerator,
 };
+use crate::tin::TinTolerance;
 
 /// The default [`WorldTerrainOptions::cache`]: how many built terrains a
 /// [`WorldTerrain`] keeps.
@@ -48,6 +49,13 @@ pub struct WorldTerrainOptions {
     /// How much the world stretches its landscape against reference scale
     /// 1. Every region's terrain gets it (see [`Terrain::with_scale`]).
     pub scale: WorldScale,
+    /// How closely the world's canonical ground meshes (see
+    /// [`tin`](crate::tin)) follow its ground. Every chunk of a world is
+    /// built within this one tolerance, so neighbours meet exactly; ask
+    /// for it with [`ChunkSource::tin_tolerance`](crate::ChunkSource::tin_tolerance).
+    /// [`TinTolerance::GENERAL`] by default; a level such as
+    /// [`TinTolerance::LOW_POLY`] gives faceted, low-poly ground.
+    pub tin: TinTolerance,
 }
 
 impl Default for WorldTerrainOptions {
@@ -59,6 +67,7 @@ impl Default for WorldTerrainOptions {
             convergence: Convergence::default(),
             cache: DEFAULT_CACHE,
             scale: WorldScale::default(),
+            tin: TinTolerance::GENERAL,
         }
     }
 }
@@ -113,6 +122,9 @@ pub enum WorldError {
     Cache,
     /// A part of the scale isn't finite and positive.
     Scale(WorldScale),
+    /// The canonical ground tolerance has a value out of range (see
+    /// [`TinTolerance::is_valid`]).
+    Tin,
     /// The source gave a region invalid settings.
     Options(RegionId, OptionsError),
     /// A region's terrain could not be built.
@@ -134,6 +146,7 @@ impl fmt::Display for WorldError {
                 "the scale must be finite and positive, not {} × {}",
                 s.horizontal, s.vertical
             ),
+            Self::Tin => write!(f, "the canonical ground tolerance is out of range"),
             Self::Options(id, e) => write!(f, "region {}: {e}", id.0),
             Self::Terrain(id, e) => write!(f, "region {}: {e}", id.0),
             Self::Seam(id, e) => write!(f, "a border of region {}: {e}", id.0),
@@ -312,8 +325,8 @@ impl WorldTerrain {
     /// If the elevation or region settings aren't valid, if
     /// `options.convergence` isn't (see
     /// [`relief_meeting_is_valid`](crate::relief_meeting_is_valid); the blend
-    /// must be from 0 to 1), if `options.cache` is 0, or if
-    /// `options.scale` isn't finite and positive.
+    /// must be from 0 to 1), if `options.cache` is 0, if `options.scale`
+    /// isn't finite and positive, or if `options.tin` isn't valid.
     pub fn new(
         options: WorldTerrainOptions,
         source: Arc<dyn TerrainSource>,
@@ -330,6 +343,9 @@ impl WorldTerrain {
         }
         if !options.scale.is_valid() {
             return Err(WorldError::Scale(options.scale));
+        }
+        if !options.tin.is_valid() {
+            return Err(WorldError::Tin);
         }
         let elevation = Elevation::new(options.elevation.clone(), options.seed)
             .map_err(WorldError::Elevation)?;

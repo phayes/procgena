@@ -6,10 +6,12 @@ use std::sync::Arc;
 
 use bevy::prelude::*;
 use glam::DVec2;
-use procgena_terrain::tin::{ResidentTins, TinError, TinIndex, TinTolerance};
+use procgena_terrain::tin::{
+    ContractCache, ResidentTins, TinError, TinIndex, TinTolerance, build_chunk_with,
+};
 use procgena_terrain::{
-    ChunkError, ChunkKey, ChunkMesh, ChunkSamples, ChunkSide, ChunkSource, FeatureTier,
-    Transitions, WaterMesh,
+    ChunkError, ChunkFeature, ChunkKey, ChunkMesh, ChunkSamples, ChunkSide, ChunkSource,
+    FeatureKind, FeatureTier, Transitions, WaterMesh,
 };
 
 /// The canonical ground a [`TerrainStream`](crate::TerrainStream) has
@@ -38,21 +40,33 @@ pub(crate) struct TinRead {
 }
 
 impl TinRead {
-    /// Builds chunk `key`'s canonical mesh from `source` within
-    /// `tolerance`, its shading normals and its water.
+    /// Builds chunk `key`'s canonical mesh from `source` within its
+    /// [`tin_tolerance`](ChunkSource::tin_tolerance), taking edge contracts
+    /// from `contracts` (which must hold only `source`'s), with its shading
+    /// normals and its water.
     pub(crate) fn build(
         source: &(impl ChunkSource + ?Sized),
         key: ChunkKey,
-        tolerance: &TinTolerance,
+        contracts: &ContractCache,
     ) -> Result<Self, ReadError> {
         let source = AsDyn(source);
-        let chunk = procgena_terrain::tin::build_chunk(&source, key, tolerance)?;
+        let tolerance = source.tin_tolerance();
+        let chunk = build_chunk_with(&source, key, &tolerance, contracts)?;
         let normals = chunk.shading_normals(&source)?;
         // The mesh has no rivers or ponds of its own yet, so their water
-        // comes from the regular samples.
-        let water = ChunkSamples::sample(&source, key, FeatureTier::Fine)?
-            .mesh(Transitions::NONE, 0.0)
-            .water;
+        // comes from the regular samples, read only where a river or pond
+        // reaches the chunk.
+        let wet = source
+            .lines_within(key.min_corner(), key.max_corner(), FeatureTier::Fine)
+            .iter()
+            .any(|f| f.id.kind != FeatureKind::Road);
+        let water = if wet {
+            ChunkSamples::sample(&source, key, FeatureTier::Fine)?
+                .mesh(Transitions::NONE, 0.0)
+                .water
+        } else {
+            None
+        };
         Ok(Self {
             index: Arc::new(TinIndex::new(Arc::new(chunk))),
             normals: Arc::new(normals),
@@ -96,6 +110,12 @@ impl<S: ChunkSource + ?Sized> ChunkSource for AsDyn<'_, S> {
     }
     fn tier_difference(&self, min: DVec2, max: DVec2, from: FeatureTier) -> f32 {
         self.0.tier_difference(min, max, from)
+    }
+    fn lines_within(&self, min: DVec2, max: DVec2, tier: FeatureTier) -> Vec<ChunkFeature> {
+        self.0.lines_within(min, max, tier)
+    }
+    fn tin_tolerance(&self) -> TinTolerance {
+        self.0.tin_tolerance()
     }
 }
 
@@ -160,5 +180,95 @@ pub(crate) fn along_side(key: ChunkKey, side: ChunkSide, other: ChunkKey) -> boo
         ChunkSide::MaxX => a.x == hi.x && overlaps(lo.y, hi.y, a.y, b.y),
         ChunkSide::MinZ => b.y == lo.y && overlaps(lo.x, hi.x, a.x, b.x),
         ChunkSide::MaxZ => a.y == hi.y && overlaps(lo.x, hi.x, a.x, b.x),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use procgena_terrain::tin::build_chunk;
+    use procgena_terrain::{ChunkFeatureShape, FeatureId, FeatureLine, SurfacePoint};
+
+    use super::*;
+
+    /// Gentle swells, with a river along z = 20 m when `river`: its water
+    /// 3 m either side of its line. Counts the heights read.
+    struct Field {
+        river: bool,
+        reads: AtomicUsize,
+    }
+
+    impl Field {
+        fn new(river: bool) -> Self {
+            Self {
+                river,
+                reads: AtomicUsize::new(0),
+            }
+        }
+
+        fn take(&self) -> usize {
+            self.reads.swap(0, Ordering::Relaxed)
+        }
+    }
+
+    impl ChunkSource for Field {
+        fn surface(&self, p: DVec2, _: FeatureTier) -> SurfacePoint {
+            self.reads.fetch_add(1, Ordering::Relaxed);
+            let wet = self.river && (p.y - 20.0).abs() < 3.0;
+            SurfacePoint {
+                height: (10.0 + 2.0 * (p.x / 41.0).sin() - if wet { 1.0 } else { 0.0 }) as f32,
+                water: wet.then_some(10.0),
+            }
+        }
+        fn tier(&self, _: FeatureTier) -> FeatureTier {
+            FeatureTier::Fine
+        }
+        fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+            0.0
+        }
+        fn lines_within(&self, _: DVec2, _: DVec2, _: FeatureTier) -> Vec<ChunkFeature> {
+            if !self.river {
+                return Vec::new();
+            }
+            let points = vec![DVec2::new(-100.0, 20.0), DVec2::new(100.0, 20.0)];
+            vec![ChunkFeature {
+                id: FeatureId {
+                    kind: FeatureKind::River,
+                    key: 1,
+                },
+                shape: ChunkFeatureShape::Line(FeatureLine {
+                    kind: FeatureKind::River,
+                    points,
+                    levels: vec![10.0, 10.0],
+                    widths: vec![6.0, 6.0],
+                    depth: 1.0,
+                }),
+            }]
+        }
+    }
+
+    #[test]
+    fn a_dry_chunk_reads_its_mesh_and_normals_only() {
+        // No river or pond reaches it, so it reads no regular samples for
+        // water: only what its mesh needs, and four heights a vertex for
+        // its shading normals.
+        let field = Field::new(false);
+        let key = ChunkKey::new(0, 0, 0);
+        let mesh = build_chunk(&field, key, &field.tin_tolerance()).unwrap();
+        let mesh_reads = field.take();
+        let read =
+            TinRead::build(&field, key, &ContractCache::new(&field.tin_tolerance())).unwrap();
+        assert!(read.water.is_none());
+        assert_eq!(field.take(), mesh_reads + 4 * mesh.vertices.len());
+    }
+
+    #[test]
+    fn a_chunk_with_a_river_keeps_its_water() {
+        let field = Field::new(true);
+        let key = ChunkKey::new(0, 0, 0);
+        let read =
+            TinRead::build(&field, key, &ContractCache::new(&field.tin_tolerance())).unwrap();
+        assert!(read.water.is_some(), "the river's water is drawn");
     }
 }

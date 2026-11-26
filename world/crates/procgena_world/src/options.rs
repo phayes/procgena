@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use glam::DVec2;
+use procgena_terrain::tin::TinTolerance;
 use procgena_terrain::{
     Convergence, ElevationError, ElevationOptions, MAX_OCTAVES, NoiseLayer, RegionGraphError,
     RegionGraphOptions, RegionId, relief_meeting_is_valid,
@@ -55,6 +56,60 @@ pub struct WorldOptions {
     /// When absent, the first matching rule chooses, as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub biome_selection: Option<BiomeSelectionOptions>,
+    /// How closely the World's ground mesh follows its land: the mesh
+    /// collision and nearby ground use. Coarser levels give a faceted,
+    /// low-poly look and cost less to build.
+    #[serde(default)]
+    pub ground_mesh: GroundMesh,
+}
+
+/// How closely a World's ground mesh (its canonical ground, see
+/// [`procgena_terrain::tin`]) follows the land. Rivers' and ponds' beds
+/// and banks are held to 10 cm at every level.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroundMesh {
+    /// A named level of detail.
+    pub level: GroundMeshLevel,
+    /// How far, in metres, open land may stray from the mesh, instead of
+    /// the level's own allowance; `None` keeps the level's. Finite and
+    /// positive.
+    #[serde(default)]
+    pub error: Option<f64>,
+}
+
+/// A named level of detail for a World's ground mesh.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GroundMeshLevel {
+    /// Open land within half a metre, checked at every metre of ground:
+    /// the closest, and several times the cost of `General` on gentle
+    /// land.
+    Dense,
+    /// Open land within half a metre, checked only as closely as the
+    /// land needs. The default.
+    #[default]
+    General,
+    /// Open land within a metre, with triangles up to a chunk wide.
+    LowPoly,
+    /// Open land within three metres, with triangles up to a chunk wide.
+    VeryLowPoly,
+}
+
+impl GroundMesh {
+    /// The tolerance the World's ground meshes are built within.
+    pub fn tolerance(&self) -> TinTolerance {
+        let mut tolerance = match self.level {
+            GroundMeshLevel::Dense => TinTolerance::DENSE,
+            GroundMeshLevel::General => TinTolerance::GENERAL,
+            GroundMeshLevel::LowPoly => TinTolerance::LOW_POLY,
+            GroundMeshLevel::VeryLowPoly => TinTolerance::VERY_LOW_POLY,
+        };
+        if let Some(error) = self.error {
+            tolerance.general.height = error;
+        }
+        tolerance
+    }
 }
 
 impl Default for WorldOptions {
@@ -71,6 +126,7 @@ impl Default for WorldOptions {
             biomes: BiomeRules::default(),
             pins: Vec::new(),
             biome_selection: None,
+            ground_mesh: GroundMesh::default(),
         }
     }
 }
@@ -719,6 +775,8 @@ pub enum WorldOptionsError {
     Pin(usize),
     /// The weighted Biome selection settings aren't valid.
     Selection(SelectionError),
+    /// The ground mesh's error isn't finite and positive.
+    GroundMeshError(f64),
 }
 
 impl fmt::Display for WorldOptionsError {
@@ -743,6 +801,12 @@ impl fmt::Display for WorldOptionsError {
                 "pin {i} must give either a finite point `at` or a `region` id"
             ),
             Self::Selection(e) => write!(f, "Biome selection: {e}"),
+            Self::GroundMeshError(e) => {
+                write!(
+                    f,
+                    "the ground mesh's error must be finite and positive, not {e}"
+                )
+            }
         }
     }
 }
@@ -796,6 +860,11 @@ impl WorldOptions {
         }
         if let Some(selection) = &self.biome_selection {
             selection.validate().map_err(WorldOptionsError::Selection)?;
+        }
+        if let Some(error) = self.ground_mesh.error
+            && !(error.is_finite() && error > 0.0)
+        {
+            return Err(WorldOptionsError::GroundMeshError(error));
         }
         Ok(())
     }
