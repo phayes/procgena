@@ -77,7 +77,15 @@ with the advisor where needed, for the user to review.
      the water-band tolerance in force is 10 cm.
 7. **The double chunk read** (Rough, then the wanted tier, for identical
    ground) goes to the world worker after TS. It must be bitwise identical.
-7. **Cheap borders (TB):**
+7. **Cheap borders (TB), more decisions:**
+   - E's precision steps (sub-mm to 1.7 mm, from rounding) are fixed in
+     `elevation.rs` as their own commit. The crack test was not loosened.
+   - Border profiles move into each region's plan, built from settings
+     alone, so rivers are traced on the final ground. Plans no longer
+     depend on neighbours' plans. Conditions: plan cost well inside about
+     55 ms on one thread, and identical shared profiles whichever region
+     is built first.
+8. **Cheap borders (TB):**
    - Its "before" numbers are taken after the Rayon removal (TS), so the
      comparison is like for like.
    - `Convergence::blend` and `EdgeOptions::roughness` stay as settings
