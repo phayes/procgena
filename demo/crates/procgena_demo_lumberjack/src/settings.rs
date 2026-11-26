@@ -34,16 +34,24 @@ pub struct LandFeatures {
 }
 
 /// The play area: a square of Ecotope tiles, centred on the start.
+///
+/// Play begins once the tiles nearest the start are placed: the tile under
+/// the start and the ring of eight around it. The rest are placed while
+/// the lumberjack walks, nearest first.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PlayArea {
     /// The World position, in metres (x and z), of the area's centre, where
     /// the lumberjack starts.
     pub centre: [f64; 2],
-    /// How many tiles across each side.
+    /// How many tiles across each side. With an even number the start lies
+    /// on a corner between four tiles, and play waits for only those four.
     pub tiles: u32,
     /// The side of one tile, in metres.
     pub tile_size: f32,
+    /// How many tiles are placed at the same time. More place the forest
+    /// sooner but leave fewer threads to build the land.
+    pub placing_at_once: u32,
     /// How far from the lumberjack, in metres, the ground and trunks are
     /// solid.
     pub collider_radius: f32,
@@ -56,18 +64,12 @@ impl Default for PlayArea {
     fn default() -> Self {
         Self {
             centre: [0.0, 0.0],
-            tiles: 6,
-            tile_size: 256.0,
+            tiles: 7,
+            tile_size: 220.0,
+            placing_at_once: 2,
             collider_radius: 100.0,
             keep_off: true,
         }
-    }
-}
-
-impl PlayArea {
-    /// The side of the whole area, in metres.
-    pub fn size(&self) -> f32 {
-        self.tiles as f32 * self.tile_size
     }
 }
 
@@ -222,6 +224,9 @@ impl DemoOptions {
         }
         if self.play_area.tiles == 0 {
             return Err("play_area.tiles must be at least 1".to_owned());
+        }
+        if self.play_area.placing_at_once == 0 {
+            return Err("play_area.placing_at_once must be at least 1".to_owned());
         }
         if !(0.0..90.0).contains(&self.walking.max_slope) {
             return Err("walking.max_slope must be from 0 up to 90 degrees".to_owned());

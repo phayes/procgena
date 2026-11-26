@@ -2,8 +2,10 @@
 //! person at the keys: `--autowalk`.
 //!
 //! The lumberjack runs a loop around the start that crosses tile borders,
-//! then out to the nearest road and along it, and back. Each frame checks
-//! that he is above the ground, not stuck, and not inside a trunk. At the
+//! then out to the nearest road and along it, and back. When something
+//! blocks him he steps aside and tries again; he is stuck if he still can't
+//! get on after several tries. Each frame checks that he is above the
+//! ground and not inside a trunk. At the
 //! end it prints what it found and exits, with an error if anything went
 //! wrong.
 
@@ -20,8 +22,16 @@ use crate::player::{BODY_RADIUS, FLOAT_HEIGHT, Intent, Player, Spawn, View};
 /// How near a waypoint counts as reaching it, in metres.
 const REACHED: f32 = 2.0;
 
-/// How long without moving counts as stuck, in seconds.
-const STUCK_AFTER: f32 = 3.0;
+/// How long without moving counts as blocked, in seconds. When blocked he
+/// steps aside, as a player would, and tries again.
+const BLOCKED_AFTER: f32 = 0.5;
+
+/// How long one step aside lasts, in seconds.
+const DETOUR_TIME: f32 = 1.0;
+
+/// How many steps aside he tries on the way to one waypoint before it
+/// counts as stuck.
+const DETOURS_BEFORE_STUCK: u32 = 8;
 
 /// How far below the ground his feet may sink before it counts as falling
 /// through, in metres.
@@ -66,6 +76,13 @@ pub struct Route {
     last: Option<Vec3>,
     /// Seconds he has not moved while asked to.
     still: f32,
+    /// The step aside he is taking: seconds left and the turn from the
+    /// waypoint's direction, in radians.
+    detour: Option<(f32, f32)>,
+    /// Steps aside taken on the way to the next waypoint.
+    detours: u32,
+    /// Steps aside taken in all.
+    all_detours: u32,
     /// Times he sank through the ground, with where.
     falls: Vec<Vec3>,
     /// Waypoints given up on because he was stuck, with where.
@@ -252,10 +269,39 @@ fn walk(
         0.0
     };
     let reached = to.length() < REACHED;
-    if reached || route.still > STUCK_AFTER {
+
+    // Blocked: step aside, turning left and right in turn, further each
+    // time.
+    if !reached && route.detour.is_none() && route.still > BLOCKED_AFTER {
+        route.detours += 1;
+        route.all_detours += 1;
+        let side = if route.detours % 2 == 1 { 1.0 } else { -1.0 };
+        let turn = side * (0.6 + 0.15 * route.detours as f32).min(1.6);
+        route.detour = Some((DETOUR_TIME, turn));
+        route.still = 0.0;
+    }
+    if let Some((left, turn)) = route.detour {
+        route.detour = (left > dt).then_some((left - dt, turn));
+        view.yaw = (-to.x).atan2(-to.y) + turn;
+        intent.motion = Vec2::Y;
+        intent.run = false;
+        intent.jump = false;
+        return;
+    }
+
+    if reached || route.detours > DETOURS_BEFORE_STUCK {
         if !reached {
+            // What held him: the nearest trunk's gap, and the slope ahead.
+            let gap = route
+                .trunks
+                .iter()
+                .map(|(at, radius)| at.distance(here) - radius - BODY_RADIUS)
+                .fold(f32::MAX, f32::min);
+            let ahead = here + to.normalize_or_zero();
+            let slope = (land.height(ahead) - ground).atan().to_degrees();
             error!(
-                "autowalk: stuck at {body} on the way to {target} ({})",
+                "autowalk: stuck at {body} on the way to {target} ({}); nearest trunk {gap:.2} m \
+                 away, ground ahead rises {slope:.0}°",
                 route.names[0]
             );
             route.stuck.push(body);
@@ -263,6 +309,7 @@ fn walk(
         route.points.remove(0);
         route.names.remove(0);
         route.still = 0.0;
+        route.detours = 0;
         return;
     }
     // Face the waypoint and run straight at it.
@@ -276,12 +323,13 @@ fn walk(
 /// stuck or went into a trunk.
 fn report(route: &Route, exit: &mut MessageWriter<AppExit>) {
     println!(
-        "autowalk: {:.0} m in {:.0} s ({:.0} m on roads) | fell through: {} | stuck: {} | in \
-         trunks: {} | deepest below ground: {:.2} m",
+        "autowalk: {:.0} m in {:.0} s ({:.0} m on roads) | fell through: {} | stepped aside: {} \
+         | stuck: {} | in trunks: {} | deepest below ground: {:.2} m",
         route.distance,
         route.time,
         route.on_road,
         route.falls.len(),
+        route.all_detours,
         route.stuck.len(),
         route.in_trunks.len(),
         route.deepest,

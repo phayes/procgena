@@ -30,6 +30,11 @@
 //!   sank through the ground, got stuck or went into a trunk, and exit
 //!   (with an error if he did). A screenshot or measurement is taken
 //!   during the walk;
+//! - `--view <behind|front|eyes>`: the view play starts in: behind him (the
+//!   default), in front of him looking at his face, or through his eyes;
+//! - `--time-placing <runs>`: don't open the demo; place the forest's tile
+//!   at the start `runs` times with its Scatters added one at a time, print
+//!   what each Scatter costs, and exit;
 //! - `--load-limit <seconds>`: exit with an error if loading takes longer;
 //! - `--headless`: with `--screenshot`, `--measure` or `--autowalk`, draw
 //!   into an image instead of a window, with frames uncapped;
@@ -52,12 +57,13 @@ mod land;
 mod player;
 mod settings;
 mod sky;
+mod timing;
 
 use autowalk::AutowalkPlugin;
 use camera::CameraPlugin;
 use capture::{Capture, CapturePlugin};
 use land::LandPlugin;
-use player::PlayerPlugin;
+use player::{PlayerPlugin, View};
 use settings::DemoOptions;
 use sky::SkyPlugin;
 
@@ -86,7 +92,7 @@ pub struct Launch {
     pub resolution: UVec2,
 }
 
-fn main() {
+fn main() -> AppExit {
     let args: Vec<String> = std::env::args().collect();
     let value = |flag: &str| {
         args.iter()
@@ -134,6 +140,20 @@ fn main() {
         resolution,
     };
 
+    // The demo's tunables.
+    let options = match value("--settings") {
+        Some(path) => DemoOptions::read(&path).unwrap_or_else(|e| panic!("{e}")),
+        None => DemoOptions::lumberjack(),
+    };
+
+    // Only time placing, without Bevy, if asked.
+    if let Some(runs) = value("--time-placing") {
+        let runs = runs.parse().expect("--time-placing needs a number of runs");
+        let land = land::Land::new(launch.seed, &options.land);
+        timing::time_placing(&land, &options, runs);
+        return AppExit::Success;
+    }
+
     // Bevy, without a window when headless.
     let defaults = DefaultPlugins.set(AssetPlugin {
         file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../..").to_owned(),
@@ -161,11 +181,17 @@ fn main() {
         }));
     }
 
+    // The view play starts in.
+    let mut view = View::default();
+    match value("--view").as_deref() {
+        None | Some("behind") => {}
+        Some("front") => view.yaw = std::f32::consts::PI,
+        Some("eyes") => view.first_person = true,
+        Some(other) => panic!("--view is behind, front or eyes, not {other:?}"),
+    }
+    app.insert_resource(view);
+
     // The demo's own plugins.
-    let options = match value("--settings") {
-        Some(path) => DemoOptions::read(&path).unwrap_or_else(|e| panic!("{e}")),
-        None => DemoOptions::lumberjack(),
-    };
     app.init_state::<GameState>()
         .insert_resource(options)
         .insert_resource(launch)
@@ -182,5 +208,5 @@ fn main() {
     if autowalk {
         app.add_plugins(AutowalkPlugin);
     }
-    app.run();
+    app.run()
 }

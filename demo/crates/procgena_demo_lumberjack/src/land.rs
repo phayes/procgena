@@ -8,11 +8,9 @@ use avian3d::prelude::*;
 use bevy::math::DVec2;
 use bevy::prelude::*;
 use procgena_biome::{BiomePreset, BiomeTerrain, Ecotope, EcotopePreset, ScatterCopies};
-use procgena_biome_bevy::{
-    EcotopeCopies, EcotopeFinished, EcotopeParams, EcotopePlacing, EcotopePlugin,
-};
+use procgena_biome_bevy::{EcotopeCopies, EcotopeFinished, EcotopeParams, EcotopePlugin};
 use procgena_core::Ground;
-use procgena_core::scatter::ScatterArea;
+use procgena_core::scatter::{Mask, ScatterArea};
 use procgena_core_bevy::LodQuality;
 use procgena_deadwood_bevy::{DeadwoodGenerating, DeadwoodPlugin};
 use procgena_mushroom_bevy::{MushroomGenerating, MushroomPlugin};
@@ -90,10 +88,11 @@ impl Plugin for LandPlugin {
         .insert_resource(LodQuality(launch.quality))
         .insert_resource(land)
         .init_resource::<Solids>()
-        .add_systems(Startup, (spawn_terrain, spawn_tiles))
+        .add_systems(Startup, (spawn_terrain, queue_tiles))
         .add_systems(
             Update,
             (
+                feed_tiles,
                 paint_water,
                 ground_colliders,
                 gather_solids,
@@ -120,7 +119,7 @@ pub struct Land {
 impl Land {
     /// The demo's World, with `seed` instead of its own if given and only
     /// the land `features` asked for, and its forest.
-    fn new(seed: Option<u32>, features: &LandFeatures) -> Self {
+    pub fn new(seed: Option<u32>, features: &LandFeatures) -> Self {
         let mut options = WorldPreset::from_yaml("lumberjack", WORLD_FILE)
             .expect("the demo's World preset is valid")
             .world;
@@ -202,11 +201,33 @@ struct Solid {
 #[derive(Component)]
 struct SolidCollider;
 
-/// How many tiles have been placed, of how many.
-#[derive(Resource, Debug, Clone, Copy, Default)]
+/// The forest's tiles: those waiting to be placed, nearest the start first,
+/// and how many are placing and placed.
+#[derive(Resource, Clone, Default)]
 struct Tiles {
+    /// The tiles not yet started, the next one last.
+    waiting: Vec<ForestTile>,
+    /// What each tile is placed with but its area.
+    template: Option<EcotopeParams>,
+    /// How many tiles may place at the same time.
+    at_once: usize,
+    /// How many are placing now.
+    placing: usize,
+    /// How many have been placed, of how many.
     placed: usize,
     total: usize,
+    /// How many of the tiles play waits for have been placed, of how many.
+    near_placed: usize,
+    near_total: usize,
+}
+
+/// One tile of the forest.
+#[derive(Component, Debug, Clone, Copy)]
+struct ForestTile {
+    /// The tile's centre, in World metres (x and z).
+    centre: DVec2,
+    /// Whether play waits for it.
+    near: bool,
 }
 
 /// Spawns the terrain stream over the World, with the camera above the
@@ -236,36 +257,75 @@ fn start(options: &DemoOptions) -> Vec2 {
     Vec2::new(x as f32, z as f32)
 }
 
-/// Spawns one Ecotope tile per square of the play area, all of the forest,
-/// kept off water, roads and cliffs.
-fn spawn_tiles(mut commands: Commands, land: Res<Land>, options: Res<DemoOptions>) {
+/// Queues one Ecotope tile per square of the play area, nearest the start
+/// first, all of the forest and, if the play area asks, kept off water,
+/// roads and cliffs.
+fn queue_tiles(mut commands: Commands, land: Res<Land>, options: Res<DemoOptions>) {
     let area = &options.play_area;
-    let ground: Arc<dyn Ground> = land.terrain.clone();
-    let terrain = land.terrain.clone();
-    let coverage: Option<Arc<dyn procgena_core::scatter::Mask>> = area.keep_off.then(|| {
-        Arc::new(move |p: DVec2| if plantable(&terrain, p) { 1.0_f32 } else { 0.0 }) as Arc<_>
-    });
+
+    // Every tile, with how many rings out from the start it lies.
     let [cx, cz] = area.centre;
-    let half = f64::from(area.size()) * 0.5;
+    let middle = (f64::from(area.tiles) - 1.0) * 0.5;
     let size = f64::from(area.tile_size);
+    let mut tiles: Vec<(f64, ForestTile)> = Vec::new();
     for j in 0..area.tiles {
         for i in 0..area.tiles {
-            let centre = DVec2::new(
-                cx - half + (f64::from(i) + 0.5) * size,
-                cz - half + (f64::from(j) + 0.5) * size,
-            );
-            commands.spawn(EcotopeParams {
-                ecotope: land.forest.clone(),
-                seed: land.forest.default_seed,
-                ground: ground.clone(),
-                area: ScatterArea::new(centre, Vec2::splat(area.tile_size)),
-                coverage: coverage.clone(),
-                patch: None,
-            });
+            let (di, dj) = (f64::from(i) - middle, f64::from(j) - middle);
+            let ring = di.abs().max(dj.abs());
+            let centre = DVec2::new(cx + di * size, cz + dj * size);
+            let near = ring <= 1.0;
+            tiles.push((ring, ForestTile { centre, near }));
         }
     }
-    let total = (area.tiles * area.tiles) as usize;
-    commands.insert_resource(Tiles { placed: 0, total });
+
+    // The nearest last, as they are taken from the end; ties by distance.
+    tiles.sort_by(|(ra, a), (rb, b)| {
+        let start = DVec2::new(cx, cz);
+        (rb, b.centre.distance(start))
+            .partial_cmp(&(ra, a.centre.distance(start)))
+            .expect("tile positions are finite")
+    });
+    let near_total = tiles.iter().filter(|(_, t)| t.near).count();
+    let waiting: Vec<ForestTile> = tiles.into_iter().map(|(_, t)| t).collect();
+    commands.insert_resource(Tiles {
+        total: waiting.len(),
+        waiting,
+        template: Some(EcotopeParams {
+            ecotope: land.forest.clone(),
+            seed: land.forest.default_seed,
+            ground: land.terrain.clone(),
+            area: ScatterArea::new(DVec2::ZERO, Vec2::splat(area.tile_size)),
+            coverage: coverage(&land, area.keep_off),
+            patch: None,
+        }),
+        at_once: area.placing_at_once as usize,
+        near_total,
+        ..default()
+    });
+}
+
+/// The forest's coverage: none, or with `keep_off`, kept off water, roads
+/// and cliffs. With `keep_off` the land is read at every spot a copy could
+/// stand.
+pub fn coverage(land: &Land, keep_off: bool) -> Option<Arc<dyn Mask>> {
+    let terrain = land.terrain.clone();
+    keep_off.then(|| {
+        Arc::new(move |p: DVec2| if plantable(&terrain, p) { 1.0_f32 } else { 0.0 }) as Arc<_>
+    })
+}
+
+/// Starts placing the next waiting tiles, while fewer than the play area
+/// allows are placing.
+fn feed_tiles(mut commands: Commands, mut tiles: ResMut<Tiles>) {
+    while tiles.placing < tiles.at_once {
+        let Some(tile) = tiles.waiting.pop() else {
+            return;
+        };
+        let template = tiles.template.clone().expect("the tiles were queued");
+        let area = ScatterArea::new(tile.centre, template.area.size);
+        commands.spawn((EcotopeParams { area, ..template }, tile));
+        tiles.placing += 1;
+    }
 }
 
 /// Whether the forest may grow at `p`: dry, off roads, and not a cliff.
@@ -282,10 +342,23 @@ fn plantable(terrain: &WorldTerrain, p: DVec2) -> bool {
 }
 
 /// Counts placed tiles, and gathers the solids again after each.
-fn count_tile(finished: On<EcotopeFinished>, mut tiles: ResMut<Tiles>, mut solids: ResMut<Solids>) {
+fn count_tile(
+    finished: On<EcotopeFinished>,
+    forest: Query<&ForestTile>,
+    mut tiles: ResMut<Tiles>,
+    mut solids: ResMut<Solids>,
+) {
+    let Ok(tile) = forest.get(finished.entity) else {
+        return;
+    };
+    // A tile that fails is counted too, so play doesn't wait for it.
+    tiles.placing = tiles.placing.saturating_sub(1);
+    tiles.placed += 1;
+    if tile.near {
+        tiles.near_placed += 1;
+    }
     match &finished.result {
         Ok(summary) => {
-            tiles.placed += 1;
             info!(
                 "tile {}/{} placed in {:.1?}: {} copies",
                 tiles.placed,
@@ -497,18 +570,17 @@ fn solid_colliders(
     }
 }
 
-/// Entities whose asset is still being built, or tiles being placed.
+/// Entities whose asset is still being built.
 type Generating = Or<(
-    With<EcotopePlacing>,
     With<TreeGenerating>,
     With<StoneGenerating>,
     With<DeadwoodGenerating>,
     With<MushroomGenerating>,
 )>;
 
-/// Starts play once every tile is placed and drawn, the terrain has
-/// settled and the ground under the start is solid. Logs progress every
-/// few seconds.
+/// Starts play once the tiles nearest the start are placed, no asset is
+/// being built, the terrain has settled and the ground under the start is
+/// solid. Logs progress every few seconds.
 #[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 fn finish_loading(
     time: Res<Time<Real>>,
@@ -530,14 +602,18 @@ fn finish_loading(
             &SpatialQueryFilter::default(),
         )
         .is_some();
-    let ready =
-        tiles.placed >= tiles.total && generating.is_empty() && terrain.settled && solid_ground;
+    let ready = tiles.near_placed >= tiles.near_total
+        && generating.is_empty()
+        && terrain.settled
+        && solid_ground;
     let elapsed = time.elapsed_secs();
     if ready || elapsed - *last_log > 5.0 {
         *last_log = elapsed;
         info!(
-            "loading at {elapsed:.0} s: tiles {}/{}, terrain {:.0} %, {} assets generating, ground \
-             {}",
+            "loading at {elapsed:.0} s: near tiles {}/{} (all {}/{}), terrain {:.0} %, {} assets \
+             generating, ground {}",
+            tiles.near_placed,
+            tiles.near_total,
             tiles.placed,
             tiles.total,
             terrain.fraction * 100.0,

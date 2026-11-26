@@ -3,4 +3,9 @@
 base: pine_forest_floor
 name: Lumberjack forest
 description: The pine forest the lumberjack walks in.
-ecotope: {}
+ecotope:
+  scatters:
+    # Half the built-in porcini: they were most of the copies, and placing
+    # each tile took longer for them.
+    porcini:
+      density: 0.075
