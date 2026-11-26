@@ -182,6 +182,135 @@ as proper features):
 - **Until TF lands,** roads and rivers stay embedded in the terrain plan
   and carve, and stay off by default in the built-in presets.
 
+## The stream: what is built, what is drawn, what copies rest on
+
+The terrain stream (`procgena_terrain_bevy`) keeps two sets of chunks
+around the viewers: the chunks it **builds**, and among them the chunks it
+**draws**. Each one is that level's canonical TIN; there are no regular
+heightfield chunks and no feature tiers.
+
+### Which chunks are built
+
+**Rule:** a chunk at level `L` is built when it is drawn, or when it is
+within level `L`'s build radius of a viewer. The built set is the union of
+the two.
+
+- **Drawn:** TE7's size-on-screen selection (`ChunkSelection::around`),
+  unchanged.
+- **Within the build radius:** the chunk's nearest point is within
+  `radius(L) × factor` of a viewer, measured on the ground (x and z;
+  height above the ground doesn't shrink a placement range).
+  - `factor` is the same quality distance scale the draw selection uses,
+    so a lower quality builds less, as it draws less.
+  - Levels 4 and up have no radius, so they are built only where drawn.
+- **Hysteresis:** a chunk built for its radius stays built until it is
+  10% past the radius, like the draw selection's switching bands, so
+  walking along a radius doesn't rebuild chunks.
+
+Drawn chunks outside every radius must be built too, because drawing a
+chunk means drawing its TIN. With the default detail, level 0 is drawn out
+to about 256 m while its radius is 150 m, so those level-0 chunks are built
+for drawing only.
+
+**Counts.** Default detail, 4 km view, viewer 2–120 m above the ground,
+counting every chunk a disc touches:
+
+| Level | Drawn | Within the radius | Built (union) |
+|---|---|---|---|
+| 0 | 64 | 32 (150 m) | 64 |
+| 1 | 48 | 60 (500 m) | 64 |
+| 2 | 48 | 132 (1.5 km) | 132 |
+| 3 | 48 | 224 (4 km) | 224 |
+| 4 | 44 | — | 44 |
+| **Total** | **252** | **448** | **528** |
+
+- **Why these are higher than "about 365" above:** that figure is the
+  discs' area divided by a chunk's area. A chunk counts here when the disc
+  touches it, which comes to 448. Drawing adds 80 more.
+- **A viewer 600 m up** draws 156 chunks, with no level 0 or 1 drawn, and
+  builds 492.
+- **An 8 km view** adds level 5: 300 drawn, 576 built.
+- **Cost:** the build radii set most of it. Of the 528 chunks, only 80
+  are built for drawing alone. At the measured cost per chunk, a cold
+  view is about 0.2 s on plains and 2.4–4.1 s on mountains, one thread.
+
+**Order of building:**
+1. Missing drawn chunks first, nearest first, so the picture completes
+   before any placement-only chunk.
+2. Then chunks within a radius, nearest first.
+
+While a drawn chunk isn't built yet, its nearest built ancestor is drawn
+in its place. A coarse chunk costs about what a fine one does but covers
+4^k times the area, so a cold load can draw the top level first. Seams are
+skirts (below), so a stand-in never needs its neighbours split or its own
+mesh changed. This replaces today's coarse-first Rough reads and
+`ChunkSamples::stand_in`.
+
+**Seams between drawn levels** are skirts deep enough to cover the two
+levels' difference along the edge. There are no cross-level constraints,
+and no transition strips (`Transitions` no longer changes a TIN mesh).
+
+### Promotion: a level that adds nothing to its children
+
+Promotion means drawing a parent in place of its children. It saves only
+builds for drawing: of the 528 chunks above, the 80 drawn chunks outside
+every radius. A chunk within its radius is always built, since its
+Scatters place on it; promotion never changes what a Scatter reads.
+
+**Rule:** chunk `P` at level `L` stands for its children at level `L − 1`
+in drawing when both of these hold:
+
+1. **No feature adds detail at `L − 1` in `P`'s footprint.** No feature
+   whose edge level or carve level is `L − 1` (it is in the children's
+   ground but not in `P`'s) reaches the footprint. This is read from the
+   feature lines (`lines_within`) without building anything, as
+   `tier_change_known` does today.
+2. **`P` already meets the children's tolerance there.** `P`'s TIN is
+   within `tolerance(L − 1)`, half its own, at every sample its build
+   took. The builder has to report the largest error it saw (ct-t-engine).
+
+Applied again, `P` can stand for its grandchildren. The decision depends
+only on `P`'s pure build and the feature lines, so it can't flicker.
+
+Unlike today's promotion this isn't bit-exact. The children would have
+sampled a finer lattice, so relief finer than `P`'s lattice step is lost.
+That is the trade size-on-screen drawing already makes one level out.
+Plains (24–27 triangles a chunk at every level) promote almost
+everywhere; mountains almost never do.
+
+### Rest height at mid range
+
+**The problem:** take a level-3 tree at 300 m, where the drawn ground is
+level 1. The tree's spot and slope come from level 3, but level 3 differs
+from level 1 by p95 2.2 m on hills, and up to 12 m on mountains. Rested on
+level 3, the tree floats or sinks by that much.
+
+**Rule:** a copy rests on the TIN drawn under its spot now. It keeps its
+placement level's spot and slope (its identity), and takes its height from
+the drawn chunk that holds the spot.
+
+- **Where the copy changes:**
+  - when the drawn chunk under it changes, at a level switch or when a
+    stand-in is replaced;
+  - re-resting only takes point queries on the new chunk.
+- **Why it never pops on its own:** it moves only in the frame the ground
+  under it moves, so the two pop together.
+- **No ambiguity at seams:** drawn chunks tile without overlap, so the
+  rest height at a seam is never in doubt.
+- **Near the player:** level 0 is drawn out to about 256 m, so this is
+  D6b's settle onto level 0, with no separate rule.
+
+**For the stream:**
+- `CanonicalGround` answers rest heights from the drawn chunks.
+- Placement levels' TINs are kept apart, for spots and slope.
+- When drawn chunks change, the stream reports the changed footprints,
+  and the Scatter renderers re-rest the copies inside them.
+
+**Why not rest on the finest level built at the spot:** with the default
+radii that is usually the drawn level, since drawn chunks are always
+built. A high viewer, though, draws coarser ground than the radii build,
+and the copy would then rest on ground that isn't drawn.
+
 ## Open choices
 
 1. **The build radii and the tree cap**: defaults above, for the user to
