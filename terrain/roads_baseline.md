@@ -73,6 +73,44 @@ over the whole region.
 
 (mountains 2/1 has no road crossings, so only its outline grid is built.)
 
+## After RB1 and RB3 (2026-11-25)
+
+RB1 was re-aimed at what the baseline showed (decided with the user):
+
+- **Parallel sampling.** The routing grid's cells, the per-cell grades,
+  the levels' ground and grade samples, road banks and the tier
+  difference (`moved`) sample through the crate's ordered `batch::map`,
+  so they use every core with `rayon` and give the same values without
+  it.
+- **Compact search state.** Search state is held only for the cells a
+  road may pass through, in a scratch reused by every search of a region
+  (generation-stamped, never cleared). States keep their order, so ties
+  break as before.
+- **Turn table and join levels.** The turn table is built once per run;
+  the network's level at a cell is looked up once per start instead of
+  per visit.
+
+RB3 replaced the 40-step bisection in `grade_limited` with the
+closed-form smallest gap (pairwise interval conditions, one pass with
+running maxima). A randomized test checks it against bisection on more
+than 8,000 random roads, with levels agreeing to 0.1 mm.
+
+| Measure | Baseline | After RB1 + RB3 |
+|---|---|---|
+| Fine tier ("roads ms"), median / max | 360 / 963 ms | 72 / 145 ms |
+| Routing (outline + fine), median / max | 203 / 505 ms | 49 / 92 ms |
+| Route searches alone, median / max | 22 / 48 ms | 14 / 34 ms |
+| Peak search state memory | 44.6 MB | 6.4 MB |
+| Searches, states popped | 235, 2,065,842 | 235, 2,065,842 |
+| Quality (every measure above) | | unchanged |
+
+Routes are identical (same searches, same states popped, same quality
+figures). The remaining time is spread roughly evenly across the
+mountains' outline heights (about 25 ms, already parallel), the searches,
+and carving the roads into the ground. The shared reverse cost field
+(RB2) is deferred until the larger World classes show the search
+dominating there.
+
 ## What this says about the redesign
 
 - **The route search is not the bottleneck at 2 km.** Searches take 2 to

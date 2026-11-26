@@ -306,7 +306,7 @@ flowchart TD
     TE5 --> RB0
     RB0 --> RB1
     RB1 --> RB2
-    RB2 --> RB4
+    RB1 --> RB4
     RB3 --> RB4
     D6 --> RB4
     RB4 --> RB5
@@ -2041,6 +2041,13 @@ in a `tin` module of `procgena_terrain`.
 - **Done when:** two runs on a quiet machine give the same quality
   numbers and timings within a stated noise band, and the corpus is
   checked in.
+- **Status: done 2026-11-25.** `road_cost --corpus --scale --stats`,
+  `RouteStats` (`Terrain::road_stats`) and `road_quality`; the corpus is
+  the shipped presets × seeds 1–3 × 3 regions, recorded in
+  [terrain/roads_baseline.md](terrain/roads_baseline.md). It found that
+  route searches are about 6% of the fine tier at 2 km: ground sampling
+  and carving dominate. The larger classes are not in the recorded
+  corpus yet (`--scale` runs them).
 
 #### RB1: Cheap search wins
 
@@ -2052,6 +2059,13 @@ in a `tin` module of `procgena_terrain`.
 - **Done when:** RB0's corpus shows the gain, routes change only where
   ties are broken differently (each such test reported), and the seam,
   feature and shipped suites pass.
+- **Status: done 2026-11-25, re-aimed by RB0.** Parallel ground and
+  grade sampling (grid, grades, levels, banks, tier difference), compact
+  generation-stamped search state, the turn table built once, and join
+  levels looked up once per start. Corpus: fine tier median 360 → 72 ms,
+  max 963 → 145 ms, peak search memory 44.6 → 6.4 MB, routes identical.
+  Cached step costs were left out: the search is no longer the
+  bottleneck.
 
 #### RB2: Shared reverse cost field
 
@@ -2066,6 +2080,10 @@ in a `tin` module of `procgena_terrain`.
 - **Done when:** the incremental field equals a full recompute on every
   corpus case, the cost and quality trade-off of each weight is reported,
   and failures are bounded and reported (no silent spin).
+- **Status: deferred 2026-11-25** (user, after RB0). Searches take about
+  14 ms of a 72 ms fine tier at 2 km. Revisit when `road_cost --scale
+  large` or `real_life` shows the search dominating. RB4 no longer waits
+  on it.
 
 #### RB3: Linear-time vertical alignment
 
@@ -2076,6 +2094,8 @@ in a `tin` module of `procgena_terrain`.
   beside RB1.
 - **Done when:** randomized tests agree with the bisection within its
   last interval, and the existing level tests hold.
+- **Status: done 2026-11-25.** `least_gap` in `road/level.rs`; agrees
+  with bisection on more than 8,000 random roads (levels within 0.1 mm).
 
 #### CT0: Numeric profile and canonical mesh types
 
@@ -2128,7 +2148,8 @@ in a `tin` module of `procgena_terrain`.
   ids, line-and-arc horizontal alignments with minimum radius per class,
   vertical profiles from RB3, explicit junction events, and canonical
   hashing.
-- **Needs:** RB2, RB3, D6 (encodings).
+- **Needs:** RB1, RB3, D6 (encodings). (RB2 was a need until it was
+  deferred on 2026-11-25.)
 - **Done when:** network hashes are stable across runs and thread counts,
   and grade and curvature limits hold on the fitted alignment.
 

@@ -54,13 +54,17 @@ const NEIGHBOURS: [(isize, isize); 16] = [
 
 impl Grid {
     /// Builds the grid over `polygon`, with heights from `height`.
-    pub(crate) fn new(polygon: &[DVec2], height: impl Fn(DVec2) -> f32) -> Self {
+    pub(crate) fn new(polygon: &[DVec2], height: impl Fn(DVec2) -> f32 + Sync) -> Self {
         Self::with_cell(polygon, height, CELL)
     }
 
     /// Like [`Grid::new`], with cells of `cell` metres where the region is
     /// small enough (larger regions get larger cells).
-    pub(crate) fn with_cell(polygon: &[DVec2], height: impl Fn(DVec2) -> f32, cell: f64) -> Self {
+    pub(crate) fn with_cell(
+        polygon: &[DVec2],
+        height: impl Fn(DVec2) -> f32 + Sync,
+        cell: f64,
+    ) -> Self {
         Self::with_cell_where(polygon, height, cell, |_| true)
     }
 
@@ -69,11 +73,14 @@ impl Grid {
     /// height and no clearance, and `height` is never called for them, so a
     /// narrow `keep` makes the grid much cheaper to build. Cell size and
     /// layout match [`Grid::with_cell`] for the same `polygon` and `cell`.
+    ///
+    /// With the `rayon` feature, cells are worked out in parallel; the grid
+    /// is the same either way.
     pub(crate) fn with_cell_where(
         polygon: &[DVec2],
-        height: impl Fn(DVec2) -> f32,
+        height: impl Fn(DVec2) -> f32 + Sync,
         cell: f64,
-        keep: impl Fn(DVec2) -> bool,
+        keep: impl Fn(DVec2) -> bool + Sync,
     ) -> Self {
         // Bounding box and cell size.
         let (min, max) = polygon
@@ -87,28 +94,39 @@ impl Grid {
         let depth = (size.y / cell).ceil() as usize + 1;
         let origin = min + DVec2::splat(cell / 2.0);
 
-        // Per-cell data.
+        // Per-cell data, worked out for each cell on its own.
         let boundary = Boundary::Polygon(polygon.to_vec());
         let mut grid = Self {
             origin,
             cell,
             width,
             depth,
-            inside: Vec::with_capacity(width * depth),
-            clearance: Vec::with_capacity(width * depth),
-            heights: Vec::with_capacity(width * depth),
+            inside: Vec::new(),
+            clearance: Vec::new(),
+            heights: Vec::new(),
         };
-        for i in 0..width * depth {
+        let cells: Vec<usize> = (0..width * depth).collect();
+        let data = crate::batch::map(&cells, |&i| {
             let p = grid.centre(i);
-            let inside = keep(p) && boundary.contains(p);
-            grid.inside.push(inside);
-            grid.clearance.push(if inside {
-                boundary.distance_to_border(p)
+            if keep(p) && boundary.contains(p) {
+                (true, boundary.distance_to_border(p), height(p))
             } else {
-                0.0
-            });
-            grid.heights.push(if inside { height(p) } else { f32::NAN });
-        }
+                (false, 0.0, f32::NAN)
+            }
+        });
+        (grid.inside, grid.clearance, grid.heights) = data.into_iter().fold(
+            (
+                Vec::with_capacity(cells.len()),
+                Vec::with_capacity(cells.len()),
+                Vec::with_capacity(cells.len()),
+            ),
+            |(mut inside, mut clearance, mut heights), (i, c, h)| {
+                inside.push(i);
+                clearance.push(c);
+                heights.push(h);
+                (inside, clearance, heights)
+            },
+        );
         grid
     }
 

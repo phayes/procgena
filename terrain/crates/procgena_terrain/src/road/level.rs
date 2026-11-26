@@ -57,20 +57,19 @@ pub(super) fn across_road(
     points: &[DVec2],
     centre: &[f32],
     half_width: f64,
-    ground: &dyn Fn(DVec2) -> f32,
+    ground: &(dyn Fn(DVec2) -> f32 + Sync),
 ) -> Vec<(f32, f32)> {
     let last = points.len() - 1;
-    (0..points.len())
-        .map(|i| {
-            let along = points[(i + 1).min(last)] - points[i.saturating_sub(1)];
-            let side = along.perp().normalize_or_zero() * half_width;
-            let (left, right) = (ground(points[i] + side), ground(points[i] - side));
-            (
-                centre[i].min(left).min(right),
-                centre[i].max(left).max(right),
-            )
-        })
-        .collect()
+    let indices: Vec<usize> = (0..points.len()).collect();
+    crate::batch::map(&indices, |&i| {
+        let along = points[(i + 1).min(last)] - points[i.saturating_sub(1)];
+        let side = along.perp().normalize_or_zero() * half_width;
+        let (left, right) = (ground(points[i] + side), ground(points[i] - side));
+        (
+            centre[i].min(left).min(right),
+            centre[i].max(left).max(right),
+        )
+    })
 }
 
 /// Road levels along `points`, starting at `start` and, if given, ending at
@@ -95,8 +94,32 @@ pub(super) fn grade_limited(
     end: Option<f32>,
     steepest: &[f64],
 ) -> Option<Vec<f32>> {
-    // How far the road may rise or fall along each step.
-    let rise: Vec<f64> = (0..points.len())
+    let rise = rises(points, steepest);
+    let (start, end) = (f64::from(start), end.map(f64::from));
+    if let Some(e) = end
+        && (e - start).abs() > rise.iter().sum::<f64>()
+    {
+        return None;
+    }
+
+    // The smallest gap, worked out directly, then the bands it gives. A
+    // hair more than the smallest gap keeps rounding from closing a band.
+    let gap = least_gap(across, &rise, start, end);
+    let mut slack = 1e-9;
+    let best = loop {
+        if let Some(best) = bands(across, &rise, start, end, gap * (1.0 + 1e-12) + slack) {
+            break best;
+        }
+        debug_assert!(slack < 1e-3, "the least gap {gap} leaves no levels");
+        slack *= 16.0;
+    };
+    Some(levels_within(&best, target, &rise))
+}
+
+/// How far a road along `points` may rise or fall along each step, at
+/// `steepest[i]` from point `i - 1` to point `i`; 0 for the first point.
+fn rises(points: &[DVec2], steepest: &[f64]) -> Vec<f64> {
+    (0..points.len())
         .map(|i| {
             if i == 0 {
                 0.0
@@ -104,67 +127,99 @@ pub(super) fn grade_limited(
                 steepest[i] * points[i].distance(points[i - 1])
             }
         })
-        .collect();
-    let (start, end) = (f64::from(start), end.map(f64::from));
-    let last = points.len() - 1;
-    if let Some(e) = end
-        && (e - start).abs() > rise.iter().sum::<f64>()
-    {
-        return None;
-    }
+        .collect()
+}
 
-    // The levels each point can take with every gap at most `gap`, passing
-    // forward from the start; `None` if the end can't be reached.
-    let bands = |gap: f64| -> Option<Vec<(f64, f64)>> {
-        let mut out = vec![(start, start); points.len()];
-        for i in 1..points.len() {
-            let (lo, hi) = (out[i - 1].0 - rise[i], out[i - 1].1 + rise[i]);
-            let (lo, hi) = match (i == last, end) {
-                (true, Some(e)) => (lo.max(e), hi.min(e)),
-                _ => {
-                    let (low, high) = (f64::from(across[i].0), f64::from(across[i].1));
-                    (lo.max(high - CUT_SHARE * gap), hi.min(low + gap))
-                }
-            };
-            if lo > hi {
-                return None;
+/// The levels each point can take with every gap at most `gap` (see
+/// [`grade_limited`]), passing forward from `start`; `None` if some point,
+/// or the end, can't be reached.
+fn bands(
+    across: &[(f32, f32)],
+    rise: &[f64],
+    start: f64,
+    end: Option<f64>,
+    gap: f64,
+) -> Option<Vec<(f64, f64)>> {
+    let last = rise.len() - 1;
+    let mut out = vec![(start, start); rise.len()];
+    for i in 1..rise.len() {
+        let (lo, hi) = (out[i - 1].0 - rise[i], out[i - 1].1 + rise[i]);
+        let (lo, hi) = match (i == last, end) {
+            (true, Some(e)) => (lo.max(e), hi.min(e)),
+            _ => {
+                let (low, high) = (f64::from(across[i].0), f64::from(across[i].1));
+                (lo.max(high - CUT_SHARE * gap), hi.min(low + gap))
             }
-            out[i] = (lo, hi);
+        };
+        if lo > hi {
+            return None;
         }
-        Some(out)
-    };
+        out[i] = (lo, hi);
+    }
+    Some(out)
+}
 
-    // The smallest gap that works, by bisection: the end is reachable, so
-    // a gap as large as the ground's whole height range plus the climb
-    // always works.
-    let (lo_ground, hi_ground) = across.iter().fold((start, start), |(lo, hi), &(l, h)| {
-        (lo.min(f64::from(l)), hi.max(f64::from(h)))
-    });
-    let mut wide = hi_ground - lo_ground + rise.iter().sum::<f64>() + 1.0;
-    let mut narrow = 0.0;
-    let mut best = bands(wide).expect("a wide enough gap always works");
-    for _ in 0..40 {
-        let gap = 0.5 * (narrow + wide);
-        match bands(gap) {
-            Some(b) => {
-                wide = gap;
-                best = b;
-            }
-            None => narrow = gap,
+/// The smallest gap for which [`bands`] finds levels, given that the end
+/// (if any) is within reach of the start.
+///
+/// A point with ground from `L` (lowest) to `H` (highest) across it may
+/// take levels from `H - CUT_SHARE * gap` to `L + gap`, and two points
+/// may differ by at most the rises between them. Bands along a line meet
+/// exactly when every pair of points can (intervals that meet pairwise
+/// share a point), so the smallest gap is the largest that any single pair
+/// needs. With `s` the rises summed from the start, those pairs are:
+///
+/// - two points `i <= j`: `(H[j] - s[j] + s[i] - L[i]) / (1 + CUT_SHARE)`,
+///   and `(H[i] + s[i] - L[j] - s[j]) / (1 + CUT_SHARE)` (with `i = j`,
+///   the point's own band must not be empty);
+/// - the start and point `j`: `(H[j] - start - s[j]) / CUT_SHARE`, and
+///   `start - L[j] - s[j]`;
+/// - point `i` and a fixed end `e`, `d` apart in rises: `e - L[i] - d`, and
+///   `(H[i] - e - d) / CUT_SHARE`.
+///
+/// The largest over all pairs falls out of running maxima, in one pass.
+fn least_gap(across: &[(f32, f32)], rise: &[f64], start: f64, end: Option<f64>) -> f64 {
+    let last = rise.len() - 1;
+    let free = if end.is_some() { last } else { last + 1 };
+    let total: f64 = rise.iter().sum();
+    let k = CUT_SHARE;
+
+    // Running over the points with a band, keeping the best pair partner
+    // seen so far for each kind of pair.
+    let (mut s, mut gap) = (0.0, 0.0f64);
+    let (mut fill_from, mut cut_from) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for j in 1..free {
+        s += rise[j];
+        let (low, high) = (f64::from(across[j].0), f64::from(across[j].1));
+        fill_from = fill_from.max(s - low);
+        cut_from = cut_from.max(high + s);
+        gap = gap
+            .max((high - s + fill_from) / (1.0 + k))
+            .max((cut_from - low - s) / (1.0 + k))
+            .max((high - start - s) / k)
+            .max(start - low - s);
+        if let Some(e) = end {
+            let d = total - s;
+            gap = gap.max(e - low - d).max((high - e - d) / k);
         }
     }
+    gap
+}
 
-    // Levels from the end backward: each as near its target as its band
-    // and the grade to the next level allow. Every band was reached from
-    // the one before, so the choice is never empty.
-    let mut levels = vec![0.0f64; points.len()];
+/// Levels from the end backward, within `best` (the bands from
+/// [`bands`]): each as near its `target` as its band and the grade to the
+/// next level allow. Every band was reached from the one before, so the
+/// choice is never empty.
+fn levels_within(best: &[(f64, f64)], target: &[f32], rise: &[f64]) -> Vec<f32> {
+    let last = best.len() - 1;
+    let mut levels = vec![0.0f64; best.len()];
     levels[last] = f64::from(target[last]).clamp(best[last].0, best[last].1);
     for i in (0..last).rev() {
         let lo = best[i].0.max(levels[i + 1] - rise[i + 1]);
         let hi = best[i].1.min(levels[i + 1] + rise[i + 1]);
         levels[i] = f64::from(target[i]).clamp(lo, hi.max(lo));
     }
-    Some(levels.into_iter().map(|l| l as f32).collect())
+    levels.into_iter().map(|l| l as f32).collect()
 }
 
 /// A moving average over [`LEVEL_SMOOTHING`] points either side.
@@ -193,6 +248,94 @@ pub(super) fn level_on_roads(roads: &[FeatureLine], p: DVec2) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use procgena_core::Rng;
+
+    /// The smallest gap by bisection, as [`grade_limited`] found it before
+    /// [`least_gap`]: a reference for it.
+    fn least_gap_by_bisection(
+        across: &[(f32, f32)],
+        rise: &[f64],
+        start: f64,
+        end: Option<f64>,
+    ) -> f64 {
+        let (lo_ground, hi_ground) = across.iter().fold((start, start), |(lo, hi), &(l, h)| {
+            (lo.min(f64::from(l)), hi.max(f64::from(h)))
+        });
+        let mut wide = hi_ground - lo_ground + rise.iter().sum::<f64>() + 1.0;
+        let mut narrow = 0.0;
+        assert!(bands(across, rise, start, end, wide).is_some());
+        for _ in 0..60 {
+            let gap = 0.5 * (narrow + wide);
+            if bands(across, rise, start, end, gap).is_some() {
+                wide = gap;
+            } else {
+                narrow = gap;
+            }
+        }
+        wide
+    }
+
+    #[test]
+    fn the_least_gap_matches_bisection() {
+        let mut rng = Rng::new(7);
+        let mut checked = 0;
+        for case in 0..10_000 {
+            // A random road: 2 to 40 points, steps of 1 to 20 m, grades of
+            // 0.02 to 0.3, over rough ground with a random spread across.
+            let n = 2 + (rng.next_u32() % 39) as usize;
+            let mut points = vec![DVec2::ZERO];
+            let mut height = 0.0f32;
+            let mut across = vec![(0.0, 0.0)];
+            for _ in 1..n {
+                let step = f64::from(rng.range(1.0, 20.0));
+                let turn = f64::from(rng.range(-1.0, 1.0));
+                points.push(*points.last().unwrap() + step * DVec2::new(turn.cos(), turn.sin()));
+                height += rng.range(-4.0, 4.0);
+                let spread = rng.range(0.0, 3.0);
+                across.push((
+                    height - spread * rng.next_f32(),
+                    height + spread * rng.next_f32(),
+                ));
+            }
+            let steepest: Vec<f64> = (0..n).map(|_| f64::from(rng.range(0.02, 0.3))).collect();
+            let rise = rises(&points, &steepest);
+            let start = f64::from(rng.range(-3.0, 3.0));
+            let end = (case % 2 == 0).then(|| start + f64::from(rng.range(-20.0, 20.0)));
+            if end.is_some_and(|e| (e - start).abs() > rise.iter().sum::<f64>()) {
+                continue;
+            }
+
+            // The same smallest gap, to within the bisection's precision.
+            let direct = least_gap(&across, &rise, start, end);
+            let bisected = least_gap_by_bisection(&across, &rise, start, end);
+            assert!(
+                (direct - bisected).abs() <= 1e-6 * (1.0 + bisected),
+                "case {case}: {direct} against {bisected}"
+            );
+
+            // The same levels, to within a tenth of a millimetre.
+            let target: Vec<f32> = across.iter().map(|&(l, h)| 0.5 * (l + h)).collect();
+            let levels = grade_limited(
+                &points,
+                &across,
+                &target,
+                start as f32,
+                end.map(|e| e as f32),
+                &steepest,
+            )
+            .expect("the end is within reach");
+            let best = bands(&across, &rise, start, end, bisected).expect("bisection works");
+            let reference = levels_within(&best, &target, &rise);
+            for (i, (a, b)) in levels.iter().zip(&reference).enumerate() {
+                assert!(
+                    (a - b).abs() <= 1e-4,
+                    "case {case}, point {i}: {a} against {b}"
+                );
+            }
+            checked += 1;
+        }
+        assert!(checked > 8_000, "only {checked} cases checked");
+    }
 
     #[test]
     fn levels_keep_to_each_steps_grade() {

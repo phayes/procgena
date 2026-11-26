@@ -1132,21 +1132,30 @@ fn moved(before: &Terrain, after: &Terrain, lines: &[FeatureLine]) -> f32 {
     // that.
     const MARGIN: f32 = 1.0;
     const SCALE: f32 = 1.1;
-    let mut most = 0.0f32;
-    for line in lines {
-        for (i, &p) in line.points.iter().enumerate() {
-            let next = line
-                .points
-                .get(i + 1)
-                .or(i.checked_sub(1).map(|j| &line.points[j]));
-            let across = next.map_or(DVec2::X, |&q| (q - p).perp().normalize_or(DVec2::X));
-            let half = 0.5 * f64::from(line.widths[i]);
-            for offset in [0.0, half, -half, half + 4.0, -half - 4.0] {
+
+    // Each point of each line, measured on its own (in parallel with the
+    // `rayon` feature): across the line at its centre, edges and beyond.
+    let points: Vec<(&FeatureLine, usize)> = lines
+        .iter()
+        .flat_map(|line| (0..line.points.len()).map(move |i| (line, i)))
+        .collect();
+    let moves = crate::batch::map(&points, |&(line, i)| {
+        let p = line.points[i];
+        let next = line
+            .points
+            .get(i + 1)
+            .or(i.checked_sub(1).map(|j| &line.points[j]));
+        let across = next.map_or(DVec2::X, |&q| (q - p).perp().normalize_or(DVec2::X));
+        let half = 0.5 * f64::from(line.widths[i]);
+        [0.0, half, -half, half + 4.0, -half - 4.0]
+            .into_iter()
+            .map(|offset| {
                 let at = p + across * offset;
-                most = most.max((after.height(at) - before.height(at)).abs());
-            }
-        }
-    }
+                (after.height(at) - before.height(at)).abs()
+            })
+            .fold(0.0f32, f32::max)
+    });
+    let most = moves.into_iter().fold(0.0f32, f32::max);
     if most > 0.0 {
         most * SCALE + MARGIN
     } else {

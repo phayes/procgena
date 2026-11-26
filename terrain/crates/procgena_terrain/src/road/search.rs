@@ -3,6 +3,7 @@
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
+use std::sync::OnceLock;
 
 use glam::DVec2;
 
@@ -55,6 +56,10 @@ const CARVE_SCALE: f64 = 2.0;
 /// The sharpest turn a road may make from one grid step to the next, in
 /// radians. On the road grid this gives hairpins about 10 m in radius.
 const MAX_TURN: f64 = std::f64::consts::FRAC_PI_4;
+
+/// The headings a search state can have: one per move direction, and one
+/// more for the start, which has none.
+const HEADINGS: usize = DIRECTIONS + 1;
 
 /// An entry in the route search queue: lowest cost first.
 #[derive(PartialEq)]
@@ -192,6 +197,21 @@ pub(super) fn segments_meet(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> bool {
     side(c, d, a) * side(c, d, b) <= 0.0 && side(a, b, c) * side(a, b, d) <= 0.0
 }
 
+/// Whether a road heading in move direction `a` may next move in
+/// direction `b`: the turn is at most [`MAX_TURN`].
+fn turnable(a: usize, b: usize) -> bool {
+    static TABLE: OnceLock<[[bool; DIRECTIONS]; DIRECTIONS]> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let mut table = [[false; DIRECTIONS]; DIRECTIONS];
+        for (a, row) in table.iter_mut().enumerate() {
+            for (b, ok) in row.iter_mut().enumerate() {
+                *ok = direction(a).angle_to(direction(b)).abs() <= MAX_TURN + 1e-9;
+            }
+        }
+        table
+    })[a][b]
+}
+
 /// What the route search knows about each cell of a grid, apart from the
 /// road network built so far.
 pub(super) struct Terrain<'a> {
@@ -206,18 +226,104 @@ pub(super) struct Terrain<'a> {
     pub grades: &'a [RoadGrades],
 }
 
+/// Memory the route search reuses from one search to the next over the
+/// same grid. It holds state only for the cells a road may pass through,
+/// and marks which states the current search has reached with a
+/// generation number, so a new search needn't clear it.
+pub(super) struct Scratch {
+    /// For each grid cell, its index among the allowed cells, or
+    /// `u32::MAX` if roads may not pass through it.
+    index: Vec<u32>,
+    /// For each allowed cell's index, the grid cell.
+    cells: Vec<usize>,
+    /// For each state, the search that last reached it.
+    reached: Vec<u32>,
+    /// The current search's number.
+    generation: u32,
+    /// For each state the current search reached: the cheapest cost to it,
+    /// how far the road could climb on the way, and the state before it.
+    cost: Vec<f64>,
+    run: Vec<f64>,
+    previous: Vec<u32>,
+    queue: BinaryHeap<Entry>,
+}
+
+impl Scratch {
+    /// Scratch for searches over a grid where `allowed` says which cells a
+    /// road may pass through.
+    pub(super) fn new(allowed: &[bool]) -> Self {
+        let mut index = vec![u32::MAX; allowed.len()];
+        let mut cells = Vec::new();
+        for (cell, _) in allowed.iter().enumerate().filter(|(_, a)| **a) {
+            index[cell] = u32::try_from(cells.len()).expect("fewer than 2^32 cells");
+            cells.push(cell);
+        }
+        let states = cells.len() * HEADINGS;
+        assert!(states < u32::MAX as usize, "fewer than 2^32 search states");
+        Self {
+            index,
+            cells,
+            reached: vec![0; states],
+            generation: 0,
+            cost: vec![0.0; states],
+            run: vec![0.0; states],
+            previous: vec![0; states],
+            queue: BinaryHeap::new(),
+        }
+    }
+
+    /// Memory held for search states, in bytes.
+    fn bytes(&self) -> usize {
+        self.reached.len() * (size_of::<u32>() + 2 * size_of::<f64>() + size_of::<u32>())
+            + self.queue.capacity() * size_of::<Entry>()
+    }
+
+    /// Starts a new search: every state counts as not reached.
+    fn begin(&mut self) {
+        self.queue.clear();
+        self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            // After 2^32 searches the numbers come round: clear them once.
+            self.reached.fill(0);
+            self.generation = 1;
+        }
+    }
+
+    /// The cheapest cost found to `state` in this search, infinite if it
+    /// hasn't been reached.
+    fn cost(&self, state: usize) -> f64 {
+        if self.reached[state] == self.generation {
+            self.cost[state]
+        } else {
+            f64::INFINITY
+        }
+    }
+
+    /// Records that `state` is reached at `cost`, from `previous`, having
+    /// climbed up to `run`.
+    fn reach(&mut self, state: usize, cost: f64, run: f64, previous: usize) {
+        self.reached[state] = self.generation;
+        self.cost[state] = cost;
+        self.run[state] = run;
+        self.previous[state] = previous as u32;
+    }
+}
+
 /// The cheapest route over `terrain` from `start` to a cell of `network`
 /// where `joinable(cell, reach)` allows joining, as cells from `start` to
 /// the joining cell, avoiding `blocked` cells. `reach` is how far the road
 /// could have climbed or fallen on its way there, at each step's steepest
 /// grade. Other network cells may be crossed. The route never turns more
-/// than [`MAX_TURN`] from one step to the next.
+/// than [`MAX_TURN`] from one step to the next. `start` must be an allowed
+/// cell.
 ///
 /// `ahead[cell]` must never be more than the cost from `cell` to the first
 /// network cell (see [`network_distance`]); the search uses it to head for
-/// the network without missing the cheapest route.
+/// the network without missing the cheapest route. `scratch` must have been
+/// made for `terrain.allowed`.
 ///
 /// Counts the search, and the states it queued and took, in `stats`.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn search(
     terrain: &Terrain,
     network: &[bool],
@@ -225,43 +331,8 @@ pub(super) fn search(
     blocked: &[bool],
     start: usize,
     joinable: &dyn Fn(usize, f64) -> bool,
+    scratch: &mut Scratch,
     stats: &mut RouteStats,
-) -> Option<Vec<usize>> {
-    stats.searches += 1;
-    let mut counts = SearchCounts::default();
-    let found = search_counted(
-        terrain,
-        network,
-        ahead,
-        blocked,
-        start,
-        joinable,
-        &mut counts,
-    );
-    stats.states_pushed += counts.pushed;
-    stats.states_popped += counts.popped;
-    stats.peak_state_bytes = stats.peak_state_bytes.max(counts.peak_bytes);
-    found
-}
-
-/// The work one search did.
-#[derive(Default)]
-struct SearchCounts {
-    pushed: u64,
-    popped: u64,
-    /// Memory held for the search's states at its largest, in bytes.
-    peak_bytes: usize,
-}
-
-/// [`search`], counting its work in `counts`.
-fn search_counted(
-    terrain: &Terrain,
-    network: &[bool],
-    ahead: &[f64],
-    blocked: &[bool],
-    start: usize,
-    joinable: &dyn Fn(usize, f64) -> bool,
-    counts: &mut SearchCounts,
 ) -> Option<Vec<usize>> {
     let Terrain {
         grid,
@@ -270,59 +341,55 @@ fn search_counted(
         bridges,
         grades,
     } = *terrain;
+    stats.searches += 1;
 
-    // A search state is a cell and the direction the route entered it by;
-    // the start has no direction (`DIRECTIONS`). The queue is ordered by
-    // the cost so far plus the least cost still ahead.
-    let headings = DIRECTIONS + 1;
-    let n = allowed.len() * headings;
-    let mut turnable = [[false; DIRECTIONS]; DIRECTIONS];
-    for (a, row) in turnable.iter_mut().enumerate() {
-        for (b, ok) in row.iter_mut().enumerate() {
-            *ok = direction(a).angle_to(direction(b)).abs() <= MAX_TURN + 1e-9;
-        }
-    }
-    let mut cost = vec![f64::INFINITY; n];
-    let mut run = vec![0.0f64; n];
-    let mut previous = vec![usize::MAX; n];
-    let mut queue = BinaryHeap::new();
-    let first = start * headings + DIRECTIONS;
-    cost[first] = 0.0;
-    queue.push(Entry {
+    // A search state is an allowed cell's index and the direction the route
+    // entered it by; the start has no direction (`DIRECTIONS`). The queue
+    // is ordered by the cost so far plus the least cost still ahead.
+    scratch.begin();
+    let first = scratch.index[start] as usize * HEADINGS + DIRECTIONS;
+    scratch.reach(first, 0.0, 0.0, first);
+    scratch.queue.push(Entry {
         cost: ahead[start],
         state: first,
     });
-    counts.pushed += 1;
-    let state_bytes = n * (2 * size_of::<f64>() + size_of::<usize>());
-    let mut longest_queue = 1;
-    while let Some(Entry {
-        cost: estimate,
-        state,
-    }) = queue.pop()
-    {
-        counts.popped += 1;
-        let (cell, heading) = (state / headings, state % headings);
-        let c = cost[state];
+    stats.states_pushed += 1;
+    let found = loop {
+        let Some(Entry {
+            cost: estimate,
+            state,
+        }) = scratch.queue.pop()
+        else {
+            break None;
+        };
+        stats.states_popped += 1;
+        let (cell, heading) = (scratch.cells[state / HEADINGS], state % HEADINGS);
+        let c = scratch.cost[state];
         if estimate > c + ahead[cell] {
             continue;
         }
-        if network[cell] && joinable(cell, run[state]) {
-            counts.peak_bytes = state_bytes + longest_queue * size_of::<Entry>();
+        if network[cell] && joinable(cell, scratch.run[state]) {
+            // The route, from the start to here.
             let mut states = vec![state];
             while states[states.len() - 1] != first {
-                states.push(previous[states[states.len() - 1]]);
+                states.push(scratch.previous[states[states.len() - 1]] as usize);
             }
             states.reverse();
-            return Some(states.into_iter().map(|s| s / headings).collect());
+            break Some(
+                states
+                    .into_iter()
+                    .map(|s| scratch.cells[s / HEADINGS])
+                    .collect(),
+            );
         }
         for (next, length, k) in grid.moves(cell) {
             if !allowed[next] || blocked[next] {
                 continue;
             }
-            if heading != DIRECTIONS && !turnable[heading][k] {
+            if heading != DIRECTIONS && !turnable(heading, k) {
                 continue;
             }
-            let next_state = next * headings + k;
+            let next_state = scratch.index[next] as usize * HEADINGS + k;
             // The step's grades: the mean of its two cells'.
             let (a, b) = (grades[cell], grades[next]);
             let preferred = 0.5 * f64::from(a.grade + b.grade);
@@ -344,7 +411,7 @@ fn search_counted(
             }
             // Only roads this one could join are cheap to follow; others it
             // may only cross.
-            let here = run[state] + steepest * length;
+            let here = scratch.run[state] + steepest * length;
             if network[next] && joinable(next, here) {
                 step *= REUSE_COST;
             }
@@ -353,19 +420,16 @@ fn search_counted(
                 step += bridge;
             }
             let total = c + step;
-            if total < cost[next_state] {
-                cost[next_state] = total;
-                run[next_state] = here;
-                previous[next_state] = state;
-                queue.push(Entry {
+            if total < scratch.cost(next_state) {
+                scratch.reach(next_state, total, here, state);
+                scratch.queue.push(Entry {
                     cost: total + ahead[next],
                     state: next_state,
                 });
-                counts.pushed += 1;
-                longest_queue = longest_queue.max(queue.len());
+                stats.states_pushed += 1;
             }
         }
-    }
-    counts.peak_bytes = state_bytes + longest_queue * size_of::<Entry>();
-    None
+    };
+    stats.peak_state_bytes = stats.peak_state_bytes.max(scratch.bytes());
+    found
 }

@@ -660,7 +660,7 @@ pub(crate) fn road_outline(
     region: &Region,
     agreements: &[(usize, &EdgeAgreement)],
     rivers: &[FeatureLine],
-    base: &dyn Fn(DVec2) -> f32,
+    base: &(dyn Fn(DVec2) -> f32 + Sync),
 ) -> RoadOutline {
     let Boundary::Polygon(polygon) = &region.boundary else {
         return RoadOutline::default();
@@ -695,7 +695,7 @@ pub(crate) fn roads(
     region: &Region,
     agreements: &[(usize, &EdgeAgreement)],
     rivers: &[FeatureLine],
-    base: &dyn Fn(DVec2) -> f32,
+    base: &(dyn Fn(DVec2) -> f32 + Sync),
     outline: &RoadOutline,
 ) -> Roads {
     let Boundary::Polygon(polygon) = &region.boundary else {
@@ -742,7 +742,7 @@ fn finish_roads(
     routes: Routes,
     region: &Region,
     agreements: &[(usize, &EdgeAgreement)],
-    base: &dyn Fn(DVec2) -> f32,
+    base: &(dyn Fn(DVec2) -> f32 + Sync),
 ) -> Roads {
     let Routes {
         mut roads,

@@ -6,6 +6,7 @@ mod search;
 
 pub use quality::{RoadQuality, road_quality};
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -18,7 +19,7 @@ use crate::ports::FEATURE_CLEARANCE;
 use crate::seam::smootherstep;
 
 use level::{across_road, crowded, grade_limited, level_on_roads, smooth};
-use search::{Bridges, Terrain, network_distance, search, water};
+use search::{Bridges, Scratch, Terrain, network_distance, search, water};
 
 /// How many joins a road may find out of reach before it gives up.
 const MAX_REFUSED_JOINS: usize = 8;
@@ -132,8 +133,8 @@ pub(crate) fn route(
     starts: &[RoadStart],
     rivers: &[FeatureLine],
     hub_at: Option<DVec2>,
-    grades: &dyn Fn(DVec2) -> RoadGrades,
-    ground: &dyn Fn(DVec2) -> f32,
+    grades: &(dyn Fn(DVec2) -> RoadGrades + Sync),
+    ground: &(dyn Fn(DVec2) -> f32 + Sync),
 ) -> Routes {
     let setup_started = Instant::now();
     let allowed: Vec<bool> = (0..grid.heights.len())
@@ -164,15 +165,14 @@ pub(crate) fn route(
         grade: 1.0,
         max_grade: 1.0,
     };
-    let cell_grades: Vec<RoadGrades> = (0..grid.heights.len())
-        .map(|i| {
-            if allowed[i] {
-                grades(grid.centre(i))
-            } else {
-                unused
-            }
-        })
-        .collect();
+    let cells: Vec<usize> = (0..grid.heights.len()).collect();
+    let cell_grades: Vec<RoadGrades> = crate::batch::map(&cells, |&i| {
+        if allowed[i] {
+            grades(grid.centre(i))
+        } else {
+            unused
+        }
+    });
     let river = water(grid, rivers);
     let bridges = Bridges::new(grid, rivers);
     let terrain = Terrain {
@@ -182,6 +182,7 @@ pub(crate) fn route(
         bridges: &bridges,
         grades: &cell_grades,
     };
+    let mut scratch = Scratch::new(&allowed);
     stats.setup_time = setup_started.elapsed();
 
     let mut network = vec![false; grid.heights.len()];
@@ -204,6 +205,15 @@ pub(crate) fn route(
         let field_started = Instant::now();
         let ahead = network_distance(grid, &network);
         stats.field_time += field_started.elapsed();
+        // The network's level at each cell, looked up once per cell: the
+        // roads don't change until this start's road is kept.
+        let levels = RefCell::new(HashMap::new());
+        let network_level = |cell: usize| {
+            *levels
+                .borrow_mut()
+                .entry(cell)
+                .or_insert_with(|| level_on_roads(&roads, grid.centre(cell)))
+        };
         let routed = loop {
             if refused.len() > MAX_REFUSED_JOINS {
                 stats.crowded_kept += usize::from(crowded_route.is_some());
@@ -214,13 +224,20 @@ pub(crate) fn route(
             // for the smoothing).
             let joinable = |cell: usize, reach: f64| {
                 !refused.contains(&cell)
-                    && level_on_roads(&roads, grid.centre(cell)).is_none_or(|level| {
+                    && network_level(cell).is_none_or(|level| {
                         f64::from((level - start.level).abs()) <= 0.9 * (reach + lead_in)
                     })
             };
             let search_started = Instant::now();
             let found = search(
-                &terrain, &network, &ahead, &blocked, first, &joinable, &mut stats,
+                &terrain,
+                &network,
+                &ahead,
+                &blocked,
+                first,
+                &joinable,
+                &mut scratch,
+                &mut stats,
             );
             stats.search_time += search_started.elapsed();
             let Some(cells) = found else {
@@ -237,19 +254,12 @@ pub(crate) fn route(
 
             // Levels: follow the smoothed ground, from the crossing's level
             // to the network's level where the road joins it.
-            let heights: Vec<f32> = points.iter().map(|&p| ground(p)).collect();
-            let steepest: Vec<f64> = points
-                .iter()
-                .enumerate()
-                .map(|(i, &p)| {
-                    let middle = if i == 0 {
-                        p
-                    } else {
-                        p.lerp(points[i - 1], 0.5)
-                    };
-                    f64::from(grades(middle).max_grade)
-                })
+            let heights: Vec<f32> = crate::batch::map(&points, |&p| ground(p));
+            let middles: Vec<DVec2> = (0..points.len())
+                .map(|i| points[i].lerp(points[i.saturating_sub(1)], 0.5))
                 .collect();
+            let steepest: Vec<f64> =
+                crate::batch::map(&middles, |&p| f64::from(grades(p).max_grade));
             let join = *cells.last().expect("route has cells");
             let end_level = level_on_roads(&roads, grid.centre(join));
             let target = smooth(&heights);
@@ -308,8 +318,8 @@ pub(crate) fn coarse_routes(
     polygon: &[DVec2],
     starts: &[RoadStart],
     rivers: &[FeatureLine],
-    grades: &dyn Fn(DVec2) -> RoadGrades,
-    ground: &dyn Fn(DVec2) -> f32,
+    grades: &(dyn Fn(DVec2) -> RoadGrades + Sync),
+    ground: &(dyn Fn(DVec2) -> f32 + Sync),
 ) -> Routes {
     let started = Instant::now();
     let grid = Grid::with_cell(polygon, ground, COARSE_CELL);
@@ -330,8 +340,8 @@ pub(crate) fn refined_routes(
     cell: f64,
     starts: &[RoadStart],
     rivers: &[FeatureLine],
-    grades: &dyn Fn(DVec2) -> RoadGrades,
-    ground: &dyn Fn(DVec2) -> f32,
+    grades: &(dyn Fn(DVec2) -> RoadGrades + Sync),
+    ground: &(dyn Fn(DVec2) -> f32 + Sync),
 ) -> Routes {
     let Some((hub, _)) = coarse.end else {
         return Routes {
@@ -412,17 +422,14 @@ fn distance_to_segment(p: DVec2, a: DVec2, b: DVec2) -> f64 {
 /// rise over run (see [`bank_for`]), from the slope of `ground` around each
 /// point, averaged along the road. Over its first [`BANK_EASE`] metres the
 /// road eases in from the gentlest banks, which its crossing piece has.
-pub(crate) fn banks(points: &[DVec2], ground: &dyn Fn(DVec2) -> f32) -> Vec<f32> {
-    // The ground's slope around each point.
-    let slope: Vec<f64> = points
-        .iter()
-        .map(|&p| {
-            let (dx, dz) = (DVec2::new(SLOPE_RADIUS, 0.0), DVec2::new(0.0, SLOPE_RADIUS));
-            let gx = f64::from(ground(p + dx) - ground(p - dx)) / (2.0 * SLOPE_RADIUS);
-            let gz = f64::from(ground(p + dz) - ground(p - dz)) / (2.0 * SLOPE_RADIUS);
-            gx.hypot(gz)
-        })
-        .collect();
+pub(crate) fn banks(points: &[DVec2], ground: &(dyn Fn(DVec2) -> f32 + Sync)) -> Vec<f32> {
+    // The ground's slope around each point, each point on its own.
+    let slope: Vec<f64> = crate::batch::map(points, |&p| {
+        let (dx, dz) = (DVec2::new(SLOPE_RADIUS, 0.0), DVec2::new(0.0, SLOPE_RADIUS));
+        let gx = f64::from(ground(p + dx) - ground(p - dx)) / (2.0 * SLOPE_RADIUS);
+        let gz = f64::from(ground(p + dz) - ground(p - dz)) / (2.0 * SLOPE_RADIUS);
+        gx.hypot(gz)
+    });
 
     // Averaged along the road, then eased in from the start.
     let gentle = bank_for(0.0);
