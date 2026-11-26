@@ -36,8 +36,12 @@ with the advisor where needed, for the user to review.
    (`terrain/speedup_options.md`):
    - **Option 3** (classify each chunk against borders) is folded into the
      cheap-borders worker's design.
-   - **Option 1** (disabled features cost nothing, lazy plans) starts as its
-     own worker once the Rayon removal (TS) lands.
+   - **Option 1** (disabled features cost nothing, lazy plans) goes to the
+     TE6 worker once the Rayon removal (TS) lands. Its output must stay
+     bitwise identical.
+   - **Built-in presets with roads and rivers off:** committed `55b5638`,
+     with tests kept on intent. Cold build on one thread: about 45–48%
+     fewer instructions.
    - **Option 4** (sharing noise evaluations) waits until the borders land,
      because both edit `relief.rs`.
    - **The GPU plan's 6 open questions** wait for the user. Nothing that
