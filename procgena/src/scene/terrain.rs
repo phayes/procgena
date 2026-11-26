@@ -53,27 +53,25 @@ pub struct TerrainShow {
     pub borders: bool,
 }
 
-/// Terrain chunks read at once.
-const TERRAIN_READS: usize = 8;
+/// The most threads for the studio's background work.
+const BACKGROUND_THREADS: usize = 8;
 
 /// The terrain plugin, drawing the usual detail for the camera's field of
-/// view out to [`VIEW_DISTANCE`], and reading up to [`TERRAIN_READS`]
-/// chunks at once.
+/// view out to [`VIEW_DISTANCE`]. Terrain is read on its own single thread.
 pub(crate) fn plugin() -> TerrainPlugin {
     TerrainPlugin::detailed(ChunkDetail::DEFAULT, VIEW_DISTANCE)
         .expect("the view distance is positive")
-        .with_max_reads(TERRAIN_READS)
 }
 
 /// The studio's thread pools: Bevy's usual ones, with half the cores (2 to
-/// [`TERRAIN_READS`]) for background work such as reading terrain chunks,
-/// where Bevy gives it a quarter (at most 4).
+/// [`BACKGROUND_THREADS`]) for background work, where Bevy gives it a
+/// quarter (at most 4). Terrain reads don't use these threads.
 pub(crate) fn task_pool_plugin() -> TaskPoolPlugin {
     TaskPoolPlugin {
         task_pool_options: TaskPoolOptions {
             async_compute: TaskPoolThreadAssignmentPolicy {
                 min_threads: 2,
-                max_threads: TERRAIN_READS,
+                max_threads: BACKGROUND_THREADS,
                 percent: 0.5,
                 on_thread_spawn: None,
                 on_thread_destroy: None,

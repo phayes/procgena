@@ -45,15 +45,13 @@
 //!   flight, still moving);
 //! - `--tin`: draw the finest chunks from their canonical meshes (see
 //!   `TerrainStream::tin`); `--measure` then also counts those chunks;
-//! - `--reads <n>`: read up to `n` chunks at once, on `n` background
-//!   threads (by default 4 reads on Bevy's usual threads);
 //! - `--headless`: with `--screenshot` or `--measure`, render a
 //!   1280 × 720 image without opening a window.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use bevy::app::{ScheduleRunnerPlugin, TaskPoolThreadAssignmentPolicy};
+use bevy::app::ScheduleRunnerPlugin;
 use bevy::camera::RenderTarget;
 use bevy::camera::primitives::Aabb;
 use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
@@ -209,12 +207,7 @@ fn main() {
         ..ChunkDetail::DEFAULT
     });
     let levels = detail.levels(view);
-    let reads: Option<usize> = value("--reads").map(|n| n.parse().expect("--reads needs a number"));
-    let mut plugin =
-        TerrainPlugin::detailed(detail, view).expect("--view needs a positive distance");
-    if let Some(reads) = reads {
-        plugin = plugin.with_max_reads(reads);
-    }
+    let plugin = TerrainPlugin::detailed(detail, view).expect("--view needs a positive distance");
     let flight = value("--fly").map(|speed| Fly {
         speed: speed.parse().expect("--fly needs a speed in m/s"),
         seconds: value("--fly-seconds")
@@ -252,9 +245,8 @@ fn main() {
         Duration::from_secs_f64(1.0 / 60.0)
     };
     // Assets are read from the workspace, where the ground textures live.
-    // With `--reads <n>`, read up to `n` chunks at once on `n` threads.
     // The wireframe needs the GPU to draw lines.
-    let mut defaults = DefaultPlugins
+    let defaults = DefaultPlugins
         .set(AssetPlugin {
             file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../..").to_owned(),
             ..default()
@@ -267,20 +259,6 @@ fn main() {
             .into(),
             ..default()
         });
-    if let Some(reads) = reads {
-        defaults = defaults.set(TaskPoolPlugin {
-            task_pool_options: TaskPoolOptions {
-                async_compute: TaskPoolThreadAssignmentPolicy {
-                    min_threads: reads,
-                    max_threads: reads,
-                    percent: 1.0,
-                    on_thread_spawn: None,
-                    on_thread_destroy: None,
-                },
-                ..default()
-            },
-        });
-    }
     let mut app = App::new();
     app.insert_resource(GroundTextureSettings {
         root: has("--textures").then(|| "terrain/assets/textures".to_owned()),

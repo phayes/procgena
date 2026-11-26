@@ -61,6 +61,7 @@ mod overlay;
 mod progress;
 mod stream;
 mod textures;
+mod worker;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -69,7 +70,6 @@ use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::pbr::MaterialPlugin;
 use bevy::prelude::*;
-use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use glam::{DVec2, DVec3};
 use procgena_core::chain::ViewScale;
 use procgena_core_bevy::{LodPlugin, LodQuality};
@@ -108,7 +108,6 @@ pub struct TerrainPlugin {
     levels: ChunkLevels,
     detail: Option<(ChunkDetail, f32)>,
     variation: f32,
-    max_reads: usize,
 }
 
 impl Default for TerrainPlugin {
@@ -136,7 +135,6 @@ impl TerrainPlugin {
             levels,
             detail: None,
             variation: DEFAULT_VARIATION,
-            max_reads: 4,
         })
     }
 
@@ -168,13 +166,6 @@ impl TerrainPlugin {
         self
     }
 
-    /// The plugin, reading at most `max_reads` chunks at once per stream
-    /// (at least one).
-    pub fn with_max_reads(mut self, max_reads: usize) -> Self {
-        self.max_reads = max_reads.max(1);
-        self
-    }
-
     /// The chunk levels, before any viewer's field of view is seen.
     pub fn levels(&self) -> &ChunkLevels {
         &self.levels
@@ -191,7 +182,6 @@ impl Plugin for TerrainPlugin {
                 levels: self.levels.clone(),
                 detail: self.detail,
                 variation: self.variation,
-                max_reads: self.max_reads,
             })
             .init_resource::<TerrainDebug>()
             .init_resource::<GroundTextureSettings>()
@@ -408,7 +398,6 @@ struct TerrainSettings {
     /// of view with, if they do.
     detail: Option<(ChunkDetail, f32)>,
     variation: f32,
-    max_reads: usize,
 }
 
 /// A chunk's ground as read: regular samples, or its canonical mesh.
@@ -592,8 +581,13 @@ impl ChunkRead {
     }
 }
 
-/// Reading one chunk in the background.
-type ReadTask = Task<Result<ChunkRead, ReadError>>;
+/// Reading one chunk on the terrain thread.
+type ReadTask = worker::Pending<Result<ChunkRead, ReadError>>;
+
+/// How many chunk reads each stream keeps queued on the terrain thread:
+/// one reading and one waiting, so the thread never sits idle between
+/// frames. Every read runs on the one terrain thread, one at a time.
+const QUEUED_READS: usize = 2;
 
 /// A stream's state: what is drawn, wanted and being read.
 #[derive(Component, Default)]
@@ -920,15 +914,15 @@ fn stream_chunks(
 
         // Collect finished reads.
         let mut finished = Vec::new();
-        state.tasks.retain_mut(|(key, generation, revision, task)| {
-            match block_on(poll_once(task)) {
+        state
+            .tasks
+            .retain_mut(|(key, generation, revision, task)| match task.poll() {
                 Some(result) => {
                     finished.push((*key, *generation, *revision, result));
                     false
                 }
                 None => true,
-            }
-        });
+            });
         for (key, generation, revision, result) in finished {
             let current = generation == state.stream.generation;
             let read: Read = match result {
@@ -957,7 +951,7 @@ fn stream_chunks(
         // first when the stream loads coarse first. Only when none is
         // missing, read drawn chunks again at the tier they want with the
         // reads left over.
-        let mut free = settings.max_reads.saturating_sub(state.stream.reading());
+        let mut free = QUEUED_READS.saturating_sub(state.stream.reading());
         let missing = state.stream.missing(&flat);
         let wanted = |key: ChunkKey| source.tier(key.level);
         let upgrades = state.stream.upgrades(&flat, wanted);
@@ -980,7 +974,7 @@ fn stream_chunks(
             let painter = Arc::clone(&source.ground);
             let use_gpu = gpu.as_ref().is_some_and(|g| g.0);
             let tin = source.tin;
-            let task = AsyncComputeTaskPool::get().spawn(async move {
+            let task = worker::spawn(move || {
                 ChunkRead::read_with_gpu(&*ground, &*painter, key, tier, use_gpu, tin)
             });
             state
@@ -1272,7 +1266,6 @@ mod tests {
             levels: plugin.levels.clone(),
             detail: plugin.detail,
             variation: plugin.variation,
-            max_reads: plugin.max_reads,
         })
         .init_resource::<LodQuality>()
         .init_resource::<TerrainDebug>()
@@ -1322,7 +1315,6 @@ mod tests {
             levels: plugin.levels.clone(),
             detail: plugin.detail,
             variation: plugin.variation,
-            max_reads: plugin.max_reads,
         })
         .add_systems(Update, follow_field_of_view);
         let level_1 = |app: &App| app.world().resource::<TerrainSettings>().levels.levels[1].start;

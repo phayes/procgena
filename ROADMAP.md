@@ -1965,6 +1965,31 @@ features and paint.
   no blurry close-up ground once loaded, frame time is measured against
   today, and the switches between levels don't pop.
 
+#### TS: Terrain on one worker thread
+
+Decided by the user 2026-11-26: "Rayon come out of the terrain crate
+only. No parallelism, but yes a single worker thread. If we cant make
+this fast enough on a single worker thread we're not hitting our design
+goals."
+
+- **Covers:**
+  - `procgena_terrain` has no Rayon and starts no threads: every
+    sample, plan and build runs on the calling thread. The `rayon`
+    feature and `batch.rs` are gone. (`procgena_stone` keeps Rayon.)
+  - `WorldTerrain`'s caches build each value once, on the thread that
+    asks first, with no off-thread builders and no work stealing.
+  - `procgena_terrain_bevy` reads every stream's chunks, and the region
+    builds inside them, on its one `terrain-worker` thread, one read at
+    a time. `TerrainPlugin::with_max_reads`, the viewer's and
+    `load_timeline`'s `--reads`, and the studio's 8 reads are gone.
+- **Done when:** a cold load is fast enough on that one thread. Until it
+  is, speed work targets single-thread cost (TE5, TE6, "Border-pull
+  cost"), not parallelism.
+- **Status (2026-11-26): built; not yet fast enough.** On one thread, a
+  cold `load_timeline` of the default viewer world took 5–7 minutes to
+  its first picture before this change (rivers and roads on or off), and
+  had not settled after 15.
+
 #### GPU1: Relief preview on the GPU
 
 - **Covers:**
