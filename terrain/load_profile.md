@@ -132,6 +132,19 @@ full table, with counts and budgets, is in the shared notes folder at
 - **Untouched points:** they still pay 6–7× the relief, because no
   per-chunk skip exists for chunks wholly inside a region.
 
+**Mountains, one thread, features off, Rough view:**
+
+- **Timings:** first picture 1,455 s, settled 2,092 s, at load 12–64.
+- **Stages:** 55 plans in 42 s, and 31 Rough builds in 60 s, inclusive.
+- **The worker's CPU:**
+  - ground sites 93.5%: border pulls 33.5%, convergence fade 33.4%, relief
+    noise 20.9%;
+  - mesh samples 3.4%;
+  - plans 2.0%;
+  - Rough builds 0.3%.
+- **What it means:** the same ranking holds, with the border share higher
+  than on the mixed world.
+
 ### Roads and rivers on against off
 
 - **Single thread:** not measured yet. Since 55b5638 the built-in presets
