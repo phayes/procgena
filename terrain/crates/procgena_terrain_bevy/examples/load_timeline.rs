@@ -53,6 +53,7 @@
 //! with at least one drawn chunk, or when the timeout is observed.
 
 use std::fmt::Write as _;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -63,9 +64,11 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use glam::DVec2;
+use procgena_terrain::tin::TinTolerance;
 use procgena_terrain::{
-    ChunkDetail, ChunkKey, Elevation, FeatureKind, FeatureLevel, FeatureTier, RegionId,
-    RegionProgress, RegionStage, TerrainPreset, TierLevels, WorldTerrain, WorldTerrainOptions,
+    ChunkDetail, ChunkFeature, ChunkKey, ChunkSource, Elevation, FeatureKind, FeatureLevel,
+    FeatureTier, RegionId, RegionProgress, RegionStage, SurfacePoint, TerrainPreset, TierLevels,
+    WorldTerrain, WorldTerrainOptions,
 };
 use procgena_terrain_bevy::{
     CanonicalChunk, RegionTracker, TerrainChunk, TerrainPlugin, TerrainProgress, TerrainStream,
@@ -111,6 +114,57 @@ struct Timeline {
     tin: bool,
     /// World retained for the optional road count after recording ends.
     footprint: Option<Arc<WorldTerrain>>,
+    /// The source the stream reads, counting its ground reads.
+    reads: Arc<Counting>,
+}
+
+/// The world as the stream reads it, counting every ground height the
+/// stream asks for (each point of [`ChunkSource::surface`] and
+/// [`ChunkSource::surfaces`]). Region builds inside the world read heights
+/// of their own; those aren't counted.
+struct Counting {
+    world: Arc<WorldTerrain>,
+    /// Ground points read.
+    points: AtomicU64,
+    /// Calls that read them.
+    calls: AtomicU64,
+}
+
+impl ChunkSource for Counting {
+    fn surface(&self, p: DVec2, level: FeatureLevel) -> SurfacePoint {
+        self.points.fetch_add(1, Ordering::Relaxed);
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.world.surface(p, level)
+    }
+    fn surfaces(&self, points: &[DVec2], level: FeatureLevel) -> Vec<SurfacePoint> {
+        self.points
+            .fetch_add(points.len() as u64, Ordering::Relaxed);
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        self.world.surfaces(points, level)
+    }
+    fn level(&self, level: FeatureLevel) -> FeatureLevel {
+        self.world.level(level)
+    }
+    fn level_difference(&self, min: DVec2, max: DVec2, from: FeatureLevel) -> f32 {
+        self.world.level_difference(min, max, from)
+    }
+    fn lines_within(&self, min: DVec2, max: DVec2, level: FeatureLevel) -> Vec<ChunkFeature> {
+        self.world.lines_within(min, max, level)
+    }
+    fn tin_tolerance(&self) -> TinTolerance {
+        self.world.tin_tolerance()
+    }
+    fn level_changes(&self, key: ChunkKey, from: FeatureLevel, to: FeatureLevel) -> bool {
+        self.world.level_changes(key, from, to)
+    }
+    fn level_change_known(
+        &self,
+        key: ChunkKey,
+        from: FeatureLevel,
+        to: FeatureLevel,
+    ) -> Option<bool> {
+        self.world.level_change_known(key, from, to)
+    }
 }
 
 /// Terrain stream and camera placement used to set up the scene.
@@ -229,10 +283,15 @@ fn main() {
     };
     let tin = has("--tin");
     let world = Arc::new(world.with_tier_levels(tier_levels));
+    let reads = Arc::new(Counting {
+        world: Arc::clone(&world),
+        points: AtomicU64::new(0),
+        calls: AtomicU64::new(0),
+    });
     let stream = TerrainStream {
         tin,
         regions: Some(tracker),
-        ..TerrainStream::new(world.clone())
+        ..TerrainStream::new(reads.clone())
     };
 
     // Set the view distance. Terrain is read on its own single thread.
@@ -269,6 +328,7 @@ fn main() {
             tier_levels,
             tin,
             footprint: has("--footprint").then_some(world),
+            reads,
         })
         .add_systems(Startup, setup)
         .add_systems(Update, record)
@@ -303,7 +363,8 @@ fn record(
     mut timeline: ResMut<Timeline>,
     time: Res<Time<Real>>,
     progress: Query<&TerrainProgress>,
-    chunks: Query<(&TerrainChunk, Has<CanonicalChunk>)>,
+    chunks: Query<(&TerrainChunk, Has<CanonicalChunk>, &Mesh3d)>,
+    meshes: Res<Assets<Mesh>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let t = now();
@@ -315,10 +376,10 @@ fn record(
     // Find the most detailed level currently drawn (the smallest level number).
     // Count chunks at their requested feature detail; with --tin, also require
     // an adaptive mesh for the finest-level milestone.
-    let finest_level = chunks.iter().map(|(c, _)| c.key.level).min();
+    let finest_level = chunks.iter().map(|(c, _, _)| c.key.level).min();
     let final_level = |level: u8| timeline.tier_levels.canonical(FeatureLevel(level));
     let (mut finest, mut finest_final, mut canonical) = (0, 0, 0);
-    for (chunk, is_canonical) in &chunks {
+    for (chunk, is_canonical, _) in &chunks {
         canonical += usize::from(is_canonical);
         if Some(chunk.key.level) == finest_level {
             finest += 1;
@@ -371,9 +432,31 @@ fn record(
             "chunk reads: {} sampled, {} promoted without a read",
             progress.sampled, progress.promoted
         );
+        println!(
+            "ground reads: {} points in {} calls",
+            timeline.reads.points.load(Ordering::Relaxed),
+            timeline.reads.calls.load(Ordering::Relaxed)
+        );
+        // Triangles drawn, skirts included, by chunk level.
+        let mut triangles: std::collections::BTreeMap<u8, (usize, usize)> = Default::default();
+        for (chunk, _, mesh) in &chunks {
+            let count = meshes
+                .get(&mesh.0)
+                .and_then(Mesh::indices)
+                .map_or(0, |indices| indices.len() / 3);
+            let level = triangles.entry(chunk.key.level).or_default();
+            level.0 += 1;
+            level.1 += count;
+        }
+        let total: usize = triangles.values().map(|(_, t)| t).sum();
+        print!("triangles drawn: {total}");
+        for (level, (chunks, count)) in &triangles {
+            print!(", L{level} {count} in {chunks}");
+        }
+        println!();
         write_files(&timeline);
         if let Some(world) = &timeline.footprint {
-            let keys: Vec<_> = chunks.iter().map(|(c, _)| c.key).collect();
+            let keys: Vec<_> = chunks.iter().map(|(c, _, _)| c.key).collect();
             count_road_chunks(world, &keys);
         }
         exit.write(AppExit::Success);
