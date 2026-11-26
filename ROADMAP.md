@@ -2625,11 +2625,20 @@ when a chunk's TIN is built, as today.
      range, about 2 km. The user accepts a cold build of about 10 s on
      mountains up front, so that later work can move to the GPU.
   2. **One label definition, evaluated two ways.** The same rules and
-     thresholds on the TIN, in exact integer centimetres, are evaluated
-     both as a point query (placement, now on the CPU and later on the
-     GPU) and as a dense GPU raster (the segmentation that Biome paint, BP,
-     reads). The two agree exactly. Paint may add visual-only channels on
-     top.
+     thresholds on the TIN, in exact integer centimetres, are evaluated:
+     - as a point query, for placement (on the CPU now, on the GPU later);
+     - per TIN vertex, for Biome paint (BP).
+
+     For paint (decided by the user 2026-11-26), there is no dense
+     segmentation raster. Each TIN vertex carries the canonical
+     neighbourhood facts as vertex attributes: landform class weights,
+     curvature, 12 m shape and wetness. The fragment shader adds per-pixel
+     slope (from the interpolated normal), height bands, aspect and
+     world-space noise breakup, and blends the textures. Paint matches
+     placement exactly at the vertices; between vertices only the
+     interpolation differs. A coarse per-chunk class raster (4–8 m) is
+     added only for patterns that follow neither geometry nor simple
+     fields.
   3. **Shading normals come purely from the TIN.** Border normals are
      carried in the edge contract, so seams stay exact without `H*`.
   4. **Only if TIN building is still too slow:** move `H*` sampling and
