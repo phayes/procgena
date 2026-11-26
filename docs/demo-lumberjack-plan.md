@@ -126,7 +126,7 @@ its block in ROADMAP; this list says only what the demo can use.
 | Grass and plants | `procgena_plant_bevy` | GPU grass with `PlantWind` (direction, strength, gust scale and speed, sway, flutter), `PlantSun`, shadows policy, trampling by interactors from avian or rapier colliders (`avian`, `rapier` features) | Grass wind and tree wind are separate resources (the "One wind" rule plans to merge them) |
 | Stones, dead wood, mushrooms, fruit, clumps | each asset's crates | Drawn through the shared instanced renderer with the distance chain; dead wood is natural "log" scenery | No colliders built from `game_level` (deferred by IX) |
 | Shared renderer | `procgena_core_bevy` | GPU-culled instanced copies with shadow and prepass support (`INSTANCED_PREPASS_SHADER`), dither LOD fades, quality levels | Whether volumetric fog, TAA motion vectors and SSAO all behave with it is unchecked (L2) |
-| Studio | `procgena` binary | A place to author the demo's World, Ecotope and tree presets | Not a game shell; the demo stays out of it (Q1) |
+| Studio | `procgena` binary | A place to author the demo's World, Ecotope and tree presets | Not a game shell; the demo stays out of it |
 | Environment code to learn from | `procgena/src/scene/environment.rs`, `plant_bevy/examples/walk.rs`, `plant_bevy/examples/avian.rs` | Sun, cascades, sky colour fog, one switch driving both winds; a walker trampling grass | Studio-only, not reusable as is |
 
 **Bevy version:** 0.20.1 across the workspace.
@@ -169,7 +169,7 @@ workspace member only after its files exist.
   forest-friendly fields, and gives `TerrainPlugin` a
   `TerrainStream::world(world_terrain)` with the player's camera as the
   `TerrainViewer`.
-- **The play area** (recommended 1.5 km square, Q2): a grid of Ecotope
+- **The play area** (about 1.5 km square): a grid of Ecotope
   tiles (for example 6 × 6 tiles of 256 m), each an `EcotopeParams` over
   the shared `Arc<WorldTerrain>` as `Ground`, all of one forest Ecotope
   with a coverage mask from terrain labels (no trees on water, roads or
@@ -190,10 +190,10 @@ workspace member only after its files exist.
 
 - `bevy-tnua` with its avian backend: walk, run, jump, slope limit, step
   up roots and stones, crouch to pick up (later).
-- Camera: third-person by default with a first-person toggle (Q4);
+- Camera: third-person by default with a first-person toggle (decided);
   third-person shows the glider and the axe and suits a screenshot demo.
-- Input through `bevy_enhanced_input` (keyboard, mouse, gamepad), or
-  Bevy's own input if the user prefers no extra crate (Q6).
+- Input through `bevy_enhanced_input` (keyboard, mouse, gamepad;
+  approved).
 - The player is a grass interactor (plant's `avian` feature), so grass
   parts around the feet as in `examples/walk.rs`.
 
@@ -328,7 +328,7 @@ From Bevy 0.20 (component names checked in the 0.20.1 sources):
   calm air. One effect per kind, emitter positions updated as the player
   moves, so particle count stays bounded.
 - **Small life**: butterflies and birds as cheap instanced sprites or
-  hanabi particles, not simulated animals (Q3 if more is wanted).
+  hanabi particles, not simulated animals.
 
 **Risk, settled first (L2):** whether procgena's materials and Bevy's
 effects work together. Today the shared renderer draws into shadow maps
@@ -365,7 +365,7 @@ material and lists what to ask of the engine crates.
 
 Each milestone ends in something to look at, a headless screenshot or a
 short recording, and a "Done when". Numbers are on the reference machine
-(Q7).
+(still to be named; see "Decisions").
 
 ### L0: Crate and dependencies
 
@@ -380,7 +380,7 @@ short recording, and a "Done when". Numbers are on the reference machine
 - World land streaming around the player, one forest Ecotope over the
   play area in tiles, colliders, `bevy-tnua` walking, third-person camera,
   a plain sun and `DistanceFog`, grass parting at the feet.
-- The chosen character (Q9) with idle, walk, run, jump, fall and land
+- The prepared `lumberjack.glb` with idle, walk, run, jump, fall and land
   blended by speed.
 - **Done when:** a player can walk across the play area over hills, along
   a road and among trees without falling through, getting stuck or
