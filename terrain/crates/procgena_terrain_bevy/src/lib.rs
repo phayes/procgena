@@ -1448,13 +1448,15 @@ mod tests {
     #[test]
     fn a_painter_that_reads_more_reads_the_chunks_again() {
         use procgena_core::ChildKey;
-        use procgena_terrain::ground::{Condition, GroundLayer, GroundSite, MaterialCatalogue};
-        use procgena_terrain::{Landform, SampleDetail, SurfacePoint};
+        use procgena_terrain::ground::{
+            Condition, GroundLayer, GroundSite, MaterialCatalogue, SiteDetail,
+        };
+        use procgena_terrain::{Landform, SurfacePoint};
         use std::collections::BTreeMap;
         use std::sync::Mutex;
 
         /// Flat test source recording the highest sampling detail requested.
-        struct Recorded(Mutex<SampleDetail>);
+        struct Recorded(Mutex<Option<SiteDetail>>);
         impl ChunkSource for Recorded {
             fn surface(&self, _: DVec2, _: FeatureTier) -> SurfacePoint {
                 SurfacePoint {
@@ -1471,11 +1473,11 @@ mod tests {
         }
         impl GroundSource for Recorded {
             fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite {
-                self.site_at(p, tier, SampleDetail::Gradient)
+                self.site_at(p, tier, SiteDetail::Gradient)
             }
-            fn site_at(&self, _: DVec2, _: FeatureTier, detail: SampleDetail) -> GroundSite {
+            fn site_at(&self, _: DVec2, _: FeatureTier, detail: SiteDetail) -> GroundSite {
                 let mut most = self.0.lock().unwrap();
-                *most = (*most).max(detail);
+                *most = (*most).max(Some(detail));
                 GroundSite::new(100.0, Vec2::ZERO)
             }
         }
@@ -1494,7 +1496,7 @@ mod tests {
             let catalogue = Arc::new(MaterialCatalogue::standard());
             Arc::new(GroundStack::new(&layers, catalogue, "test.ground", 0, 1.0).unwrap())
         };
-        let details = |app: &App, stream: Entity| -> Vec<SampleDetail> {
+        let details = |app: &App, stream: Entity| -> Vec<SiteDetail> {
             let state = app.world().get::<StreamState>(stream).unwrap();
             let reads = state.materials.values();
             reads.map(|(read, _)| read.ground_grid.detail()).collect()
@@ -1502,7 +1504,7 @@ mod tests {
 
         let _streaming = streaming();
         let mut app = app();
-        let source = Arc::new(Recorded(Mutex::new(SampleDetail::Height)));
+        let source = Arc::new(Recorded(Mutex::new(None)));
         let mut terrain = TerrainStream::new(source.clone());
         terrain.ground = stack(false);
         let stream = app.world_mut().spawn(terrain).id();
@@ -1511,11 +1513,8 @@ mod tests {
         settle(&mut app, 2000);
         let read = details(&app, stream);
         assert!(!read.is_empty());
-        assert!(
-            read.iter().all(|&d| d == SampleDetail::Gradient),
-            "{read:?}"
-        );
-        assert_eq!(*source.0.lock().unwrap(), SampleDetail::Gradient);
+        assert!(read.iter().all(|&d| d == SiteDetail::Gradient), "{read:?}");
+        assert_eq!(*source.0.lock().unwrap(), Some(SiteDetail::Gradient));
 
         // Switching to the cliff painter must trigger new sampling at label detail.
         app.world_mut()
@@ -1524,8 +1523,8 @@ mod tests {
             .ground = stack(true);
         settle(&mut app, 2000);
         let read = details(&app, stream);
-        assert!(read.iter().all(|&d| d == SampleDetail::Labels), "{read:?}");
-        assert_eq!(*source.0.lock().unwrap(), SampleDetail::Labels);
+        assert!(read.iter().all(|&d| d == SiteDetail::Labels), "{read:?}");
+        assert_eq!(*source.0.lock().unwrap(), Some(SiteDetail::Labels));
     }
 
     #[test]

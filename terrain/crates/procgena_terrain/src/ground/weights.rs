@@ -3,8 +3,10 @@
 
 use glam::{DVec2, UVec2};
 
-use super::{GroundMix, GroundPainter, GroundSite, GroundSource, MaterialCatalogue, MaterialId};
-use crate::{CHUNK_CELLS, ChunkError, ChunkKey, FeatureTier, SampleDetail};
+use super::{
+    GroundMix, GroundPainter, GroundSite, GroundSource, MaterialCatalogue, MaterialId, SiteDetail,
+};
+use crate::{CHUNK_CELLS, ChunkError, ChunkKey, FeatureTier};
 
 /// Texels along each side of a chunk's weights, at every level: one on
 /// every half cell of the chunk's mesh, the outer ones on its edges.
@@ -251,7 +253,7 @@ impl GroundWeights {
 #[derive(Debug, Clone)]
 pub struct GroundGrid {
     size: UVec2,
-    detail: SampleDetail,
+    detail: SiteDetail,
     points: Vec<DVec2>,
     sites: Vec<GroundSite>,
 }
@@ -270,7 +272,7 @@ impl GroundGrid {
         source: &(impl GroundSource + ?Sized),
         key: ChunkKey,
         tier: FeatureTier,
-        detail: SampleDetail,
+        detail: SiteDetail,
     ) -> Result<Self, ChunkError> {
         Self::sample(source, UVec2::splat(GROUND_TEXELS), tier, detail, |i, j| {
             GroundWeights::chunk_point(key, i, j)
@@ -281,7 +283,7 @@ impl GroundGrid {
         source: &(impl GroundSource + ?Sized),
         size: UVec2,
         tier: FeatureTier,
-        detail: SampleDetail,
+        detail: SiteDetail,
         point: impl Fn(u32, u32) -> DVec2,
     ) -> Result<Self, ChunkError> {
         let points: Vec<_> = (0..size.y)
@@ -306,7 +308,7 @@ impl GroundGrid {
     /// The detail requested when this grid was sampled. This does not
     /// guarantee that the source supplied every field. Sample a new grid
     /// before using a painter that requires higher [`detail`](GroundPainter::detail).
-    pub fn detail(&self) -> SampleDetail {
+    pub fn detail(&self) -> SiteDetail {
         self.detail
     }
 

@@ -14,9 +14,11 @@
 //! the median time to sample a chunk ([`ChunkSamples::sample`]) and to
 //! paint its weights ([`GroundWeights::chunk`]), both at the fine tier,
 //! and to sample ground sites without painting ([`GroundGrid::chunk`]).
-//! Site timings compare gradient detail (including slope), measures
-//! (adding distances and curvature), and labels (adding landform categories
-//! and flags), showing the sampling cost of more demanding ground rules.
+//! Site timings compare each [`SiteDetail`]: gradient (including slope),
+//! nearby (adding the height above water and distances, which bare terrain
+//! reads), measures (adding curvature), and labels (adding landform
+//! categories and flags), showing the sampling cost of more demanding
+//! ground rules.
 //!
 //! For the seam, it paints pairs of side-by-side chunks one level apart.
 //! Every second texel along the finer chunk's edge lies on a texel of the
@@ -29,11 +31,11 @@ use std::time::{Duration, Instant};
 
 use glam::{DVec2, Vec3};
 use procgena_terrain::ground::{
-    GROUND_TEXELS, GroundGrid, GroundStack, GroundWeights, MaterialCatalogue,
+    GROUND_TEXELS, GroundGrid, GroundStack, GroundWeights, MaterialCatalogue, SiteDetail,
 };
 use procgena_terrain::{
-    ChunkKey, ChunkSamples, Elevation, FeatureTier, RegionId, SampleDetail, TerrainPreset,
-    WorldTerrain, WorldTerrainOptions,
+    ChunkKey, ChunkSamples, Elevation, FeatureTier, RegionId, TerrainPreset, WorldTerrain,
+    WorldTerrainOptions,
 };
 
 fn main() {
@@ -71,12 +73,13 @@ fn main() {
     // Time each level: a row of chunks along x from the origin.
     println!(
         "level  chunk m  texel m  samples ms  weights ms  ratio  \
-         sites ms: gradient  measures  labels"
+         sites ms: gradient  nearby  measures  labels"
     );
     let details = [
-        SampleDetail::Gradient,
-        SampleDetail::Measures,
-        SampleDetail::Labels,
+        SiteDetail::Gradient,
+        SiteDetail::Nearby,
+        SiteDetail::Measures,
+        SiteDetail::Labels,
     ];
     for level in 0..6u8 {
         let keys: Vec<ChunkKey> = (0..chunks).map(|x| ChunkKey::new(x, 0, level)).collect();
@@ -85,7 +88,7 @@ fn main() {
         }
         let mut samples = Vec::new();
         let mut weights = Vec::new();
-        let mut sites = [Vec::new(), Vec::new(), Vec::new()];
+        let mut sites = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         for &key in &keys {
             let start = Instant::now();
             ChunkSamples::sample(&world, key, tier).expect("the world has ground");
@@ -101,10 +104,10 @@ fn main() {
             }
         }
         let (s, w) = (median(&mut samples), median(&mut weights));
-        let [g, m, l] = sites.map(|mut times| ms(median(&mut times)));
+        let [g, n, m, l] = sites.map(|mut times| ms(median(&mut times)));
         let size = ChunkKey::size_at(level);
         println!(
-            "{level:>5}  {size:>7}  {:>7}  {:>10.1}  {:>10.1}  {:>5.1}  {g:>18.1}  {m:>8.1}  {l:>6.1}",
+            "{level:>5}  {size:>7}  {:>7}  {:>10.1}  {:>10.1}  {:>5.1}  {g:>18.1}  {n:>6.1}  {m:>8.1}  {l:>6.1}",
             size / f64::from(GROUND_TEXELS - 1),
             ms(s),
             ms(w),

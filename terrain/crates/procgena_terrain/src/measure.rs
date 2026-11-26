@@ -73,6 +73,18 @@ pub struct Measures {
     pub road_distance: f32,
 }
 
+/// The [`Measures`] read from the features near a point alone, with the
+/// same values: no extra heights are read for them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct NearbyMeasures {
+    /// As [`Measures::height_above_water`].
+    pub height_above_water: Option<f32>,
+    /// As [`Measures::water_distance`].
+    pub water_distance: f32,
+    /// As [`Measures::road_distance`].
+    pub road_distance: f32,
+}
+
 /// The slope of ground whose gradient is `gradient`, as the sine of its
 /// angle from flat (see [`Measures::slope`]). A gradient that isn't a
 /// number gives 0, and an infinite one 1.

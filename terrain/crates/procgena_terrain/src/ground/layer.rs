@@ -7,9 +7,9 @@ use procgena_core::ChildKey;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::GroundSite;
+use super::{GroundSite, SiteDetail};
 use crate::noise::gradient_noise;
-use crate::{Flags, Landform, RoadTags, SampleDetail};
+use crate::{Flags, Landform, RoadTags};
 
 /// A soft band over one measure, such as a slope or a height: 0 outside
 /// it, 1 inside it, with smooth edges.
@@ -189,18 +189,19 @@ impl Condition {
     }
 
     /// The minimum sampling detail to request for this condition.
-    /// [`SampleDetail::Gradient`] provides height, slope and road tags;
-    /// [`SampleDetail::Measures`] adds nearby water height, distances and
-    /// curvature; [`SampleDetail::Labels`] adds landform categories and
-    /// flags. Higher detail requires more terrain calculations.
-    pub fn detail(&self) -> SampleDetail {
+    /// [`SiteDetail::Gradient`] provides height, slope and road tags;
+    /// [`SiteDetail::Nearby`] adds nearby water height and distances;
+    /// [`SiteDetail::Measures`] adds curvature; [`SiteDetail::Labels`] adds
+    /// landform categories and flags. Higher detail requires more terrain
+    /// calculations.
+    pub fn detail(&self) -> SiteDetail {
         match self {
-            Self::Slope(_) | Self::Height(_) | Self::RoadTags(_) => SampleDetail::Gradient,
-            Self::HeightAboveWater(_)
-            | Self::WaterDistance(_)
-            | Self::RoadDistance(_)
-            | Self::Curvature(_) => SampleDetail::Measures,
-            Self::Landform(_) | Self::Flags(_) => SampleDetail::Labels,
+            Self::Slope(_) | Self::Height(_) | Self::RoadTags(_) => SiteDetail::Gradient,
+            Self::HeightAboveWater(_) | Self::WaterDistance(_) | Self::RoadDistance(_) => {
+                SiteDetail::Nearby
+            }
+            Self::Curvature(_) => SiteDetail::Measures,
+            Self::Landform(_) | Self::Flags(_) => SiteDetail::Labels,
         }
     }
 
@@ -548,13 +549,13 @@ impl GroundLayer {
 
     /// The minimum sampling detail needed by all of this layer's
     /// conditions (see [`Condition::detail`]). Returns
-    /// [`SampleDetail::Gradient`] when there are no conditions.
-    pub fn detail(&self) -> SampleDetail {
+    /// [`SiteDetail::Gradient`] when there are no conditions.
+    pub fn detail(&self) -> SiteDetail {
         self.when
             .iter()
             .map(Condition::detail)
             .max()
-            .unwrap_or(SampleDetail::Gradient)
+            .unwrap_or(SiteDetail::Gradient)
     }
 
     /// Whether every setting is usable: opacity from 0 to 1, bands running

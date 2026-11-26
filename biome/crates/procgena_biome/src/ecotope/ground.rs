@@ -2,10 +2,9 @@
 //! shaped by its placed Scatters.
 
 use glam::DVec2;
-use procgena_terrain::SampleDetail;
 use procgena_terrain::ground::{
     GroundMix, GroundOverlay, GroundPainter, GroundSite, GroundStack, MaterialCatalogue, Ramp,
-    Reach,
+    Reach, SiteDetail,
 };
 
 use super::{Ecotope, EcotopeError, EcotopePlacement, Footprints};
@@ -121,7 +120,7 @@ impl EcotopeGround<'_> {
 }
 
 impl GroundPainter for EcotopeGround<'_> {
-    fn detail(&self) -> SampleDetail {
+    fn detail(&self) -> SiteDetail {
         self.base.detail().max(self.overlay.detail())
     }
 

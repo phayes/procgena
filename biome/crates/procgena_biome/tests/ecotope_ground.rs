@@ -271,8 +271,9 @@ fn bad_ground_layers_are_refused() {
 
 #[test]
 fn measure_and_label_conditions_read_and_write_in_a_file() {
+    use procgena_terrain::ground::SiteDetail;
     use procgena_terrain::ground::{Condition, FlagRule, Ramp};
-    use procgena_terrain::{Flags, Landform, SampleDetail};
+    use procgena_terrain::{Flags, Landform};
 
     let text = "\
 base: pine_forest_floor
@@ -304,14 +305,14 @@ ecotope:
             }),
         ]
     );
-    assert_eq!(mud.detail(), SampleDetail::Labels);
+    assert_eq!(mud.detail(), SiteDetail::Labels);
     ecotope.validate().expect("the merged Ecotope is valid");
 
     // The Ecotope painter must request labels to evaluate these conditions.
     let (placement, _) = placed(ecotope);
     let bare = GroundStack::bare(1, 1.0);
     let painter = ecotope.ground(&bare, &placement).unwrap();
-    assert_eq!(painter.detail(), SampleDetail::Labels);
+    assert_eq!(painter.detail(), SiteDetail::Labels);
 
     // Saving and loading the preset must preserve the complete Ecotope.
     let written = read.to_file(Some(EcotopePreset::pine_forest_floor()));

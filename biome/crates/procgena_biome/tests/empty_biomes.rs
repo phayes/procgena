@@ -258,8 +258,8 @@ fn an_empty_biomes_base_ground_replaces_the_bare_look() {
     use std::sync::Arc;
 
     use procgena_biome::{BiomeGround, biome_seed, standard_base_layers};
-    use procgena_terrain::ground::{GroundStack, MaterialCatalogue, bare_layers};
-    use procgena_terrain::{ChunkKey, SampleDetail};
+    use procgena_terrain::ChunkKey;
+    use procgena_terrain::ground::{GroundStack, MaterialCatalogue, SiteDetail, bare_layers};
 
     let catalogue = Arc::new(MaterialCatalogue::standard());
     let bare = GroundStack::bare(0, 1.0);
@@ -271,7 +271,7 @@ fn an_empty_biomes_base_ground_replaces_the_bare_look() {
         assert_eq!(preset.biome.ground, BiomeGround::Standard, "{}", preset.key);
         let seed = biome_seed(preset.default_seed, RegionId(1));
         let base = preset.biome.ground(catalogue.clone(), seed, 1.0).unwrap();
-        assert_eq!(base.detail(), SampleDetail::Labels);
+        assert_eq!(base.detail(), SiteDetail::Labels);
         let keys: Vec<_> = base.layers().map(|(k, _)| k.clone()).collect();
         assert!(bare_layers().keys().all(|k| keys.contains(k)), "{keys:?}");
         assert_eq!(keys.len(), standard_base_layers().len());

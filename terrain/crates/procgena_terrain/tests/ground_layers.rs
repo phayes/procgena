@@ -13,10 +13,11 @@ use procgena_terrain::ground::{
     Condition, FlagRule, GROUND_TEXELS, GroundError, GroundLayer, GroundMaterial, GroundMix,
     GroundNoise, GroundOverlay, GroundPainter, GroundSite, GroundSource, GroundStack,
     GroundWeights, HeightRule, MaterialCatalogue, MaterialId, OnGround, PALETTE_SIZE, Ramp,
+    SiteDetail,
 };
 use procgena_terrain::{
-    Boundary, ChunkKey, FeatureTier, Flags, Labels, Landform, Region, RegionId, RoadTags,
-    SampleDetail, Terrain, TerrainGenerator, fixtures,
+    Boundary, ChunkKey, FeatureTier, Flags, Labels, Landform, Region, RegionId, RoadTags, Terrain,
+    TerrainGenerator, fixtures,
 };
 
 fn key(k: &str) -> ChildKey {
@@ -426,8 +427,8 @@ fn retained_sites_repaint_without_reading_ground() {
     }
     let source = Counted(AtomicUsize::new(0));
     let key = ChunkKey::new(-1, 2, 0);
-    let grid = GroundGrid::chunk(&source, key, FeatureTier::Fine, SampleDetail::Measures).unwrap();
-    assert_eq!(grid.detail(), SampleDetail::Measures);
+    let grid = GroundGrid::chunk(&source, key, FeatureTier::Fine, SiteDetail::Measures).unwrap();
+    assert_eq!(grid.detail(), SiteDetail::Measures);
     let count = source.0.load(Ordering::Relaxed);
     for vertical in [0.5, 1.0, 2.0] {
         let painter = GroundStack::bare(7, vertical);
@@ -546,22 +547,27 @@ fn painters_ask_for_the_detail_their_conditions_need() {
     );
     assert_eq!(
         stack(std::slice::from_ref(&soil)).detail(),
-        SampleDetail::Gradient
+        SiteDetail::Gradient
     );
-    assert_eq!(
-        stack(&[soil.clone(), rock]).detail(),
-        SampleDetail::Gradient
-    );
+    assert_eq!(stack(&[soil.clone(), rock]).detail(), SiteDetail::Gradient);
     let mud = (
         "mud",
         GroundLayer::new(key("mud"), 600).when(Condition::WaterDistance(Ramp::fall(1.0, 2.0))),
     );
-    assert_eq!(stack(&[soil.clone(), mud]).detail(), SampleDetail::Measures);
+    assert_eq!(stack(&[soil.clone(), mud]).detail(), SiteDetail::Nearby);
+    let hollow = (
+        "hollow",
+        GroundLayer::new(key("moss"), 300).when(Condition::Curvature(Ramp::fall(-0.01, 0.0))),
+    );
+    assert_eq!(
+        stack(&[soil.clone(), hollow]).detail(),
+        SiteDetail::Measures
+    );
 
-    // The bare stack needs measures for height above nearby water.
+    // The bare stack needs the height above nearby water, but no curvature.
     // Adding a cliff condition raises the requirement to labels.
-    assert_eq!(GroundStack::bare(3, 1.0).detail(), SampleDetail::Measures);
-    assert_eq!(banks_and_roads().detail(), SampleDetail::Labels);
+    assert_eq!(GroundStack::bare(3, 1.0).detail(), SiteDetail::Nearby);
+    assert_eq!(banks_and_roads().detail(), SiteDetail::Labels);
 
     // An overlay reports its own requirements, independently of its base stack.
     let bare = GroundStack::bare(3, 1.0);
@@ -572,9 +578,9 @@ fn painters_ask_for_the_detail_their_conditions_need() {
         any: Flags::WET,
         none: Flags::NONE,
     }));
-    assert_eq!(overlay(wet).detail(), SampleDetail::Labels);
+    assert_eq!(overlay(wet).detail(), SiteDetail::Labels);
     let empty = GroundOverlay::new(&BTreeMap::new(), &bare, "test", 1).unwrap();
-    assert_eq!(empty.detail(), SampleDetail::Gradient);
+    assert_eq!(empty.detail(), SiteDetail::Gradient);
 }
 
 /// Paints a chunk and returns its sampled sites. Checks that painting a
@@ -726,7 +732,7 @@ fn a_cliff(terrain: &Terrain) -> Option<DVec2> {
 /// Allows a small fraction of texels to lose coverage, since nearby waters
 /// can have different surface heights.
 #[test]
-fn bare_riverbeds_lie_under_drawn_water_read_with_measures() {
+fn bare_riverbeds_lie_under_drawn_water_read_with_nearby_water() {
     use procgena_terrain::ground::{GroundGrid, Water};
     let bare = GroundStack::bare(3, 1.0);
     let riverbed = bare.catalogue().id("riverbed").unwrap();
@@ -743,10 +749,19 @@ fn bare_riverbeds_lie_under_drawn_water_read_with_measures() {
                 let key = ChunkKey::containing(p, 0);
                 let read = |detail| GroundGrid::chunk(terrain, key, FeatureTier::Fine, detail);
                 let (rough, fine) = (
-                    read(SampleDetail::Gradient).unwrap(),
-                    read(SampleDetail::Measures).unwrap(),
+                    read(SiteDetail::Gradient).unwrap(),
+                    read(SiteDetail::Nearby).unwrap(),
                 );
                 let (a, b) = (rough.paint(&bare), fine.paint(&bare));
+                // Read with curvature too, the bare look paints the same.
+                let measured = read(SiteDetail::Measures).unwrap();
+                assert_eq!(measured.paint(&bare), b, "chunk {key:?}");
+                for (n, m) in fine.sites().iter().zip(measured.sites()) {
+                    assert_eq!(n.nearby_water_height, m.nearby_water_height);
+                    assert_eq!(n.water_distance, m.water_distance);
+                    assert_eq!(n.road_distance, m.road_distance);
+                    assert_eq!((n.curvature, m.curvature.is_some()), (None, true));
+                }
                 for (n, site) in fine.sites().iter().enumerate() {
                     if !matches!(site.water, Some(Water::Level(_))) {
                         continue;

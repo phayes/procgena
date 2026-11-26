@@ -6,8 +6,7 @@ use std::sync::Arc;
 use glam::DVec2;
 use procgena_core::{ChildKey, child_seed};
 
-use super::{GroundError, GroundLayer, GroundSite, MaterialCatalogue, MaterialId};
-use crate::SampleDetail;
+use super::{GroundError, GroundLayer, GroundSite, MaterialCatalogue, MaterialId, SiteDetail};
 
 /// How much of each material lies at one point. The weights are more than
 /// 0 and add up to 1.
@@ -214,7 +213,7 @@ impl GroundStack {
     /// The minimum sampling detail needed by all layers in this stack.
     /// Pass it to the [`GroundSource`](super::GroundSource) when sampling
     /// sites for painting; see [`GroundLayer::detail`].
-    pub fn detail(&self) -> SampleDetail {
+    pub fn detail(&self) -> SiteDetail {
         detail_of(&self.layers)
     }
 
@@ -340,21 +339,21 @@ impl GroundOverlay {
     }
 
     /// The minimum sampling detail needed by this overlay's layers.
-    /// Returns [`SampleDetail::Gradient`] for an empty overlay. When
+    /// Returns [`SiteDetail::Gradient`] for an empty overlay. When
     /// painting over a stack, request the higher of the stack's and
     /// overlay's detail levels.
-    pub fn detail(&self) -> SampleDetail {
+    pub fn detail(&self) -> SiteDetail {
         detail_of(&self.layers)
     }
 }
 
 /// Returns the highest layer requirement, or gradient detail for no layers.
-fn detail_of(layers: &[Prepared]) -> SampleDetail {
+fn detail_of(layers: &[Prepared]) -> SiteDetail {
     layers
         .iter()
         .map(|p| p.layer.detail())
         .max()
-        .unwrap_or(SampleDetail::Gradient)
+        .unwrap_or(SiteDetail::Gradient)
 }
 
 /// Anything that paints the ground: a mix of materials at each point.
@@ -373,14 +372,14 @@ pub trait GroundPainter: Sync {
     /// The sampling detail this painter needs from a ground source.
     /// Override this when `paint` uses measures (distances, nearby water
     /// height or curvature) or labels (landform categories and flags).
-    /// The default, [`SampleDetail::Gradient`], requests height, slope,
+    /// The default, [`SiteDetail::Gradient`], requests height, slope,
     /// water and road tags.
     ///
     /// Higher detail requires more terrain calculations. Sampling with
     /// less detail may leave data unknown; ground layers ignore conditions
     /// on unknown data, which can change the resulting materials.
-    fn detail(&self) -> SampleDetail {
-        SampleDetail::Gradient
+    fn detail(&self) -> SiteDetail {
+        SiteDetail::Gradient
     }
 
     /// The catalogue the mixes' material ids are from.
@@ -396,7 +395,7 @@ impl GroundPainter for GroundStack {
         Some(self)
     }
 
-    fn detail(&self) -> SampleDetail {
+    fn detail(&self) -> SiteDetail {
         GroundStack::detail(self)
     }
 

@@ -462,8 +462,8 @@ mod tests {
     use glam::DVec2;
     use procgena_core::ChildKey;
     use procgena_terrain::{
-        FeatureTier, Labels, SampleDetail,
-        ground::{GroundSite, GroundSource, Water},
+        FeatureTier, Labels,
+        ground::{GroundSite, GroundSource, SiteDetail, Water},
     };
 
     struct Sites;
@@ -624,7 +624,7 @@ mod tests {
         app.cleanup();
         assert!(app.world().resource::<Enabled>().0);
         let stack = every_condition();
-        assert_eq!(stack.detail(), SampleDetail::Labels);
+        assert_eq!(stack.detail(), SiteDetail::Labels);
         let key = ChunkKey::new(0, 0, 0);
         let detail = stack.detail();
         let grid = Arc::new(GroundGrid::chunk(&Sites, key, FeatureTier::Fine, detail).unwrap());
@@ -767,7 +767,7 @@ mod tests {
         .unwrap();
         let key = ChunkKey::new(0, 0, 0);
         let grid = Arc::new(
-            GroundGrid::chunk(&Sites, key, FeatureTier::Fine, SampleDetail::Gradient).unwrap(),
+            GroundGrid::chunk(&Sites, key, FeatureTier::Fine, SiteDetail::Gradient).unwrap(),
         );
         assert!(GpuGroundPaint::prepare(&stack, grid, key).is_none());
     }

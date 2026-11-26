@@ -46,7 +46,7 @@ fn key(key: &'static str) -> ChildKey {
 /// | `road_shoulder` | `gravel_road` | 630 | full on the road and within 0.5 m of its edge; fades to zero 2 m away |
 /// | `cliff` | `cliff_rock` | 660 | where the terrain labels the ground a cliff |
 ///
-/// These layers require [`SampleDetail::Labels`](procgena_terrain::SampleDetail::Labels):
+/// These layers require [`SiteDetail::Labels`](procgena_terrain::ground::SiteDetail::Labels):
 /// terrain measurements plus landform classification. Sampling them costs
 /// more than rules based only on height and slope. The mud rule also
 /// matches underwater points; higher layers determine the visible surface.

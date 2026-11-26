@@ -49,7 +49,7 @@ pub use layer::{
     Condition, FlagRule, GroundLayer, GroundNoise, HeightRule, Ramp, Reach, ScatterInfluence,
 };
 pub use material::{GroundMaterial, MaterialCatalogue, MaterialId, Projection, ground_textures};
-pub use site::{GroundSite, GroundSource, OnGround, Water};
+pub use site::{GroundSite, GroundSource, OnGround, SiteDetail, Water};
 pub use stack::{GroundMix, GroundOverlay, GroundPainter, GroundStack};
 pub use weights::{GROUND_TEXELS, GroundGrid, GroundWeights, PALETTE_SIZE};
 

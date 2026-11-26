@@ -15,7 +15,7 @@ use crate::feature::{FeatureId, FeatureTier, TerrainFeature};
 use crate::hash::{SEAM_DETAIL, salt};
 use crate::label::{Labels, Shape, Site, classify, principal_bends, shape_points};
 use crate::measure::{
-    CURVATURE_STEP, MEASURE_REACH, Measures, SampleDetail, curvature_of, slope_of,
+    CURVATURE_STEP, MEASURE_REACH, Measures, NearbyMeasures, SampleDetail, curvature_of, slope_of,
 };
 use crate::noise::{Octaves, fbm, fbm_gradient};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
@@ -1142,13 +1142,32 @@ impl Terrain {
     /// rises by `gradient`, and what the nearest water within their reach
     /// is.
     fn measures(&self, p: DVec2, height: f32, gradient: Vec2) -> (Measures, Option<FeatureKind>) {
-        let reach = f64::from(MEASURE_REACH);
-        let nearby = self.features.nearby(p, reach);
+        let (nearby, water_kind) = self.nearby(p, height);
         let around = [DVec2::X, DVec2::NEG_X, DVec2::Y, DVec2::NEG_Y]
             .map(|axis| self.height(p + axis * CURVATURE_STEP));
         let measures = Measures {
             slope: slope_of(gradient),
             curvature: curvature_of(height, around),
+            height_above_water: nearby.height_above_water,
+            water_distance: nearby.water_distance,
+            road_distance: nearby.road_distance,
+        };
+        (measures, water_kind)
+    }
+
+    /// The measures at `p` that come from the nearby features alone, where
+    /// the carved ground is `height` high: the same values
+    /// [`query`](Self::query) gives at [`SampleDetail::Measures`], without
+    /// reading the curvature's heights.
+    pub(crate) fn nearby_measures(&self, p: DVec2, height: f32) -> NearbyMeasures {
+        self.nearby(p, height).0
+    }
+
+    /// The nearby measures at `p`, and what the nearest water within their
+    /// reach is.
+    fn nearby(&self, p: DVec2, height: f32) -> (NearbyMeasures, Option<FeatureKind>) {
+        let nearby = self.features.nearby(p, f64::from(MEASURE_REACH));
+        let measures = NearbyMeasures {
             height_above_water: nearby.water_level.map(|level| height - level),
             water_distance: nearby.water_distance as f32,
             road_distance: nearby.road_distance as f32,
