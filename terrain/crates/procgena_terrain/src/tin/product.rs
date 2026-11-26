@@ -10,15 +10,12 @@ use glam::{DVec2, DVec3, Vec3};
 use crate::chunk::{ChunkKey, ChunkMesh, ChunkSide, ChunkSource, Transitions};
 use crate::feature::FeatureLevel;
 
-use super::contract::{ChunkEdgeKey, chunk_cm, step_cm};
+use super::cache::ContractCache;
+use super::contract::{ChunkEdgeKey, border_normals, chunk_cm, step_cm};
 use super::mesh::{TinChunk, TinVertex};
 use super::numeric::{CM_PER_M, Cm};
-use super::probe::{ProbeAddr, TinError};
-
-/// How far either side of a vertex the ground is read for its shading
-/// normal, in metres: the spacing regular level-0 chunks use, so the two
-/// agree where they meet.
-const NORMAL_STEP: f64 = 1.0;
+use super::probe::TinError;
+use super::tolerance::TinTolerance;
 
 /// A chunk's canonical ground as triangles for a physics engine: the
 /// canonical vertices and triangles, unchanged, in the chunk's own frame.
@@ -67,24 +64,54 @@ impl TinChunk {
     }
 
     /// One upward unit normal for each of the chunk's vertices, for smooth
-    /// shading.
+    /// shading, for a chunk built from `source` within
+    /// [`tin_tolerance`](ChunkSource::tin_tolerance).
     ///
-    /// A vertex on the chunk's border takes its normal from the ground of
-    /// `source` at the finest level one metre either side of it along x and
-    /// z, as regular chunks shade their vertices. The chunks either side
-    /// of a border hold the same vertices there and read the same ground,
-    /// so their shading meets without a seam, and a regular neighbour
-    /// shades alike too. A vertex inside the chunk takes the average of
-    /// the normals of the triangles around it, weighted by their area,
-    /// and reads no ground. These normals are for drawing only; for slope
-    /// tests read the terrain's own ground.
+    /// The same as [`shading_normals_with`](Self::shading_normals_with)
+    /// with a fresh contract cache, so it builds the chunk's four edge
+    /// contracts again. Use `shading_normals_with` and the cache the chunk
+    /// was built with to read no ground at all.
+    ///
+    /// # Errors
+    ///
+    /// As [`shading_normals_with`](Self::shading_normals_with).
+    pub fn shading_normals(&self, source: &dyn ChunkSource) -> Result<Vec<Vec3>, TinError> {
+        let tolerance = source.tin_tolerance();
+        self.shading_normals_with(source, &tolerance, &ContractCache::new(&tolerance))
+    }
+
+    /// One upward unit normal for each of the chunk's vertices, for smooth
+    /// shading. Pass the `source`, base `tolerance` and `contracts` the
+    /// chunk was built with (see
+    /// [`build_chunk_with`](super::build_chunk_with)).
+    ///
+    /// A vertex on the chunk's border takes the normal its edge contract
+    /// carries ([`EdgeContract::normals`](super::EdgeContract::normals)):
+    /// the ground's slope one lattice step either side along x and z, which
+    /// at level 0 is how a regular chunk shades its vertex. The chunks
+    /// either side of a border share the contract, so their shading meets
+    /// without a seam. A vertex inside the chunk takes the average of the
+    /// normals of the triangles around it, weighted by their area. Nothing
+    /// reads the ground unless `contracts` lacks one of the chunk's edges,
+    /// which is then built, or the chunk has a border vertex no contract
+    /// holds (it was triangulated from other contracts), whose normal is
+    /// then read from the ground the same way. These normals are for
+    /// drawing only.
     ///
     /// # Errors
     ///
     /// [`TinError::NotFinest`] if `source` can't give the finest level, and
-    /// [`TinError::NoGround`] (at the vertex) if the ground is missing
-    /// beside a border vertex.
-    pub fn shading_normals(&self, source: &dyn ChunkSource) -> Result<Vec<Vec3>, TinError> {
+    /// [`TinError::NoGround`] if the ground needed is missing.
+    ///
+    /// # Panics
+    ///
+    /// If `contracts` was made for another tolerance.
+    pub fn shading_normals_with(
+        &self,
+        source: &dyn ChunkSource,
+        tolerance: &TinTolerance,
+        contracts: &ContractCache,
+    ) -> Result<Vec<Vec3>, TinError> {
         let level = source.level(FeatureLevel::FINEST);
         if level != FeatureLevel::FINEST {
             return Err(TinError::NotFinest(level));
@@ -115,37 +142,40 @@ impl TinChunk {
             .map(|n| n.normalize_or(DVec3::Y).as_vec3())
             .collect();
 
-        // On the border: the ground's own slope, a metre either side.
+        // On the border: the normals the edge contracts carry.
+        let mut carried: HashMap<(Cm, Cm), Vec3> = HashMap::new();
+        for edge in ChunkEdgeKey::of_chunk(self.key) {
+            let built = contracts.get_or_build(source, edge, tolerance)?;
+            let contract = &built.0;
+            for (v, &n) in contract.vertices.iter().zip(&contract.normals) {
+                carried.insert((v.x, v.z), n);
+            }
+        }
         let width = self.width_cm();
         let on_border = |v: &TinVertex| {
             v.x.0 == x0 || v.x.0 == x0 + width || v.z.0 == z0 || v.z.0 == z0 + width
         };
-        let border: Vec<usize> = (0..self.vertices.len())
-            .filter(|&i| on_border(&self.vertices[i]))
-            .collect();
-        let offsets = [
-            DVec2::new(NORMAL_STEP, 0.0),
-            DVec2::new(-NORMAL_STEP, 0.0),
-            DVec2::new(0.0, NORMAL_STEP),
-            DVec2::new(0.0, -NORMAL_STEP),
-        ];
-        let points: Vec<DVec2> = border
-            .iter()
-            .flat_map(|&i| {
-                let v = self.vertices[i];
-                let at = DVec2::new(v.x.to_m(), v.z.to_m());
-                offsets.map(|o| at + o)
-            })
-            .collect();
-        let samples = source.surfaces(&points, FeatureLevel::FINEST);
-        for (&i, s) in border.iter().zip(samples.as_chunks::<4>().0) {
-            let [east, west, north, south] = s.map(|p| p.height);
-            if [east, west, north, south].iter().any(|h| h.is_nan()) {
-                let v = self.vertices[i];
-                return Err(TinError::NoGround(ProbeAddr::new(v.x, v.z)));
+        let mut missing: Vec<usize> = Vec::new();
+        for (i, (v, normal)) in self.vertices.iter().zip(&mut normals).enumerate() {
+            if on_border(v) {
+                match carried.get(&(v.x, v.z)) {
+                    Some(&n) => *normal = n,
+                    None => missing.push(i),
+                }
             }
-            let spacing = (2.0 * NORMAL_STEP) as f32;
-            normals[i] = Vec3::new(west - east, spacing, south - north).normalize();
+        }
+
+        // A border vertex no contract holds (a chunk triangulated from
+        // other contracts): the same normal, from the ground.
+        let points: Vec<(Cm, Cm)> = missing
+            .iter()
+            .map(|&i| (self.vertices[i].x, self.vertices[i].z))
+            .collect();
+        for (&i, n) in missing
+            .iter()
+            .zip(border_normals(source, &points, self.key.level)?)
+        {
+            normals[i] = n;
         }
         Ok(normals)
     }

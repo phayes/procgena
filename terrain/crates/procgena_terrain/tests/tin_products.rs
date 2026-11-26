@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use glam::{DVec2, DVec3, Vec3};
 use procgena_terrain::tin::{
-    ChunkEdgeKey, Cm, CmHeight, EdgeContract, GroundSurface, ResidentTins, TinChunk, TinIndex,
-    TinTolerance, TinVertex, build_chunk, triangulate,
+    ChunkEdgeKey, Cm, CmHeight, ContractCache, EdgeContract, GroundSurface, ResidentTins, TinChunk,
+    TinIndex, TinTolerance, TinVertex, build_chunk, build_chunk_with, triangulate,
 };
 use procgena_terrain::{
     ChunkKey, ChunkMesh, ChunkSamples, ChunkSide, ChunkSource, FeatureLevel, SurfacePoint,
@@ -97,6 +97,7 @@ fn off_lattice_chunk() -> Arc<TinChunk> {
             .to_vec();
         EdgeContract {
             key: edge,
+            normals: vec![glam::Vec3::Y; vertices.len()],
             vertices,
             crossings: Vec::new(),
         }
@@ -390,8 +391,9 @@ fn the_drawn_mesh_is_the_canonical_one_with_split_sides() {
 
 /// Whether `v` is on the border of `chunk`'s square.
 fn on_border(chunk: &TinChunk, v: &TinVertex) -> bool {
-    let (x0, z0) = (chunk.key.x * 6_400, chunk.key.z * 6_400);
-    v.x.0 == x0 || v.x.0 == x0 + 6_400 || v.z.0 == z0 || v.z.0 == z0 + 6_400
+    let width = 6_400 << chunk.key.level;
+    let (x0, z0) = (chunk.key.x * width, chunk.key.z * width);
+    v.x.0 == x0 || v.x.0 == x0 + width || v.z.0 == z0 || v.z.0 == z0 + width
 }
 
 #[test]
@@ -443,12 +445,52 @@ fn neighbours_shade_their_shared_border_alike() {
 }
 
 #[test]
-fn shading_inside_a_chunk_reads_no_ground() {
-    // Only border vertices read the ground (four heights each); a vertex
-    // inside takes the area-weighted normal of its own triangles.
+fn coarse_chunks_shade_their_shared_border_alike_from_their_own_step() {
+    // A 2 × 2 block at level 2 (256 m chunks, 4 m lattice).
+    let source = Analytic(hills);
+    let tolerance = TinTolerance::GENERAL;
+    let cache = ContractCache::new(&tolerance);
+    let mut shaded: BTreeMap<(Cm, Cm), Vec<Vec3>> = BTreeMap::new();
+    for (x, z) in [(-1, -1), (0, -1), (-1, 0), (0, 0)] {
+        let chunk = build_chunk_with(&source, ChunkKey::new(x, z, 2), &tolerance, &cache).unwrap();
+        let normals = chunk
+            .shading_normals_with(&source, &tolerance, &cache)
+            .unwrap();
+        for (v, n) in chunk.vertices.iter().zip(normals) {
+            if on_border(&chunk, v) {
+                shaded.entry((v.x, v.z)).or_default().push(n);
+            }
+        }
+    }
+    // Every border vertex two or four chunks hold is shaded the same by
+    // each, with the ground's slope 4 m either side.
+    let mut shared = 0;
+    for (&(x, z), normals) in &shaded {
+        assert!(normals.iter().all(|n| *n == normals[0]), "at {x:?}, {z:?}");
+        shared += usize::from(normals.len() > 1);
+        let at = DVec2::new(x.to_m(), z.to_m());
+        let h = |dx: f64, dz: f64| hills(at + DVec2::new(dx, dz)) as f32;
+        let slope = Vec3::new(h(-4.0, 0.0) - h(4.0, 0.0), 8.0, h(0.0, -4.0) - h(0.0, 4.0));
+        assert!((normals[0] - slope.normalize()).length() < 1e-5, "at {at}");
+    }
+    assert!(shared > 4, "neighbours share border vertices");
+}
+
+#[test]
+fn shading_reads_no_ground_with_the_contracts_the_chunk_was_built_with() {
+    // Border vertices take the normals their edge contracts carry, and a
+    // vertex inside takes the area-weighted normal of its own triangles,
+    // so with the build's contract cache nothing reads the ground.
     let source = Counted(Analytic(hills), AtomicUsize::new(0));
-    let chunk = hill_chunk(0, 0);
-    let normals = chunk.shading_normals(&source).unwrap();
+    let tolerance = TinTolerance::GENERAL;
+    let cache = ContractCache::new(&tolerance);
+    let chunk = build_chunk_with(&source, ChunkKey::new(0, 0, 0), &tolerance, &cache).unwrap();
+    source.1.store(0, Ordering::Relaxed);
+    let normals = chunk
+        .shading_normals_with(&source, &tolerance, &cache)
+        .unwrap();
+    assert_eq!(source.1.load(Ordering::Relaxed), 0);
+    assert_eq!(normals, chunk.shading_normals(&Analytic(hills)).unwrap());
     let border = chunk
         .vertices
         .iter()
@@ -458,7 +500,6 @@ fn shading_inside_a_chunk_reads_no_ground() {
         border < chunk.vertices.len(),
         "the chunk has inside vertices"
     );
-    assert_eq!(source.1.load(Ordering::Relaxed), 4 * border);
     for (i, (v, n)) in chunk.vertices.iter().zip(&normals).enumerate() {
         assert!((n.length() - 1.0).abs() < 1e-5 && n.y > 0.0, "{v:?}");
         if on_border(&chunk, v) {

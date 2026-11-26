@@ -1,7 +1,7 @@
 //! Chunk edge contracts: the vertices along a border between two chunks,
 //! which both chunks use, so independently built chunks meet exactly.
 
-use glam::DVec2;
+use glam::{DVec2, Vec3};
 use procgena_core::ContentHasher;
 
 use crate::chunk::{CHUNK_SIZE, ChunkKey, ChunkSource};
@@ -134,16 +134,66 @@ pub struct EdgeCrossing {
 }
 
 /// The vertices along one chunk edge, from its first corner to its last,
-/// both corners included, and where feature lines cross it. Built only
-/// from the edge and the ground, so the chunks either side build the same
-/// contract.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// both corners included, where feature lines cross it, and each vertex's
+/// shading normal. Built only from the edge and the ground, so the chunks
+/// either side build the same contract.
+#[derive(Debug, Clone, PartialEq)]
 pub struct EdgeContract {
     pub key: ChunkEdgeKey,
     pub vertices: Vec<TinVertex>,
     /// The feature lines crossing the edge, sorted by position, then by
     /// kind and feature. Each is at one of `vertices`.
     pub crossings: Vec<EdgeCrossing>,
+    /// One upward unit shading normal for each of `vertices`, from the
+    /// ground's heights one lattice step either side of the vertex along x
+    /// and z. It depends only on the vertex's position and the edge's
+    /// level, so every edge through a chunk corner gives the corner the
+    /// same normal. At level 0 it is the normal a regular level-0 chunk
+    /// gives its vertex there. Not part of
+    /// [`content_hash`](Self::content_hash).
+    pub normals: Vec<Vec3>,
+}
+
+/// The shading normal of the ground of `source` at each of `points` for
+/// chunks at chunk level `level`: from the heights one lattice step
+/// (2^`level` metres) either side along x and z, with every feature.
+///
+/// # Errors
+///
+/// [`TinError::NoGround`] (at the point) if any of the four heights is
+/// missing.
+pub(crate) fn border_normals(
+    source: &dyn ChunkSource,
+    points: &[(Cm, Cm)],
+    level: u8,
+) -> Result<Vec<Vec3>, TinError> {
+    let step = step_cm(level) as f64 / CM_PER_M;
+    let offsets = [
+        DVec2::new(step, 0.0),
+        DVec2::new(-step, 0.0),
+        DVec2::new(0.0, step),
+        DVec2::new(0.0, -step),
+    ];
+    let around: Vec<DVec2> = points
+        .iter()
+        .flat_map(|&(x, z)| {
+            let at = DVec2::new(x.to_m(), z.to_m());
+            offsets.map(|o| at + o)
+        })
+        .collect();
+    let heights = source.surfaces(&around, FeatureLevel::FINEST);
+    points
+        .iter()
+        .zip(heights.as_chunks::<4>().0)
+        .map(|(&(x, z), s)| {
+            let [east, west, north, south] = s.map(|p| p.height);
+            if [east, west, north, south].iter().any(|h| h.is_nan()) {
+                return Err(TinError::NoGround(ProbeAddr::new(x, z)));
+            }
+            let spacing = (2.0 * step) as f32;
+            Ok(Vec3::new(west - east, spacing, south - north).normalize())
+        })
+        .collect()
 }
 
 impl EdgeContract {
@@ -294,7 +344,7 @@ impl EdgeContract {
             stack.push((a, split));
             stack.push((split, b));
         }
-        let vertices = (0..count)
+        let vertices: Vec<TinVertex> = (0..count)
             .filter(|&i| kept[i])
             .map(|i| TinVertex {
                 x: probes[i].x,
@@ -302,6 +352,8 @@ impl EdgeContract {
                 h: heights[i],
             })
             .collect();
+        let at: Vec<(Cm, Cm)> = vertices.iter().map(|v| (v.x, v.z)).collect();
+        let normals = border_normals(source, &at, key.level)?;
         let samples = stations
             .iter()
             .zip(&heights)
@@ -313,6 +365,7 @@ impl EdgeContract {
                 key,
                 vertices,
                 crossings,
+                normals,
             },
             samples,
         ))

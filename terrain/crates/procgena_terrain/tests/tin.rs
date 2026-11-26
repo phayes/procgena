@@ -368,14 +368,29 @@ fn a_contract_cache_shares_edges_and_changes_nothing() {
     let shared = keys.map(|key| build_chunk_with(&ground, key, &tolerance, &cache).unwrap());
     let shared_reads = reads();
     assert_eq!(shared, alone);
+    // What building one edge's contract reads: every metre (65 heights),
+    // and four heights round each of its vertices for their normals.
+    let edge_reads = |edge: ChunkEdgeKey| {
+        let contract = EdgeContract::build(&Analytic(swells), edge, &tolerance).unwrap();
+        65 + 4 * contract.vertices.len()
+    };
+    let mut edges: Vec<ChunkEdgeKey> = keys
+        .iter()
+        .flat_map(|&k| ChunkEdgeKey::of_chunk(k))
+        .collect();
+    edges.sort();
+    let all: usize = edges.iter().map(|&e| edge_reads(e)).sum();
+    edges.dedup();
+    let once: usize = edges.iter().map(|&e| edge_reads(e)).sum();
     // A 2 × 2 block has 12 edges, 4 of them shared by two chunks, each
-    // read every metre (65 heights) once instead of twice.
+    // built once instead of twice.
     assert_eq!(cache.len(), 12);
-    assert_eq!(shared_reads, alone_reads - 4 * 65);
+    assert_eq!(edges.len(), 12);
+    assert_eq!(shared_reads, alone_reads - (all - once));
     // Building again reads only the insides.
     let again = keys.map(|key| build_chunk_with(&ground, key, &tolerance, &cache).unwrap());
     assert_eq!(again, alone);
-    assert_eq!(reads(), shared_reads - 12 * 65);
+    assert_eq!(reads(), shared_reads - once);
     cache.retain(|edge| edge.axis == EdgeAxis::X);
     assert_eq!(cache.len(), 6);
 }
