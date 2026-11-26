@@ -1401,6 +1401,9 @@ only from the edited Scatter down" were built first; the rest follows.
     caches the stalls are 0.3–1.6 s, mostly first compiles). Un-deferred
     for the demo (the user, 2026-11-25, demo request R4): a warm-up API a
     game calls behind its loading screen, so no stall comes after it.
+    It should cover Bevy's own first-frame setup too: a terrain load
+    stalls 0.5–1.6 s in its first seconds, before any terrain is drawn
+    (buffers, bind groups and prepass specialisation, 2026-11-26).
   - In the studio, impostors are baked only when they could be on screen:
     moved to IX's follow-up TODO "bake only impostors that can be on
     screen" (deferred by the user, 2026-11-25).
@@ -2080,6 +2083,8 @@ Decided by the user 2026-11-26. The design is in
     draw each chunk's TIN into a height and normal texture, and feed the
     existing GPU layer pass, with no CPU paint sites. Paint is visual
     only, so it needs no bitwise parity.
+  - When paint returns, spread weight-image creation across frames:
+    creating 40 chunks' images at once took 1.5–2.1 s in one frame.
 
 ### Canonical ground and roads track
 

@@ -692,6 +692,10 @@ struct StreamState {
     promoted: usize,
     /// Whether the chunk levels can't be chosen; logged once.
     broken: bool,
+    /// The levels, distance factor and viewer positions the last chunk
+    /// choice was made from, when it kept the target as it was. Choosing
+    /// again from the same inputs keeps it again, so it is skipped.
+    unchanged_from: Option<(ChunkLevels, f32, Vec<DVec3>)>,
     /// Skirts deeper than [`skirt_depth`], for chunks beside a chunk of
     /// another tier: how far that chunk's tier moved the ground.
     skirts: HashMap<ChunkKey, f32>,
@@ -897,6 +901,7 @@ fn reset_streams(
                     }
                 } else {
                     state.stream.reset();
+                    state.unchanged_from = None;
                     state.tasks.clear();
                     state.failed = 0;
                     state.sampled = 0;
@@ -979,24 +984,28 @@ fn stream_chunks(
             .collect();
         let flat: Vec<DVec2> = positions.iter().map(|p| DVec2::new(p.x, p.z)).collect();
 
-        // The chunks wanted now.
-        match ChunkSelection::around(
-            &settings.levels,
-            factor,
-            &positions,
-            Some(&state.stream.target),
-        ) {
-            Ok(target) => {
-                if target != state.stream.target {
-                    state.stream.retarget(target);
+        // The chunks wanted now. The choice depends only on its inputs and
+        // the target it keeps or replaces, so when the last choice kept the
+        // target and its inputs haven't changed, it would keep it again.
+        let inputs = (settings.levels.clone(), factor, positions);
+        if state.unchanged_from.as_ref() != Some(&inputs) {
+            let (levels, factor, positions) = &inputs;
+            match ChunkSelection::around(levels, *factor, positions, Some(&state.stream.target)) {
+                Ok(target) => {
+                    if target == state.stream.target {
+                        state.unchanged_from = Some(inputs);
+                    } else {
+                        state.stream.retarget(target);
+                        state.unchanged_from = None;
+                    }
                 }
-            }
-            Err(error) => {
-                if !state.broken {
-                    error!("terrain chunks can't be chosen: {error}");
-                    state.broken = true;
+                Err(error) => {
+                    if !state.broken {
+                        error!("terrain chunks can't be chosen: {error}");
+                        state.broken = true;
+                    }
+                    continue;
                 }
-                continue;
             }
         }
 
@@ -2119,5 +2128,48 @@ mod tests {
         for (key, read) in &coarse {
             assert!(read == &direct[key], "{key:?} differs");
         }
+    }
+
+    #[test]
+    fn a_still_viewer_skips_choosing_chunks_and_a_moving_one_does_not() {
+        let _streaming = streaming();
+        let mut app = app();
+        let stream = app.world_mut().spawn(TerrainStream::new(hills())).id();
+        let viewer = app
+            .world_mut()
+            .spawn((TerrainViewer, Transform::from_xyz(0.0, 40.0, 0.0)))
+            .id();
+        settle(&mut app, 2000);
+        fn state(app: &App, stream: Entity) -> &StreamState {
+            app.world().get::<StreamState>(stream).unwrap()
+        }
+
+        // Settled and still: the last choice kept the target, so the next
+        // frames don't choose again, and the target stays.
+        let target = state(&app, stream).stream.target.clone();
+        app.update();
+        assert!(state(&app, stream).unchanged_from.is_some());
+        assert!(state(&app, stream).stream.target == target);
+
+        // Moved far: the chunks are chosen again around the new place.
+        app.world_mut()
+            .get_mut::<Transform>(viewer)
+            .unwrap()
+            .translation
+            .x = 900.0;
+        // The move reaches the viewer's global transform a frame later.
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(state(&app, stream).stream.target != target);
+        settle(&mut app, 2000);
+
+        // Skipping changes nothing: choosing afresh from the same inputs
+        // gives the target the stream holds.
+        let state = state(&app, stream);
+        let (levels, factor, positions) = state.unchanged_from.clone().unwrap();
+        let again = ChunkSelection::around(&levels, factor, &positions, Some(&state.stream.target))
+            .unwrap();
+        assert!(again == state.stream.target);
     }
 }
