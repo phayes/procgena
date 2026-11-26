@@ -277,75 +277,24 @@ fn segment_points(a: (f64, f64), b: (f64, f64), spacing: f64) -> Vec<DVec2> {
         .collect()
 }
 
-/// The largest difference in own height, and in own slope across the
-/// border, between `a` and `b` at `points` (slopes by central differences
-/// along `normal`).
-fn largest_differences(a: &Terrain, b: &Terrain, points: &[DVec2], normal: DVec2) -> (f32, f32) {
-    let step = 0.5;
-    let slope = |t: &Terrain, q: DVec2| {
-        let g = t.generator();
-        (g.natural_height(q + normal * step) - g.natural_height(q - normal * step))
-            / (2.0 * step as f32)
-    };
-    points.iter().fold((0.0f32, 0.0f32), |(h, s), &q| {
-        let dh = (a.generator().natural_height(q) - b.generator().natural_height(q)).abs();
-        let ds = (slope(a, q) - slope(b, q)).abs();
-        (h.max(dh), s.max(ds))
-    })
-}
-
 #[test]
-fn fully_blended_neighbours_share_their_ground_on_the_border() {
+fn neighbours_share_their_ground_on_the_border() {
     for config in CONFIGS {
-        let config = common::Config {
-            blend: 1.0,
-            ..config
-        };
         let world = common::two_terrains(DVec2::ZERO, config);
         let [plains, mountains] = [&world.terrains()[0], &world.terrains()[1]];
         for q in border_points(5.0) {
             assert_eq!(
-                plains.generator().natural_height(q).to_bits(),
-                mountains.generator().natural_height(q).to_bits(),
-                "{config:?}: own heights differ at {q}"
+                plains.height(q).to_bits(),
+                mountains.height(q).to_bits(),
+                "{config:?}: heights differ at {q}"
             );
         }
     }
 }
 
 #[test]
-fn fully_blended_neighbours_share_their_slope_across_the_border() {
+fn a_triple_junction_shares_its_ground() {
     for config in CONFIGS {
-        let config = common::Config {
-            blend: 1.0,
-            ..config
-        };
-        let world = common::two_terrains(DVec2::ZERO, config);
-        let [plains, mountains] = [&world.terrains()[0], &world.terrains()[1]];
-        for w in TWO_REGION_BORDER.windows(2) {
-            let (a, b) = (DVec2::from(w[0]), DVec2::from(w[1]));
-            let normal = (b - a).perp().normalize();
-            // Away from the bends, where the slope across has no one direction.
-            let points: Vec<DVec2> = segment_points(w[0], w[1], 10.0)
-                .into_iter()
-                .filter(|q| q.distance(a) > 20.0 && q.distance(b) > 20.0)
-                .collect();
-            let (_, slope) = largest_differences(plains, mountains, &points, normal);
-            assert!(
-                slope < 0.02,
-                "{config:?}: slopes differ by {slope} near {a}"
-            );
-        }
-    }
-}
-
-#[test]
-fn fully_blended_triple_junction_shares_its_ground() {
-    for config in CONFIGS {
-        let config = common::Config {
-            blend: 1.0,
-            ..config
-        };
         let world = triple_junction(config);
         let t = |i: usize| &world.terrains()[i];
         let edges = [
@@ -354,16 +303,15 @@ fn fully_blended_triple_junction_shares_its_ground() {
             ((700.0, -600.0), 1, 2),
         ];
         for (end, i, j) in edges {
-            let points = segment_points(JUNCTION, end, 5.0);
-            let (a, b) = (DVec2::from(JUNCTION), DVec2::from(end));
-            let normal = (b - a).perp().normalize();
-            let (height, _) = largest_differences(t(i), t(j), &points, normal);
-            assert!(
-                height < 1e-3,
-                "{config:?}: regions {} and {} differ by {height} m towards {end:?}",
-                t(i).region().id.0,
-                t(j).region().id.0
-            );
+            for q in segment_points(JUNCTION, end, 5.0) {
+                assert_eq!(
+                    t(i).height(q).to_bits(),
+                    t(j).height(q).to_bits(),
+                    "{config:?}: regions {} and {} differ at {q}",
+                    t(i).region().id.0,
+                    t(j).region().id.0
+                );
+            }
         }
     }
 }

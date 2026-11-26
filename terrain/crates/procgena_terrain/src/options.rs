@@ -265,8 +265,9 @@ pub struct MountainLayer {
 
 /// How a terrain meets its neighbours.
 ///
-/// Along a shared border both neighbours agree on one height profile. Each
-/// bends its own terrain to meet that profile within its margin.
+/// Along a shared border with a terrain of different relief, both
+/// neighbours agree on one height profile. Each meets it exactly on the
+/// border and gives way to its own ground within a strip beside it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EdgeOptions {
@@ -274,13 +275,13 @@ pub struct EdgeOptions {
     /// with its neighbour. The agreed border height is a mix of both sides'
     /// own heights, weighted by stiffness. Must be positive.
     pub stiffness: f32,
-    /// How far inside its region, in metres, this terrain may bend to meet a
-    /// border. Must be positive and at most [`MAX_MARGIN`]. Wider margins give
-    /// gentler transitions.
+    /// The narrowest strip, in metres, over which this terrain gives way
+    /// from the agreed border height to its own ground; the strip widens
+    /// where the two sides' typical heights lie far apart. Must be positive
+    /// and at most [`MAX_MARGIN`]. Wider margins give gentler transitions.
     pub margin: f32,
-    /// Height in metres of the small irregularities added along a border so
-    /// it doesn't look ruled. The smaller of the two neighbours' values is
-    /// used. Must be zero or positive.
+    /// Currently has no effect, and will be removed. Must be zero or
+    /// positive.
     pub roughness: f32,
 }
 

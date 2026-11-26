@@ -7,8 +7,7 @@ use glam::{DVec2, I64Vec2, IVec2, UVec2};
 use procgena_terrain::{
     BorderWarp, Convergence, Elevation, ElevationOptions, HeightBump, HeightField, HeightTile,
     NoiseLayer, OptionsError, RegionCorner, RegionId, RegionKey, RegionSpec, StitchedWorld,
-    Terrain, TerrainOptions, TerrainPreset, WorldError, WorldTerrain, WorldTerrainOptions,
-    fixtures,
+    TerrainOptions, TerrainPreset, WorldError, WorldTerrain, WorldTerrainOptions, fixtures,
 };
 
 /// The world seed of every test world.
@@ -106,21 +105,14 @@ fn patch(world: &WorldTerrain) -> Vec<RegionId> {
     out
 }
 
-/// The largest difference in slope across a border that still counts as
-/// continuous.
-const SLOPE_LIMIT: f32 = 0.05;
-
-/// The slope of `terrain` at `q` going along `d`, by a second-order
-/// one-sided difference over 0.5 m and 1 m (f32 heights are too coarse for
-/// shorter steps on high ground).
-fn slope_along(terrain: &Terrain, q: DVec2, d: DVec2) -> f32 {
-    let [f0, f1, f2] = [0.0, 0.5, 1.0].map(|k| f64::from(terrain.height(q + d * k)));
-    (-3.0 * f0 + 4.0 * f1 - f2) as f32
-}
+/// The most the ground may move in the first centimetre off a border, in
+/// metres: a 5:1 slope.
+const MAX_STEP: f32 = 0.05;
 
 /// Checks that the two terrains on every edge between regions of
-/// `regions` meet with the same height and slope, at three points on each
-/// straight piece away from the corners.
+/// `regions` meet at exactly the same height, with no step just off the
+/// border on either side (the slope may crease across it), at three points
+/// on each straight piece away from the corners.
 fn assert_edges_join(world: &WorldTerrain, regions: &[RegionId], label: &str) {
     let mut edges = 0;
     for &id in regions {
@@ -146,15 +138,17 @@ fn assert_edges_join(world: &WorldTerrain, regions: &[RegionId], label: &str) {
                         (&other, &terrain)
                     };
                     let (ha, hb) = (a.height(q), b.height(q));
-                    assert!(
-                        (ha - hb).abs() < 1e-3,
-                        "{label}: heights differ at {q} between {id:?} and {neighbor:?}: {ha} vs {hb}"
+                    assert_eq!(
+                        ha, hb,
+                        "{label}: heights differ at {q} between {id:?} and {neighbor:?}"
                     );
-                    let (sa, sb) = (slope_along(a, q, normal), -slope_along(b, q, -normal));
-                    assert!(
-                        (sa - sb).abs() < SLOPE_LIMIT,
-                        "{label}: slopes differ at {q} between {id:?} and {neighbor:?}: {sa} vs {sb}"
-                    );
+                    for (t, d) in [(a, normal), (b, -normal)] {
+                        let off = t.height(q + d * 0.01);
+                        assert!(
+                            (off - ha).abs() <= MAX_STEP,
+                            "{label}: the ground steps from {ha} to {off} 1 cm off the border at {q}"
+                        );
+                    }
                 }
             }
         }

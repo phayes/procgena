@@ -549,9 +549,9 @@ labels (`annotate`: a `Landform` and `Flags` per point, from
 per point and per tile.
 
 **Labels at region borders** (decided by the user, 2026-11-25). Two
-terrains meet in height and slope along their shared border line, not
-past it: each terrain's own ground beyond the border differs from its
-neighbour's. So anything that reads the ground around a point near a
+terrains meet exactly in height along their shared border line, not past
+it, and their slopes may crease there (5.1): each terrain's own ground
+beyond the border differs from its neighbour's. So anything that reads the ground around a point near a
 border can differ a little from side to side.
 - Labels from water and roads (riverbed, pondbed, road), and every flag,
   come from features both sides know, and agree exactly.
@@ -622,7 +622,34 @@ It runs the terrain seam protocol across the region graph: offers, then
 agreements, then each Terrain conforms to its agreements, once per
 border (per-tier negotiation is a parked option; see 4.2). Rivers and
 roads cross borders through the ports those
-agreements set. Any other terrain
+agreements set.
+
+**How the ground meets at a border** (cheap borders, decided by the user
+2026-11-26; status in [TB](ROADMAP.md)):
+- **Same relief, no border.** Two regions whose relief settings and seed
+  are equal have the same height function, so their shared edge needs no
+  agreement: each reads its own relief. Such an edge still takes part
+  where a region with other relief is near, following the shared relief
+  with an offset at the corners, so all three sides meet there.
+- **Different relief, one profile.** Both sides agree one height profile
+  along the edge, from the settings alone: the stiffness-weighted mean of
+  their relief on the edge, pinned to the shared corner heights. On the
+  edge both return exactly that profile, so heights match bit for bit.
+  Beside it each side gives way to its own ground over a strip; the slope
+  may crease on the border line.
+- **Amplitude control.** Near a border each side's relief layers scale
+  towards an amplitude agreed with its neighbours, so mountains meet
+  plains in a slope, not a cliff.
+- **From settings, in the plan.** Every input to a border (the edge
+  targets, each side's layer scales, the corner heights, the profiles) is
+  a function of the settings of the regions on the edge and at its
+  corners. So each region's plan builds its own border field and profiles
+  from its neighbours' settings, never their plans, and its rivers are
+  traced on the ground as it finally stands. Only river and road
+  crossings are agreed between neighbouring plans.
+- **Cost.** Each point near a border mixes the nearby edge segments by a
+  steep weight that reaches zero at a fixed distance. Points farther away
+  read the region's own relief after one lookup. Any other terrain
 feature either stays inside its region's border margin, crosses through
 an agreed port, or comes from a field both sides share. None needs its
 neighbour's full plan.
@@ -686,7 +713,7 @@ better than anyone sampling it:
 
 - **Relief** has an analytic gradient from its noise's own derivatives
   (G2), and the border offers read it too (decided 2026-11-24).
-- **Bending to the borders** and **carving rivers and roads** are smooth
+- **Meeting the borders** and **carving rivers and roads** are smooth
   blends of known shapes, so their gradients follow by the chain rule. Where
   that is not worth the work, the terrain can take central differences
   itself, at a step that suits its own detail.
@@ -1745,11 +1772,9 @@ it starts.
   from central differences of `height`. Done in F1 for `FlatGround`,
   `HeightGrid` and closures; `Terrain` implementing it is G2, and Scatters
   using it is C1.
-- [x] **Terrain slope**: an analytic gradient through relief, border bending
-  and carving in `procgena_terrain`, `Ground` implemented for `Terrain`, and
-  a gradient grid in `HeightTile`. Built in G2 (2026-11-24): the border's
-  and the fade's pulls (their soft distance and mixed targets) are taken
-  by differences 0.5 m apart in f64; everything else is analytic.
+- [x] **Terrain slope**: an analytic gradient through relief, the border
+  field and carving in `procgena_terrain`, `Ground` implemented for
+  `Terrain`, and a gradient grid in `HeightTile`.
 - [x] **Terrain labels**: expose `annotate(x, z)` with `Landform`, `Flags`
   and `Measures` (slope from the same gradient), which the Biome's Ecotope
   rules need.

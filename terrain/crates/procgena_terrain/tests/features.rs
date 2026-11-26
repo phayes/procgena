@@ -259,21 +259,59 @@ fn rivers_cross_borders_and_keep_falling() {
     assert!(crossed > 0, "the test worlds should have river crossings");
 }
 
-#[test]
-fn neighbouring_mountain_rivers_both_cross_and_join_below() {
-    // Plains and mountains with seed 217: two mountain rivers cross the
-    // bent border 159 m apart, closer than crossings of different kinds may
-    // be (rivers from one side may cross closer together). Both cross into
-    // the plains, and neither ends in a pond: each joins a river there.
-    let world = common::two_regions(
+/// Plains and mountains with plenty of rivers, seeded with `seed`, on land
+/// made for close river crossings: it falls gently from the mountains to
+/// the plains (a tilt of 0.03 along x), with two shallow hollows 160 m
+/// apart straddling one piece of the border, which draw mountain rivers to
+/// it side by side.
+fn close_mountain_rivers(seed: u32) -> StitchedWorld {
+    use procgena_terrain::{Elevation, ElevationOptions, HeightBump, NoiseLayer, fixtures};
+
+    // The border piece from (150, −700) to (−200, 0), and its normal towards
+    // the mountains (east).
+    let (a, b) = (DVec2::new(150.0, -700.0), DVec2::new(-200.0, 0.0));
+    let along = (b - a).normalize();
+    let east = DVec2::new(-along.y, along.x);
+    let east = if east.x > 0.0 { east } else { -east };
+    let middle = a.lerp(b, 0.5);
+    let flat = NoiseLayer {
+        height: 0.0,
+        ..fixtures::elevation_medium().uplift
+    };
+    let land = ElevationOptions {
+        continents: flat.clone(),
+        uplift: flat,
+        tilt: DVec2::new(0.03, 0.0),
+        max_slope: 0.2,
+        bumps: [-80.0, 80.0]
+            .map(|k| HeightBump {
+                centre: middle + along * k + east * 60.0,
+                radius: 350.0,
+                height: -6.0,
+            })
+            .to_vec(),
+    };
+    let elevation = Elevation::new(land, 1).expect("valid land");
+    let mut plains = common::preset(fixtures::plains_medium(), seed);
+    plains.features.rivers.density = 2.0;
+    let mut mountains = common::preset(fixtures::mountains_medium(), seed);
+    mountains.features.rivers.density = 4.0;
+    mountains.features.rivers.spacing = 250.0;
+    common::two_regions(
         DVec2::ZERO,
-        common::preset(procgena_terrain::fixtures::plains_medium(), 217),
-        common::preset(procgena_terrain::fixtures::mountains_medium(), 217),
+        plains,
+        mountains,
         common::DEFAULT.convergence(),
-        &procgena_terrain::Elevation::flat(),
-    );
+        &elevation,
+    )
+}
+
+/// Whether two mountain rivers of `world` cross under 3 × the feature
+/// clearance apart, and each leads on into the plains and joins a river
+/// there rather than ending in a pond; `Err` says what fails.
+fn mountain_rivers_cross_and_join(world: &StitchedWorld) -> Result<(), String> {
     let mountains = procgena_terrain::RegionId(2);
-    let rivers: Vec<(RegionEdge, Port)> = crossings(&world)
+    let rivers: Vec<(RegionEdge, Port)> = crossings(world)
         .into_iter()
         .filter(|(_, p)| p.kind == (PortKind::River { from: mountains }))
         .collect();
@@ -283,38 +321,49 @@ fn neighbouring_mountain_rivers_both_cross_and_join_below() {
         .flat_map(|a| rivers.iter().map(move |b| (a, b)))
         .filter(|(a, b)| a.1.along < b.1.along)
         .min_by(|(a, b), (c, d)| (b.1.along - a.1.along).total_cmp(&(d.1.along - c.1.along)))
-        .expect("two mountain rivers cross");
-    assert!(
-        pair.1.1.along - pair.0.1.along < 3.0 * procgena_terrain::FEATURE_CLEARANCE,
-        "the closest crossings are {} m apart",
-        pair.1.1.along - pair.0.1.along
-    );
-    let mut joined = 0;
+        .ok_or("two mountain rivers cross")?;
+    let gap = pair.1.1.along - pair.0.1.along;
+    if gap >= 3.0 * procgena_terrain::FEATURE_CLEARANCE {
+        return Err(format!("the closest crossings are {gap} m apart"));
+    }
     for (edge, port) in [pair.0.clone(), pair.1.clone()] {
-        let plains = terrain(&world, other(&world, &edge, mountains));
+        let plains = terrain(world, other(world, &edge, mountains));
         let start = end_inside(plains, &edge, &port);
         let leaving = plains
             .rivers()
             .iter()
             .find(|r| r.points.first() == Some(&start))
-            .expect("a river leads on from the crossing");
+            .ok_or("a river leads on from the crossing")?;
         let last = *leaving.points.last().unwrap();
-        assert!(
-            !plains.ponds().iter().any(|p| p.centre == last),
-            "the river from the crossing at {} m ends in a pond",
-            port.along
-        );
-        assert!(
-            plains
-                .rivers()
-                .iter()
-                .any(|r| !std::ptr::eq(r, leaving) && line_distance(r, last) < 1e-6),
-            "the river from the crossing at {} m joins no river",
-            port.along
-        );
-        joined += 1;
+        if plains.ponds().iter().any(|p| p.centre == last) {
+            return Err(format!(
+                "the river from the crossing at {} m ends in a pond",
+                port.along
+            ));
+        }
+        let joins = plains
+            .rivers()
+            .iter()
+            .any(|r| !std::ptr::eq(r, leaving) && line_distance(r, last) < 1e-6);
+        if !joins {
+            return Err(format!(
+                "the river from the crossing at {} m joins no river",
+                port.along
+            ));
+        }
     }
-    assert_eq!(joined, 2);
+    Ok(())
+}
+
+#[test]
+fn neighbouring_mountain_rivers_both_cross_and_join_below() {
+    // Seed 26: two mountain rivers cross the border 144 m apart, closer
+    // than crossings of different kinds may be (rivers from one side may
+    // cross closer together). Both cross into the plains, and neither ends
+    // in a pond: each joins a river there.
+    if let Err(failure) = mountain_rivers_cross_and_join(&close_mountain_rivers(26)) {
+        panic!("{failure}");
+    }
 }
 
 #[test]

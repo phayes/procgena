@@ -19,7 +19,7 @@ use crate::label::Labels;
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{CornerId, EdgeId, Region, RegionId};
 use crate::scale::WorldScale;
-use crate::seam::{CornerAgreement, EdgeOffer, SeamError, negotiate, negotiate_corner};
+use crate::seam::{EdgeOffer, SeamError, negotiate};
 use crate::terrain::{
     HeightField, LabelField, RiverTrace, Terrain, TerrainError, TerrainGenerator,
 };
@@ -306,12 +306,8 @@ impl Plan {
             return Some(offer);
         }
         Some(self.crossing_offers[&edge].get_or_init(|| {
-            let (inner, unfaded) = self.generator.crossing_samples(&self.region, *index);
-            EdgeOffer {
-                inner,
-                unfaded,
-                ..offer.clone()
-            }
+            let samples = self.generator.crossing_samples(&self.region, *index);
+            offer.clone().with_crossing(samples)
         }))
     }
 }
@@ -694,19 +690,22 @@ impl WorldTerrain {
             .iter()
             .map(|c| (c.id, target(&c.incident)))
             .collect();
-        let targets: Vec<EdgeTarget> = region
-            .edges
-            .iter()
-            .filter_map(|edge| {
-                let neighbor = edge.neighbor?;
-                Some(EdgeTarget {
+        // Targets only for the edges that need a border (see
+        // `edge_is_active`).
+        let mut targets = Vec::new();
+        for edge in &region.edges {
+            let Some(neighbor) = edge.neighbor else {
+                continue;
+            };
+            if self.edge_is_active(&region, neighbor, &settings)? {
+                targets.push(EdgeTarget {
                     edge: edge.id,
                     middle: target(&[id, neighbor]),
                     start: corners[&edge.start].clone(),
                     end: corners[&edge.end].clone(),
-                })
-            })
-            .collect();
+                });
+            }
+        }
 
         // The converged generator; its trace and offers come when asked for.
         let neighbours: Vec<(RegionId, TerrainOptions)> = settings
@@ -717,12 +716,7 @@ impl WorldTerrain {
         let generator = settings[&id]
             .generator
             .clone()
-            .with_edge_targets(
-                &region,
-                &targets,
-                &neighbours,
-                self.options.convergence.blend,
-            )
+            .with_edge_targets(&region, &targets, &neighbours)
             .map_err(|e| WorldError::Terrain(id, e))?;
         let shared = || {
             region
@@ -744,37 +738,62 @@ impl WorldTerrain {
         })
     }
 
-    /// Agrees every corner and edge of region `key` with the regions
-    /// round it, and builds its terrain at the roughest tier.
+    /// Whether the edge between `region` and `neighbor` needs a border:
+    /// their reliefs differ, or they are the same but either of them
+    /// touches a region with a different relief, whose border could reach
+    /// this edge. Both regions on the edge decide alike, from the settings
+    /// alone; `settings` must hold `region`'s and every region touching it.
+    fn edge_is_active(
+        &self,
+        region: &Region,
+        neighbor: RegionId,
+        settings: &BTreeMap<RegionId, Arc<Settings>>,
+    ) -> Result<bool, WorldError> {
+        let own = &settings[&region.id].generator;
+        if !own.same_relief(&settings[&neighbor].generator) {
+            return Ok(true);
+        }
+        Ok(self.touches_other_relief(region.id)? || self.touches_other_relief(neighbor)?)
+    }
+
+    /// Whether any region on `region`'s edges or corners has a relief other
+    /// than its own.
+    fn touches_other_relief(&self, region: RegionId) -> Result<bool, WorldError> {
+        let outline = self.region_of(RegionKey::from_id(region));
+        let own = self.settings(RegionKey::from_id(region))?;
+        let touching = outline
+            .corners
+            .iter()
+            .flat_map(|c| c.incident.iter().copied())
+            .chain(outline.edges.iter().filter_map(|e| e.neighbor));
+        for other in touching {
+            let settings = self.settings(RegionKey::from_id(other))?;
+            if !own.generator.same_relief(&settings.generator) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Agrees the river and road crossings of every edge of region `key`
+    /// with the regions round it, and builds its terrain at the roughest
+    /// tier.
     fn build_roughest(&self, key: RegionKey) -> Result<Terrain, WorldError> {
         let plan = self.plan(key)?;
         let region = &plan.region;
         let id = region.id;
         let seam = |e| WorldError::Seam(id, e);
 
-        // Every corner, from the offers of every region touching it.
-        let mut corners: HashMap<CornerId, CornerAgreement> = HashMap::new();
-        for corner in &region.corners {
-            let offers = corner
-                .incident
-                .iter()
-                .map(|&r| {
-                    let other = self.plan(RegionKey::from_id(r))?;
-                    Ok(other.generator.corner_offer(&other.region, corner))
-                })
-                .collect::<Result<Vec<_>, WorldError>>()?;
-            corners.insert(corner.id, negotiate_corner(corner, &offers).map_err(seam)?);
-        }
-
-        // Every shared edge, from both sides' offers, with their crossing
-        // samples only where either side wishes for a crossing.
+        // Every shared edge's crossings, from both sides' offers, with their
+        // crossing samples only where either side wishes for a crossing. The
+        // edge's height profile is already in the plan.
         let mut agreements = Vec::new();
-        let mut offers = HashMap::new();
         for edge in &region.edges {
             let Some(neighbor) = edge.neighbor else {
                 continue;
             };
             let other = self.plan(RegionKey::from_id(neighbor))?;
+            let border = plan.generator.border(edge.id);
             let mismatch = || WorldError::Seam(id, SeamError::Mismatch);
             let wished = |o: &EdgeOffer| !o.rivers.is_empty() || !o.roads.is_empty();
             let mut mine = plan.offer(edge.id, false).ok_or_else(mismatch)?;
@@ -783,22 +802,12 @@ impl WorldTerrain {
                 mine = plan.offer(edge.id, true).ok_or_else(mismatch)?;
                 theirs = other.offer(edge.id, true).ok_or_else(mismatch)?;
             }
-            offers.insert(edge.id, mine.clone());
-            let agreed = negotiate(
-                edge,
-                mine,
-                theirs,
-                &corners[&edge.start],
-                &corners[&edge.end],
-                &self.elevation,
-            )
-            .map_err(seam)?;
-            agreements.push(agreed);
+            agreements.push(negotiate(edge, mine, theirs, border, &self.elevation).map_err(seam)?);
         }
 
         plan.generator
             .clone()
-            .build_offered(Region::clone(region), &agreements, plan.trace(), &offers)
+            .build_traced(Region::clone(region), &agreements, plan.trace())
             .map(|terrain| terrain.with_scale(self.options.scale))
             .map_err(|e| WorldError::Terrain(id, e))
     }
@@ -977,6 +986,75 @@ mod tests {
         for (key, &count) in started.iter() {
             assert_eq!(count, 1, "{key:?} built {count} times");
         }
+    }
+
+    /// A medium world of plains (even region ids, stiffness 1) and
+    /// mountains (odd ids, stiffness 3).
+    fn plains_and_mountains() -> WorldTerrain {
+        WorldTerrain::new(
+            crate::fixtures::world_medium(),
+            Arc::new(|id: RegionId, _: DVec2, _: &Elevation| {
+                let (mut options, stiffness) = if id.0.is_multiple_of(2) {
+                    (crate::fixtures::plains_medium().terrain.clone(), 1.0)
+                } else {
+                    (crate::fixtures::mountains_medium().terrain.clone(), 3.0)
+                };
+                options.edges.stiffness = stiffness;
+                options
+            }),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn neighbouring_plans_agree_on_their_border_in_either_order() {
+        // A plains region and a mountains region sharing an edge.
+        let probe = plains_and_mountains();
+        let a = probe.region_at(DVec2::ZERO);
+        let (edge, b) = probe
+            .region(a)
+            .edges
+            .iter()
+            .find_map(|e| {
+                let n = e.neighbor?;
+                (n.0 % 2 != a.0 % 2).then(|| (e.clone(), n))
+            })
+            .expect("a neighbour of the other kind");
+        let border = |world: &WorldTerrain, id: RegionId| {
+            let plan = world.plan(RegionKey::from_id(id)).unwrap();
+            plan.generator
+                .border(edge.id)
+                .cloned()
+                .expect("the edge is active")
+        };
+
+        // Each plan alone in a fresh world, and both in either order.
+        let a_alone = border(&plains_and_mountains(), a);
+        let b_alone = border(&plains_and_mountains(), b);
+        let world = plains_and_mountains();
+        let (b_first, a_second) = (border(&world, b), border(&world, a));
+        for other in [&b_alone, &b_first, &a_second] {
+            assert_eq!(&a_alone, other);
+            assert_eq!(format!("{a_alone:?}"), format!("{other:?}"), "bit for bit");
+        }
+        assert!(!a_alone.is_relative(), "different reliefs share a profile");
+
+        // On the edge both regions' ground is the profile, and it leans to
+        // the stiffer mountains: nearer their own ground than the plains'.
+        let plans = [a, b].map(|id| world.plan(RegionKey::from_id(id)).unwrap());
+        let stiff = usize::from(a.0.is_multiple_of(2));
+        let segments = crate::region::segments(&edge.polyline);
+        let length = edge.length();
+        let (mut to_stiff, mut to_soft) = (0.0, 0.0);
+        for k in 1..50 {
+            let (p, _) = crate::region::point_at(&segments, length * f64::from(k) / 50.0);
+            let [ha, hb] = [0, 1].map(|i| plans[i].generator.ground_height(p));
+            assert_eq!(ha, hb, "both regions meet the profile at {p}");
+            let own = [0, 1].map(|i| plans[i].generator.natural_height(p));
+            to_stiff += f64::from((ha - own[stiff]).abs());
+            to_soft += f64::from((ha - own[1 - stiff]).abs());
+        }
+        assert!(to_stiff < to_soft, "{to_stiff} against {to_soft}");
     }
 
     #[test]

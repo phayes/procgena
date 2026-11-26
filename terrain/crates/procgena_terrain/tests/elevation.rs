@@ -63,7 +63,6 @@ fn a_plane_under_both_sides_shifts_the_agreement_by_that_plane() {
                 sb.slope,
                 sa.slope
             );
-            assert_eq!(sb.detail, sa.detail);
             checked += 1;
         }
     }
@@ -100,11 +99,11 @@ fn elevation_and_edge_targets_may_be_set_in_either_order() {
     let first = TerrainGenerator::new(plains.clone())
         .unwrap()
         .with_elevation(elevation.clone())
-        .with_edge_targets(&region, &targets, &neighbours, 0.5)
+        .with_edge_targets(&region, &targets, &neighbours)
         .unwrap();
     let last = TerrainGenerator::new(plains)
         .unwrap()
-        .with_edge_targets(&region, &targets, &neighbours, 0.5)
+        .with_edge_targets(&region, &targets, &neighbours)
         .unwrap()
         .with_elevation(elevation.clone());
     for i in 0..400 {

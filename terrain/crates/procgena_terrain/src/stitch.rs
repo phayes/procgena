@@ -18,7 +18,7 @@ use crate::label::Labels;
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{Boundary, CornerId, Region, RegionCorner, RegionEdge, RegionError, RegionId};
 use crate::scale::WorldScale;
-use crate::seam::{CornerAgreement, EdgeAgreement, SeamError, negotiate, negotiate_corner};
+use crate::seam::{EdgeAgreement, SeamError, negotiate};
 use crate::terrain::{
     HeightField, LabelField, RiverTrace, Terrain, TerrainError, TerrainGenerator,
 };
@@ -189,9 +189,7 @@ impl StitchedWorld {
             .zip(&generators)
             .map(|(region, generator)| generator.trace_rivers(region))
             .collect();
-        let corners = negotiate_corners(&regions, &generators, &index)?;
-        let agreements =
-            negotiate_edges(&regions, &generators, &traces, &index, &corners, elevation)?;
+        let agreements = negotiate_edges(&regions, &generators, &traces, &index, elevation)?;
 
         // Build each terrain with the agreements for its edges.
         let build = |((generator, region), trace): ((TerrainGenerator, Region), RiverTrace)| {
@@ -395,65 +393,65 @@ fn converge(
             .or_insert_with(|| target(&corner.incident));
     }
 
-    // Edge targets, and each generator converged towards its own.
-    generators
-        .into_iter()
-        .zip(regions)
-        .map(|(generator, region)| {
-            let targets: Vec<EdgeTarget> = region
+    // Which regions touch a region with another relief, on an edge or at a
+    // corner: their edges with the same relief on both sides still need a
+    // border, since another border could reach them.
+    let mixed: Vec<bool> = regions
+        .iter()
+        .zip(&generators)
+        .map(|(region, generator)| {
+            region
+                .corners
+                .iter()
+                .flat_map(|c| c.incident.iter().copied())
+                .chain(region.edges.iter().filter_map(|e| e.neighbor))
+                .any(|other| !generator.same_relief(&generators[index[&other]]))
+        })
+        .collect();
+
+    // Edge targets for the edges that need a border, and each generator
+    // converged towards its own.
+    let active: Vec<Vec<EdgeTarget>> = regions
+        .iter()
+        .zip(&generators)
+        .enumerate()
+        .map(|(i, (region, generator))| {
+            region
                 .edges
                 .iter()
                 .filter_map(|edge| {
                     let neighbor = edge.neighbor?;
-                    Some(EdgeTarget {
+                    let j = index[&neighbor];
+                    let needed = !generator.same_relief(&generators[j]) || mixed[i] || mixed[j];
+                    needed.then(|| EdgeTarget {
                         edge: edge.id,
                         middle: target(&[region.id, neighbor]),
                         start: corners[&edge.start].clone(),
                         end: corners[&edge.end].clone(),
                     })
                 })
-                .collect();
+                .collect()
+        })
+        .collect();
+    generators
+        .into_iter()
+        .zip(regions)
+        .zip(active)
+        .map(|((generator, region), targets)| {
             generator
-                .with_edge_targets(region, &targets, &options, convergence.blend)
+                .with_edge_targets(region, &targets, &options)
                 .map_err(|e| StitchError::Terrain(region.id, e))
         })
         .collect()
 }
 
-/// Agrees on every corner, once, from all regions touching it.
-fn negotiate_corners(
-    regions: &[Region],
-    generators: &[TerrainGenerator],
-    index: &BTreeMap<RegionId, usize>,
-) -> Result<HashMap<crate::region::CornerId, CornerAgreement>, StitchError> {
-    let mut agreements = HashMap::new();
-    for region in regions {
-        for corner in &region.corners {
-            if agreements.contains_key(&corner.id) {
-                continue;
-            }
-            let offers: Vec<_> = corner
-                .incident
-                .iter()
-                .map(|r| {
-                    let i = index[r];
-                    generators[i].corner_offer(&regions[i], corner)
-                })
-                .collect();
-            let agreed = negotiate_corner(corner, &offers).map_err(StitchError::Seam)?;
-            agreements.insert(corner.id, agreed);
-        }
-    }
-    Ok(agreements)
-}
-
-/// Agrees on every shared edge, once, from the two regions on it.
+/// Agrees on every shared edge's crossings, once, from the two regions on
+/// it.
 fn negotiate_edges(
     regions: &[Region],
     generators: &[TerrainGenerator],
     traces: &[RiverTrace],
     index: &BTreeMap<RegionId, usize>,
-    corners: &HashMap<crate::region::CornerId, CornerAgreement>,
     elevation: &Elevation,
 ) -> Result<HashMap<crate::region::EdgeId, crate::seam::EdgeAgreement>, StitchError> {
     // Every region's offers, once each, keyed by edge.
@@ -480,16 +478,9 @@ fn negotiate_edges(
                 continue;
             }
             let j = index[&neighbor];
+            let border = generators[i].border(edge.id);
             let (a, b) = (&offers[i][&edge.id], &offers[j][&edge.id]);
-            let agreed = negotiate(
-                edge,
-                a,
-                b,
-                &corners[&edge.start],
-                &corners[&edge.end],
-                elevation,
-            )
-            .map_err(StitchError::Seam)?;
+            let agreed = negotiate(edge, a, b, border, elevation).map_err(StitchError::Seam)?;
             agreements.insert(edge.id, agreed);
         }
     }

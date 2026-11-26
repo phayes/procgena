@@ -88,15 +88,10 @@ fn patch(world: &WorldTerrain) -> Vec<RegionId> {
     out
 }
 
-/// The slope of `terrain` at `q` going along `d`, by a second-order
-/// one-sided difference over 0.5 m and 1 m.
-fn slope_along(terrain: &Terrain, q: DVec2, d: DVec2) -> f32 {
-    let [f0, f1, f2] = [0.0, 0.5, 1.0].map(|k| f64::from(terrain.height(q + d * k)));
-    (-3.0 * f0 + 4.0 * f1 - f2) as f32
-}
-
+/// Borders meet at exactly the same height, with no step just off them on
+/// either side; the slope may crease across them.
 #[test]
-fn borders_join_in_height_and_slope() {
+fn borders_join_exactly_in_height() {
     for seed in SEEDS {
         let world = world(seed);
         let regions = patch(&world);
@@ -124,15 +119,15 @@ fn borders_join_in_height_and_slope() {
                             (&other, &terrain)
                         };
                         let (ha, hb) = (a.height(q), b.height(q));
-                        assert!(
-                            (ha - hb).abs() < 1e-3,
-                            "seed {seed}: heights differ at {q}: {ha} vs {hb}"
-                        );
-                        let (sa, sb) = (slope_along(a, q, normal), -slope_along(b, q, -normal));
-                        assert!(
-                            (sa - sb).abs() < 0.05,
-                            "seed {seed}: slopes differ at {q}: {sa} vs {sb}"
-                        );
+                        assert_eq!(ha, hb, "seed {seed}: heights differ at {q}");
+                        // At most a 5:1 slope over the first centimetre.
+                        for (t, d) in [(a, normal), (b, -normal)] {
+                            let off = t.height(q + d * 0.01);
+                            assert!(
+                                (off - ha).abs() <= 0.05,
+                                "seed {seed}: the ground steps from {ha} to {off} off the border at {q}"
+                            );
+                        }
                     }
                 }
             }

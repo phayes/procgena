@@ -214,13 +214,13 @@ settings:
   edges.margin:
     label: Margin
     unit: m
-    description: "How far inside its region this terrain may bend to meet a border. Wider margins give gentler transitions."
+    description: "The narrowest strip inside its region over which this terrain gives way from the shared border height to its own ground. Wider margins give gentler transitions."
     range: [10, 2000]
     step: 5
     scale: exponential
   edges.roughness:
     label: Roughness
     unit: m
-    description: "How high the small bumps added along a border are, so it doesn't look ruled."
+    description: "Currently has no effect, and will be removed."
     range: [0, 20]
     step: 0.1

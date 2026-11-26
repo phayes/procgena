@@ -69,8 +69,10 @@ fn grove(terrain: &Terrain) -> Vec<DVec2> {
 /// shorter spans, and it sets the tolerance.
 const HALF: f64 = 2.0;
 
-/// How many pieces the span is cut into to average the slope over it.
-const STEPS: i32 = 48;
+/// How many pieces the span is cut into to average the slope over it:
+/// about 3 cm each, so at least one sample lands on the narrow edge of a
+/// road bank (a few centimetres wide) and the span is seen to crease.
+const STEPS: i32 = 128;
 
 /// Plants a grove on every terrain of `world` through `Ground`, and checks
 /// at each spot that the sample's height is the terrain's height exactly,

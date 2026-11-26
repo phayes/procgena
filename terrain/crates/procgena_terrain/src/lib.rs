@@ -2,8 +2,9 @@
 //!
 //! Procedural terrain for regions of a larger world. Each region gets one
 //! terrain type (plains, hills, mountains and so on), and neighbouring
-//! regions join without seams, whatever types they are: both meet in
-//! height and slope along their shared border. Past the border each
+//! regions join without seams, whatever types they are: both meet at
+//! exactly the same height along their shared border, though the slope may
+//! change across it. Past the border each
 //! region's ground is its own, so readings that look around a point near
 //! a border, such as curvature and shape labels, can differ a little from
 //! side to side.
@@ -32,22 +33,25 @@
 //! 1. Neighbouring terrains agree what their ground should be like where
 //!    they meet, and how steep their roads may be: each states its
 //!    [`relief_amplitude`](TerrainGenerator::relief_amplitude),
-//!    [`relief_target`] picks one amplitude per edge and corner,
-//!    [`blend_weights`] how much of each terrain's ground to mix there,
-//!    and the road grades are the steepest of the terrains meeting there
+//!    [`relief_target`] picks one amplitude per edge and corner, and the
+//!    road grades are the steepest of the terrains meeting there
 //!    ([`RoadGrades::steepest`]).
 //!    [`with_edge_targets`](TerrainGenerator::with_edge_targets) makes
-//!    each terrain fade towards all of these near its borders, as the
-//!    world's [`Convergence`] says. Terrains with the same seed share their
-//!    noise, so alike terrains then nearly match already.
+//!    each terrain's relief and road grades fade towards these near its
+//!    borders, as the world's [`Convergence`] says, and works out from the
+//!    neighbours' settings the height profile it shares with each of them
+//!    along their edge ([`TerrainGenerator::border`]). Both terrains on an
+//!    edge work out the same profile. An edge between two terrains with the
+//!    same relief (see [`same_relief`](TerrainGenerator::same_relief))
+//!    needs no target unless a terrain with other relief is near.
 //! 2. Each region's [`TerrainGenerator`] makes an [`EdgeOffer`] for every
-//!    border it shares, and a [`CornerOffer`] for every corner. An offer
-//!    depends only on the terrain making it.
-//! 3. [`negotiate_corner`] and [`negotiate`] turn the offers into agreements.
-//!    They give the same result whichever side calls them.
+//!    border it shares. An offer depends only on the terrain making it.
+//! 3. [`negotiate`] turns both offers into each edge's river and road
+//!    crossings. It gives the same result whichever side calls it.
 //! 4. [`TerrainGenerator::build`] binds the generator to its region. The
-//!    resulting [`Terrain`] bends itself near its borders to meet the
-//!    agreements exactly, so heights and slopes match across every border.
+//!    resulting [`Terrain`] meets each edge's profile exactly on the edge
+//!    and gives way to its own ground beside it, so heights match across
+//!    every border.
 //!
 //! [`WorldTerrain`] does all four steps for an endless world of regions,
 //! building each region's terrain when it is first asked for.
@@ -164,14 +168,14 @@ pub use road::{
 /// description and range, for tools that edit Terrain presets. Read it with
 /// [`KindMeta::parse`](procgena_core::meta::KindMeta::parse).
 pub const TERRAIN_META: &str = include_str!("../presets/terrain.meta.yml");
+pub use border::BorderProfile;
 pub use procgena_core::preset::PresetFileError;
 pub use region::{
     Boundary, CornerId, EdgeId, Region, RegionCorner, RegionEdge, RegionError, RegionId, corner_id,
 };
 pub use scale::WorldScale;
 pub use seam::{
-    CornerAgreement, CornerOffer, EDGE_STEP, EdgeAgreement, EdgeOffer, EdgeSample, SeamError,
-    negotiate, negotiate_corner, sample_count,
+    EDGE_STEP, EdgeAgreement, EdgeOffer, EdgeSample, SeamError, negotiate, sample_count,
 };
 pub use stitch::{RegionSpec, StitchError, StitchedWorld};
 pub use terrain::{

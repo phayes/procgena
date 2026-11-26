@@ -2,14 +2,9 @@
 //! towards an amplitude agreed with its neighbours, so the two sides are
 //! already alike before their border is negotiated.
 
-use glam::DVec2;
-
-use crate::border::{Pull, SegmentIndex, pull_gradients, surely_beyond};
 use crate::options::RoadGrades;
-use crate::region::{EdgeId, Region, RegionId, Segment, segments};
-use crate::relief::Relief;
-use crate::seam::{smootherstep, smootherstep_slope};
-use crate::terrain::{BORDER_REACH, ON_EDGE};
+use crate::region::{EdgeId, RegionId};
+use crate::seam::smootherstep;
 
 /// The default [`relief_target`] exponent: each side of an edge changes its
 /// relief in proportion to its own relief amplitude.
@@ -20,7 +15,7 @@ pub const DEFAULT_RELIEF_MEETING: f32 = -1.0;
 /// 1.1 km.
 const FADE_RATE: f64 = 0.25;
 
-/// The default [`Convergence::blend`]: half scaling, half blending.
+/// The default [`Convergence::blend`], which currently has no effect.
 pub const DEFAULT_RELIEF_BLEND: f32 = 0.5;
 
 /// Returns true if `meeting` is an accepted [`relief_target`] exponent:
@@ -39,11 +34,9 @@ pub struct Convergence {
     /// much each side changes. Must be valid (see
     /// [`relief_meeting_is_valid`]).
     pub meeting: f32,
-    /// How terrains meet their neighbours, from 0 to 1. At 0 each terrain
-    /// scales its own relief towards the agreed roughness; at 1 it fades
-    /// into a mix of its neighbours' actual ground (see [`blend_weights`]),
-    /// so both sides have exactly the same ground on the border. Between,
-    /// the two are mixed in that proportion.
+    /// Currently has no effect, and will be removed: terrains now always
+    /// scale their own relief towards the agreed roughness and meet a
+    /// shared height profile on the border. Must be from 0 to 1.
     pub blend: f32,
 }
 
@@ -193,11 +186,6 @@ pub fn blend_weights(amplitudes: &[f32], meeting: f32) -> Vec<f32> {
 /// all along the edge.
 const CORNER_RAMP: f64 = 500.0;
 
-/// How far apart along an edge the fade reads its targets near a point, in
-/// metres: well under the [`CORNER_RAMP`] and the amplitude ramps they
-/// change over.
-const FADE_STEP: f64 = 64.0;
-
 /// The most the blend shares of a [`BorderTarget`] may add up to more or
 /// less than 1.
 const SHARE_TOLERANCE: f32 = 1e-4;
@@ -285,7 +273,8 @@ impl EdgeTarget {
     }
 
     /// Every region with a blend share somewhere along the edge, sorted.
-    pub(crate) fn blend_regions(&self) -> Vec<RegionId> {
+    #[cfg(test)]
+    fn blend_regions(&self) -> Vec<RegionId> {
         let mut regions: Vec<RegionId> = self
             .parts()
             .iter()
@@ -298,14 +287,14 @@ impl EdgeTarget {
 
     /// The relief amplitude at `along` metres from the start of an edge
     /// `length` metres long.
-    fn amplitude_at(&self, along: f64, length: f64) -> f64 {
+    pub(crate) fn amplitude_at(&self, along: f64, length: f64) -> f64 {
         let values = self.parts().map(|t| t.amplitude);
         along_edge(values, along, length, |change| change / FADE_RATE)
     }
 
     /// The road grades at `along` metres from the start of an edge
     /// `length` metres long.
-    fn roads_at(&self, along: f64, length: f64) -> RoadGrades {
+    pub(crate) fn roads_at(&self, along: f64, length: f64) -> RoadGrades {
         let at = |grade: fn(&RoadGrades) -> f32| {
             let values = self.parts().map(|t| grade(&t.roads));
             along_edge(values, along, length, |_| CORNER_RAMP) as f32
@@ -314,33 +303,6 @@ impl EdgeTarget {
             grade: at(|r| r.grade),
             max_grade: at(|r| r.max_grade),
         }
-    }
-
-    /// The blend share of each of `regions` (from
-    /// [`blend_regions`](Self::blend_regions)) at `along` metres from the
-    /// start of an edge `length` metres long.
-    /// The sum, in the order of `regions`, of each region's share (as
-    /// [`blend_at`](Self::blend_at) gives it) times `value(region)`, without
-    /// collecting the shares.
-    fn blend_sum(
-        &self,
-        regions: &[RegionId],
-        along: f64,
-        length: f64,
-        value: impl Fn(RegionId) -> f64,
-    ) -> f64 {
-        regions
-            .iter()
-            .map(|&region| {
-                let values = self.parts().map(|t| {
-                    t.blend
-                        .iter()
-                        .find(|(r, _)| *r == region)
-                        .map_or(0.0, |(_, s)| *s)
-                });
-                along_edge(values, along, length, |_| CORNER_RAMP) * value(region)
-            })
-            .sum()
     }
 
     #[cfg(test)]
@@ -390,7 +352,7 @@ fn step_inverse(s: f64) -> f64 {
 
 /// The level whose layer scales give a total spread of `target` metres.
 /// A terrain with no relief at all can't be scaled up and stays unchanged.
-fn level_for(spreads: LayerSpreads, target: f64) -> f64 {
+pub(crate) fn level_for(spreads: LayerSpreads, target: f64) -> f64 {
     let [swells, hills, mountains] = spreads.map(f64::from);
     // The same rounding as the stated amplitude, so a target equal to it
     // keeps every layer exactly.
@@ -416,7 +378,7 @@ fn level_for(spreads: LayerSpreads, target: f64) -> f64 {
 }
 
 /// The layer scales at `level`.
-fn scales_at(level: f64) -> LayerScales {
+pub(crate) fn scales_at(level: f64) -> LayerScales {
     if level >= UNCHANGED {
         return [(level - 2.0) as f32; 3];
     }
@@ -424,406 +386,22 @@ fn scales_at(level: f64) -> LayerScales {
 }
 
 /// The fastest a terrain's mean height changes with distance from a border
-/// as it fades into the border blend, in metres per metre: about as fast as
+/// as it meets the border's profile, in metres per metre: about as fast as
 /// scaling changes it (a mountain range's mean falls about 400 m over
 /// 1.6 km next to plains).
-const BLEND_RATE: f64 = 0.25;
+pub(crate) const BLEND_RATE: f64 = 0.25;
 
-/// One shared edge's segments and target.
-#[derive(Debug, Clone)]
-struct FadeEdge {
-    segments: Vec<Segment>,
-    length: f64,
-    target: EdgeTarget,
-    /// Every region with a blend share along the edge, sorted.
-    regions: Vec<RegionId>,
+/// The widest a terrain's layer scales fade from its edges' targets, in
+/// metres, for a terrain whose layers spread `spreads`, with `targets` on
+/// its edges and edge settings asking for at least `margin` metres.
+pub(crate) fn fade_width(spreads: LayerSpreads, targets: &[EdgeTarget], margin: f64) -> f64 {
+    let total = f64::from(total_spread(spreads));
+    targets
+        .iter()
+        .flat_map(|t| t.parts())
+        .map(|part| (f64::from(part.amplitude) - total).abs() / FADE_RATE)
+        .fold(margin, f64::max)
 }
-
-/// What a terrain is, for its fade: its own region, layer spreads, road
-/// grades and mean height.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct FadeOwn {
-    pub region: RegionId,
-    pub spreads: LayerSpreads,
-    pub roads: RoadGrades,
-    pub mean: f64,
-}
-
-/// A terrain's fade towards its edges' targets: its relief, and its road
-/// grades.
-#[derive(Debug, Clone)]
-pub(crate) struct Fade {
-    edges: Vec<FadeEdge>,
-    own: FadeOwn,
-    /// The neighbours' own reliefs, without their fades, sorted by region.
-    neighbours: Vec<(RegionId, Relief)>,
-    /// How much of the border blend to use, from 0 to 1.
-    share: f64,
-    /// How far the relief scaling reaches, in metres.
-    width: f64,
-    /// How far the border blend reaches, in metres. At least `width`.
-    blend_width: f64,
-    /// Which edge segments can pull on each part of the plane, out to the
-    /// blend's reach.
-    index: SegmentIndex,
-}
-
-impl Fade {
-    /// Fades the terrain `own` towards `targets`, each for an edge of
-    /// `region`, over at least `min_width` metres, using `share` (0 to 1) of
-    /// the border blend. `neighbours` are the reliefs, without fades, of
-    /// every other region with a blend share. Returns `None` if `targets`
-    /// is empty.
-    ///
-    /// # Panics
-    ///
-    /// If a target's edge isn't an edge of `region`, or a region with a
-    /// blend share is neither `own` nor in `neighbours`.
-    pub(crate) fn new(
-        region: &Region,
-        targets: &[EdgeTarget],
-        own: FadeOwn,
-        mut neighbours: Vec<(RegionId, Relief)>,
-        share: f64,
-        min_width: f64,
-    ) -> Option<Self> {
-        neighbours.sort_by_key(|(r, _)| *r);
-        let mean_of = |region: RegionId| {
-            if region == own.region {
-                return own.mean;
-            }
-            let (_, relief) = neighbours
-                .iter()
-                .find(|(r, _)| *r == region)
-                .expect("every region with a blend share is known");
-            relief.mean_height()
-        };
-
-        // The scaling width from the amplitude change, and the blend width
-        // from the mean height change too.
-        let total = f64::from(total_spread(own.spreads));
-        let mut width = min_width;
-        let mut mean_change = 0.0f64;
-        let mut edges = Vec::with_capacity(targets.len());
-        for target in targets {
-            let edge = region
-                .edges
-                .iter()
-                .find(|e| e.id == target.edge)
-                .expect("targets are for edges of the region");
-            for part in target.parts() {
-                width = width.max((f64::from(part.amplitude) - total).abs() / FADE_RATE);
-                let mean: f64 = part
-                    .blend
-                    .iter()
-                    .map(|(r, s)| f64::from(*s) * mean_of(*r))
-                    .sum();
-                mean_change = mean_change.max((mean - own.mean).abs());
-            }
-            edges.push(FadeEdge {
-                segments: segments(&edge.polyline),
-                length: edge.length(),
-                regions: target.blend_regions(),
-                target: target.clone(),
-            });
-        }
-        let blend_width = width.max(mean_change / BLEND_RATE);
-        // One index for both fades: the blend reaches at least as far.
-        let index = SegmentIndex::new(
-            edges.iter().map(|e| e.segments.as_slice()),
-            BORDER_REACH * blend_width,
-        );
-        (!edges.is_empty()).then_some(Self {
-            edges,
-            own,
-            neighbours,
-            share,
-            width,
-            blend_width,
-            index,
-        })
-    }
-
-    /// How far from its edges the fade reaches, in metres.
-    pub(crate) fn reach(&self) -> f64 {
-        if self.share == 0.0 {
-            self.width
-        } else {
-            self.blend_width
-        }
-    }
-
-    /// How much of the border blend the terrain uses, from 0 to 1.
-    pub(crate) fn share(&self) -> f64 {
-        self.share
-    }
-
-    /// Mixes each edge's values at `p` with `own`: on an edge, that edge's
-    /// values; fading to `own` across `width` metres; `None` beyond it.
-    /// `value` gives an edge's values `along` metres from its start.
-    ///
-    /// Each value is mixed on its own, as a change from `own`, so a value an
-    /// edge leaves as it is can't disturb the others and stays exact.
-    fn blend<const N: usize>(
-        &self,
-        p: DVec2,
-        width: f64,
-        own: [f64; N],
-        value: impl Fn(&FadeEdge, f64) -> [f64; N],
-    ) -> Option<[f64; N]> {
-        // Mix what every faded edge within reach asks for, each pulling
-        // along its whole length, and find the (soft) distance to them.
-        // First the distance alone, which is cheap; the values only within
-        // the fade.
-        let reach = BORDER_REACH * width;
-        let mut pull = Pull::<N>::default();
-        let near = self.index.near(p);
-        // Cheaper still: points the fade surely can't reach.
-        let segments = near.iter().map(|&(e, k)| &self.edges[e].segments[k]);
-        if surely_beyond(segments, p, reach, width) {
-            return None;
-        }
-        for &(e, k) in near {
-            let (edge, segment) = (&self.edges[e], &self.edges[e].segments[k]);
-            let projection = segment.project(p);
-            if projection.distance < ON_EDGE {
-                return Some(value(edge, projection.along));
-            }
-            pull.add_distance(segment, p, reach);
-        }
-        let distance = pull.distance(reach);
-        if distance >= width {
-            return None;
-        }
-        for &(e, k) in near {
-            let (edge, segment) = (&self.edges[e], &self.edges[e].segments[k]);
-            pull.add_targets(segment, p, reach, FADE_STEP, &|along, _| value(edge, along));
-        }
-        let mixed = pull.mixed()?;
-
-        // From the edges' values to `own` across the fade width.
-        let fade = 1.0 - smootherstep(distance / width);
-        let mut out = own;
-        for (o, m) in out.iter_mut().zip(mixed) {
-            *o += (m - *o) * fade;
-        }
-        Some(out)
-    }
-
-    /// The soft distance from `p` to the faded edges and their values mixed
-    /// by their pull, for a fade `width` metres wide, or `None` where no
-    /// edge is within reach. Unlike [`blend`](Self::blend) it always mixes
-    /// the values, however far `p` is from the edges.
-    fn pull_at<const N: usize>(
-        &self,
-        p: DVec2,
-        width: f64,
-        value: &impl Fn(&FadeEdge, f64) -> [f64; N],
-    ) -> Option<(f64, [f64; N])> {
-        let reach = BORDER_REACH * width;
-        let mut pull = Pull::<N>::default();
-        let near = self.index.near(p);
-        for &(e, k) in near {
-            pull.add_distance(&self.edges[e].segments[k], p, reach);
-        }
-        for &(e, k) in near {
-            let (edge, segment) = (&self.edges[e], &self.edges[e].segments[k]);
-            pull.add_targets(segment, p, reach, FADE_STEP, &|along, _| value(edge, along));
-        }
-        let distance = pull.distance(reach);
-        let mixed = pull.mixed()?;
-        distance.is_finite().then_some((distance, mixed))
-    }
-
-    /// [`blend`](Self::blend) with gradients: `own_slope` is the gradient
-    /// of `own`, and the result is the mix with its gradient. The values'
-    /// own change along x and z is taken from differences of their pull
-    /// (see [`pull_gradients`]), with `value` read only along the edges.
-    fn blend_gradient<const N: usize>(
-        &self,
-        p: DVec2,
-        width: f64,
-        own: [f64; N],
-        own_slope: [DVec2; N],
-        value: impl Fn(&FadeEdge, f64) -> [f64; N],
-    ) -> Option<([f64; N], [DVec2; N])> {
-        // The same choices as `blend`.
-        let reach = BORDER_REACH * width;
-        let near = self.index.near(p);
-        let segments = near.iter().map(|&(e, k)| &self.edges[e].segments[k]);
-        if surely_beyond(segments, p, reach, width) {
-            return None;
-        }
-        let on_edge = near.iter().find_map(|&(e, k)| {
-            let projection = self.edges[e].segments[k].project(p);
-            (projection.distance < ON_EDGE).then(|| value(&self.edges[e], projection.along))
-        });
-        let (distance, mixed) = self.pull_at(p, width, &value)?;
-        let (distance_slope, mixed_slope) = pull_gradients(p, |q| self.pull_at(q, width, &value));
-        if let Some(on_edge) = on_edge {
-            return Some((on_edge, mixed_slope));
-        }
-        if distance >= width {
-            return None;
-        }
-
-        // From the edges' values to `own` across the fade width.
-        let t = distance / width;
-        let fade = 1.0 - smootherstep(t);
-        let fade_slope = -distance_slope * (smootherstep_slope(t) / width);
-        let mut out = own;
-        let mut out_slope = own_slope;
-        for i in 0..N {
-            out[i] += (mixed[i] - own[i]) * fade;
-            out_slope[i] +=
-                (mixed_slope[i] - own_slope[i]) * fade + fade_slope * (mixed[i] - own[i]);
-        }
-        Some((out, out_slope))
-    }
-
-    /// The layer scales at `p` with their gradients, or `None` where the
-    /// fade doesn't reach and every layer is kept as it is.
-    pub(crate) fn scales_gradient(&self, p: DVec2) -> Option<([f64; 3], [DVec2; 3])> {
-        self.blend_gradient(p, self.width, [1.0; 3], [DVec2::ZERO; 3], |edge, along| {
-            let target = edge.target.amplitude_at(along, edge.length);
-            scales_at(level_for(self.own.spreads, target)).map(f64::from)
-        })
-    }
-
-    /// [`blended`](Self::blended) with its gradient, given the gradient
-    /// `own_slope` of `own`.
-    pub(crate) fn blended_gradient(
-        &self,
-        p: DVec2,
-        own: f64,
-        own_slope: DVec2,
-    ) -> Option<(f64, DVec2)> {
-        // Each region's height and slope at `p`, once.
-        let mut heights: Vec<(RegionId, f64, DVec2)> = Vec::new();
-        for edge in &self.edges {
-            for &region in &edge.regions {
-                if heights.iter().any(|(r, _, _)| *r == region) {
-                    continue;
-                }
-                let (h, slope) = if region == self.own.region {
-                    (own, own_slope)
-                } else {
-                    let (_, relief) = self
-                        .neighbours
-                        .iter()
-                        .find(|(r, _)| *r == region)
-                        .expect("every region with a blend share is known");
-                    (f64::from(relief.own_relief(p)), relief.own_relief_slope(p))
-                };
-                heights.push((region, h, slope));
-            }
-        }
-
-        // The blend is linear in the regions' heights, so mixing their
-        // slopes by the same shares gives the part of its gradient that
-        // comes from the heights; the shares' own change comes from the
-        // pull.
-        let value = |edge: &FadeEdge, along: f64| {
-            let sum = |part: fn(&(RegionId, f64, DVec2)) -> f64| {
-                edge.target
-                    .blend_sum(&edge.regions, along, edge.length, |region| {
-                        part(
-                            heights
-                                .iter()
-                                .find(|(r, _, _)| *r == region)
-                                .expect("height"),
-                        )
-                    })
-            };
-            [sum(|h| h.1), sum(|h| h.2.x), sum(|h| h.2.y)]
-        };
-        // Faded from zero, `out[1..]` is the fade's share of the mixed
-        // slopes; `slopes[0]` is the change of the blend with the heights
-        // held as they are at `p`.
-        let (out, slopes) = self.blend_gradient(
-            p,
-            self.blend_width,
-            [own, 0.0, 0.0],
-            [own_slope, DVec2::ZERO, DVec2::ZERO],
-            value,
-        )?;
-        Some((out[0], slopes[0] + DVec2::new(out[1], out[2])))
-    }
-
-    /// The layer scales at `p`, or `None` where the fade doesn't reach and
-    /// every layer is kept as it is.
-    pub(crate) fn scales(&self, p: DVec2) -> Option<LayerScales> {
-        let scales = self.blend(p, self.width, [1.0; 3], |edge, along| {
-            let target = edge.target.amplitude_at(along, edge.length);
-            scales_at(level_for(self.own.spreads, target)).map(f64::from)
-        })?;
-        Some(scales.map(|s| s as f32))
-    }
-
-    /// The relief at `p` faded into the border blend, given the terrain's
-    /// own relief `own` there (without any fade or the world elevation), or
-    /// `None` where the blend doesn't reach and the relief is `own`.
-    ///
-    /// On an edge it is the edge's blend: the sum, in region order, of each
-    /// region's own relief times its share. Both terrains on the edge
-    /// compute the same sum, so they agree exactly there.
-    pub(crate) fn blended(&self, p: DVec2, own: f64) -> Option<f64> {
-        // Each region's height once, and only within the blend.
-        let height_of = |region: RegionId| {
-            if region == self.own.region {
-                return own;
-            }
-            let (_, relief) = self
-                .neighbours
-                .iter()
-                .find(|(r, _)| *r == region)
-                .expect("every region with a blend share is known");
-            f64::from(relief.own_relief(p))
-        };
-        let heights = std::cell::OnceCell::new();
-        let heights = || {
-            heights.get_or_init(|| {
-                let mut heights: Vec<(RegionId, f64)> = Vec::new();
-                for edge in &self.edges {
-                    for &region in &edge.regions {
-                        if !heights.iter().any(|(r, _)| *r == region) {
-                            heights.push((region, height_of(region)));
-                        }
-                    }
-                }
-                heights
-            })
-        };
-        let [h] = self.blend(p, self.blend_width, [own], |edge, along| {
-            let heights = heights();
-            let sum = edge
-                .target
-                .blend_sum(&edge.regions, along, edge.length, |region| {
-                    let (_, h) = heights.iter().find(|(r, _)| *r == region).expect("height");
-                    *h
-                });
-            [sum]
-        })?;
-        Some(h)
-    }
-
-    /// The road grades at `p`: the terrain's own beyond the fade, changing
-    /// to the edges' targets towards them.
-    pub(crate) fn roads(&self, p: DVec2) -> RoadGrades {
-        let own = [self.own.roads.grade, self.own.roads.max_grade].map(f64::from);
-        match self.blend(p, self.reach(), own, |edge, along| {
-            let r = edge.target.roads_at(along, edge.length);
-            [r.grade, r.max_grade].map(f64::from)
-        }) {
-            Some([grade, max_grade]) => RoadGrades {
-                grade: grade as f32,
-                max_grade: (max_grade as f32).max(grade as f32),
-            },
-            None => self.own.roads,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

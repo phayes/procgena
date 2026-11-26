@@ -1863,10 +1863,8 @@ Measured and compared in `terrain/roads_plan.md` (timing with
 
 #### Border-pull cost (unscheduled)
 
-Not a road cost, so kept out of TE5 by the user: the convergence fade and
-the border pulls are 78–86% of every height read (measured 2026-11-24).
-Ways to cut it: fewer border pieces; cheaper far-piece integrals;
-neighbours' relief evaluated only where its blend share is non-zero.
+Superseded by [TB](#tb-cheap-borders), which replaced the convergence
+fade's pulls and the border pulls with one cheap border field.
 
 #### TE6: River speed
 
@@ -1907,8 +1905,8 @@ of a block of chunks, and a per-point split) and the macOS Time Profiler.
     fell 13%;
   - hills: 71.8 G became 66.5 G (−7%), and cycles fell 8%.
   - Wall times were too noisy to report: the load average was about 100.
-- **The real per-point cost** is the border fade and pulls, in every
-  height read, the trace included (see "Border-pull cost" above).
+- **The real per-point cost** was the border fade and pulls, in every
+  height read, the trace included; [TB](#tb-cheap-borders) replaced them.
 
 #### TE7: Intermediate terrain detail levels
 
@@ -2043,7 +2041,41 @@ Decided by the user 2026-11-26. The design is in
 - **Needs:** TS and TO.
 - **Done when:** borders are exact in height, the suites pass with moved
   figures reported, and the cold-load speed-up is measured.
-- **Status (2026-11-26):** in progress, in its own worktree.
+- **Status (2026-11-26):** done.
+  - **Built:** one border field per region (`border.rs`) replaces the
+    three pull systems. Each active edge has one profile, built in the
+    plan from the settings of the regions around it; plans read
+    neighbours' settings, never their plans. Same-relief edges do no
+    border work. The field's index cells are the tile classification:
+    a point in an empty cell reads its own relief after one lookup.
+    Rivers are traced on the final ground. Crossing cross-slopes are
+    sampled only where a crossing is wished. With it, E's noise went to
+    f64 (it stepped by up to about 2 mm every few millimetres).
+  - **Measured on one thread** (master 3e8d192 against TB, same
+    commands, `load_timeline --rough-from 0`): mixed world 2.67 T →
+    0.284 T instructions (9.4×), first picture 452.8 → 41.3 s, settled
+    662.0 → 79.7 s; mountains 5.50 T without settling in 900 s →
+    0.394 T, settled at 110.9 s. Rough per region about 165 → 7.7 ms,
+    plans 0.9 → 3.0 ms. `ground_cost`: hills 0.80 → 0.086 T, mountains
+    2.25 → 0.120 T.
+  - **Moved tests:** slope continuity across borders became exact height
+    plus no step 1 cm off the border (`seams`, `world`, `shipped`), as
+    the user's crease decision allows; the measures curvature limit at
+    borders went 0.01 → 0.02 (0.011 measured), a direct consequence of
+    allowed creases; the grove slope test samples every 3 cm (a road
+    bank edge 6 cm wide fell between 8 cm samples); the `blend = 1`
+    convergence tests became exact terrain-height tests; one ports test
+    narrows a side's strip; the mountain-rivers crossing test moved from
+    seed 217 to hand-made land (seed 26). TIN `GOLDEN_PLANE` and the
+    labels figures are unchanged.
+  - **Known issue:** faint star-shaped slope creases, a few tens of
+    metres across, near sharp border bends and corners, where nearby
+    segments' weights hand over. Not cracks: heights meet exactly.
+    Close-up: [terrain/spike/tb_creases.png](terrain/spike/tb_creases.png)
+    (master, then TB at the same bend, then TB at a second bend).
+  - **Follow-up:** smooth the handover near bends and corners, and
+    remove `Convergence::blend` and `EdgeOptions::roughness`, which no
+    longer have any effect (coordinated with `procgena_world`).
 
 #### GPU1: Relief preview on the GPU
 
@@ -2907,7 +2939,8 @@ where the details are.
       with the TIN for collision and near rest heights. The review
       recommends the last.
     - *D6c, region borders:* constrain chunk borders only (the review's
-      proposal, since terrains already meet in height and slope there), or
+      proposal, since terrains already meet in height there; since
+      [TB](#tb-cheap-borders) the slope may crease), or
       every region border too.
     - *D6d, units:* integer units in `i64`, with 32-bit chunk-local
       offsets (now centimetres).

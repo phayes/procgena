@@ -344,11 +344,13 @@ fn measures_agree_across_borders() {
         "only {near_features} border points near features"
     );
     // Heights and distances agree exactly; slope and curvature read the
-    // ground a little way off, where each terrain bends towards the border
-    // in its own way.
+    // ground a little way off, where each terrain gives way to its own
+    // ground in its own way. The curvature limit is 0.02, not 0.01, as a
+    // direct consequence of the slope being allowed to crease on the border
+    // (cheap borders, TB): about 0.011 per metre on these worlds.
     assert!(worst[0] < 1e-3 && worst[3] < 1e-3, "{worst:?}");
     assert!(worst[1] < 0.01, "slope jumps by {}", worst[1]);
-    assert!(worst[2] < 0.01, "curvature jumps by {} per metre", worst[2]);
+    assert!(worst[2] < 0.02, "curvature jumps by {} per metre", worst[2]);
 }
 
 #[test]

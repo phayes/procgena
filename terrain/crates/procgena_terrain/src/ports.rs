@@ -136,9 +136,10 @@ pub struct PortWish {
     /// [`MAX_PORT_WIDTH`].
     pub width: f32,
     /// For a river, the lowest ground in metres between where it would
-    /// start towards the edge and the end of its crossing piece; the
-    /// crossing must sit below it, or the river would float above that
-    /// ground. Infinite for roads.
+    /// start towards the edge and the end of its crossing piece, as the
+    /// terrain stands once it meets its border profiles; the crossing must
+    /// sit below it, or the river would float above that ground. Infinite
+    /// for roads.
     pub ground: f32,
 }
 
@@ -256,19 +257,21 @@ pub(crate) struct SideWishes<'a> {
 
 impl SideWishes<'_> {
     /// The side's ground at depth number `k` inside (see [`inner_depth`]),
-    /// once bent to meet the agreement, and the agreed profile carried to
-    /// that depth, both at profile sample `i` where the agreed profile is
-    /// `agreed`. In metres.
+    /// once it gives way to the agreement, and the agreed profile carried
+    /// to that depth along the sides' mean cross-slope, both at profile
+    /// sample `i` where the agreed profile is `agreed`. In metres.
     fn bent_at(&self, i: usize, agreed: EdgeSample, k: usize) -> (f64, f64) {
-        // Both profiles carried inward to that depth.
         let depth = inner_depth(k);
         let reach = slope_reach(self.side.sign() * depth);
-        let carry = |s: EdgeSample| f64::from(s.height) + f64::from(s.slope) * reach;
-        let (own, agreed) = (carry(self.natural[i]), carry(agreed));
-        // The side's ground there, shifted towards the agreement as the
-        // terrain bends across its margin.
-        let kept = 1.0 - smootherstep(depth / f64::from(self.margin));
-        (f64::from(self.inner[i][k]) + (agreed - own) * kept, agreed)
+        let carried = f64::from(agreed.height) + f64::from(agreed.slope) * reach;
+        // The side's ground there: the agreed height on the edge, giving
+        // way to the side's own ground across its strip.
+        let own = smootherstep(depth / f64::from(self.margin));
+        let height = f64::from(agreed.height);
+        (
+            height + own * (f64::from(self.inner[i][k]) - height),
+            carried,
+        )
     }
 
     /// How far the side's ground [`FEATURE_CLEARANCE`] metres inside, once
@@ -358,12 +361,8 @@ pub(crate) fn agree_ports(
             let upper =
                 level + (f64::from(ground.slope.abs()) * slope_reach(FEATURE_CLEARANCE)) as f32;
             // The river must also stay below the ground on its way to the
-            // crossing piece.
-            // Near the border the sender's ground is bent towards the agreed
-            // height; if that lowers it, the river's way down is lower too.
-            let bent_down =
-                (ground.height - interpolate(from.natural, step, along).height).min(0.0);
-            let under_ground = upper <= wish.ground + bent_down - FREEBOARD;
+            // crossing piece (the wish's ground already meets the border).
+            let under_ground = upper <= wish.ground - FREEBOARD;
             if wish.level >= upper + MIN_DROP && falls_away && under_ground {
                 let port = Port {
                     kind: PortKind::River { from: from.region },
@@ -541,7 +540,6 @@ pub(crate) fn interpolate(profile: &[EdgeSample], step: f64, along: f64) -> Edge
     EdgeSample {
         height: s.height + (e.height - s.height) * f,
         slope: s.slope + (e.slope - s.slope) * f,
-        detail: s.detail + (e.detail - s.detail) * f,
     }
 }
 
@@ -580,7 +578,6 @@ mod tests {
                 EdgeSample {
                     height: (20.0 + 0.05 * (along - 400.0).abs()) as f32,
                     slope: 0.1,
-                    detail: 0.0,
                 }
             })
             .collect();
@@ -731,7 +728,8 @@ mod tests {
         let (profile, step) = valley();
         let mut fit = fit_both(&profile);
         // The right side's ground 65 m in is 10 m below its profile carried
-        // inward: a crossing piece would float there.
+        // inward, and its strip is no wider, so its own ground shows there
+        // in full: a crossing piece would float there.
         for depths in &mut fit.inner[1] {
             for h in depths {
                 *h -= 10.0;
@@ -743,7 +741,8 @@ mod tests {
             width: 6.0,
             ground: f32::INFINITY,
         }];
-        let (a, b) = sides(&[], &[], &road, &[], &profile, &fit);
+        let (a, mut b) = sides(&[], &[], &road, &[], &profile, &fit);
+        b.margin = FEATURE_CLEARANCE as f32;
         assert!(agree_ports(&a, &b, &profile, step, &away_from_ends).is_empty());
     }
 
@@ -824,7 +823,6 @@ mod tests {
                 EdgeSample {
                     height: (20.0 + 0.05 * d0.min(d1)) as f32,
                     slope: if d0 <= d1 { slopes[0] } else { slopes[1] },
-                    detail: 0.0,
                 }
             })
             .collect();

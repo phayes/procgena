@@ -95,9 +95,6 @@ pub(crate) const GRAPH_CORNER_DRIFT: &str = "terrain.graph.corner_drift";
 /// The gully cells' jitter. A fixed seed, the same in every world, so
 /// gullies match across borders whatever the neighbours' seeds.
 pub(crate) const GULLY_CELLS: &str = "terrain.gully.cells";
-/// The irregularities along every border. A fixed seed, the same in every
-/// world, so both sides of a border share them whatever their seeds.
-pub(crate) const SEAM_DETAIL: &str = "terrain.seam.detail";
 /// A Terrain's own choices for its region, made once per region rather
 /// than sampled at world positions. See [`region_local_seed`].
 pub(crate) const REGION_LOCAL: &str = "terrain.region.local";
@@ -127,7 +124,6 @@ pub(crate) const KEYS: &[&str] = &[
     GRAPH_BORDER_WARP,
     GRAPH_CORNER_DRIFT,
     GULLY_CELLS,
-    SEAM_DETAIL,
     REGION_LOCAL,
 ];
 

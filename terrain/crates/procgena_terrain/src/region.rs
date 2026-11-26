@@ -259,9 +259,6 @@ pub(crate) struct Projection {
     pub along: f64,
     /// Distance to the closest point on the segment.
     pub distance: f64,
-    /// Offset from the closest point along the segment's normal (positive on
-    /// the normal's side).
-    pub across: f64,
 }
 
 impl Segment {
@@ -273,7 +270,6 @@ impl Segment {
         Projection {
             along: self.offset + t,
             distance: p.distance(closest),
-            across: (p - closest).dot(self.normal),
         }
     }
 }
@@ -368,7 +364,6 @@ mod tests {
         let pr = s[0].project(DVec2::new(4.0, 3.0));
         assert_eq!(pr.along, 4.0);
         assert_eq!(pr.distance, 3.0);
-        assert_eq!(pr.across, 3.0);
         let (q, n) = point_at(&s, 2.5);
         assert_eq!(q, DVec2::new(2.5, 0.0));
         assert_eq!(n, DVec2::new(0.0, 1.0));

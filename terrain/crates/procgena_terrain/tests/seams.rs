@@ -1,5 +1,5 @@
-//! Borders between terrains: continuity of height and slope, corners, and
-//! repeatable tiles.
+//! Borders between terrains: exact heights on the border and no step beside
+//! it (the slope may crease across it), corners, and repeatable tiles.
 
 mod common;
 
@@ -30,7 +30,7 @@ fn side(world: &StitchedWorld, p: DVec2) -> &Terrain {
     world.owner(p).expect("point inside the world")
 }
 
-/// Checks height and slope continuity across a border of `world`.
+/// Checks that both sides meet exactly across a border of `world`.
 fn assert_continuous(world: &StitchedWorld, border: &[DVec2], label: &str) {
     assert_continuous_along(world, border, 40, label);
 }
@@ -56,58 +56,8 @@ fn assert_continuous_along(
     per_segment: usize,
     label: &str,
 ) {
-    assert_continuous_with_step(world, border, per_segment, Step::Short, label);
-}
-
-/// The largest difference in slope across a border that still counts as
-/// continuous.
-const SLOPE_LIMIT: f32 = 0.05;
-
-/// How far from the border slopes are read.
-#[derive(Clone, Copy)]
-enum Step {
-    /// First-order differences over 5 cm.
-    Short,
-    /// Second-order differences over 0.5 m and 1 m, so curved ground reads
-    /// the same slope from both sides.
-    Long,
-}
-
-/// The slope across a border at `q`: field `a` on the side `n` points to and
-/// field `b` on the other, each read only on its own side.
-fn slope_gap(
-    a: impl Fn(DVec2) -> f32,
-    b: impl Fn(DVec2) -> f32,
-    q: DVec2,
-    n: DVec2,
-    step: Step,
-) -> (f32, f32) {
-    let one_sided = |f: &dyn Fn(DVec2) -> f32, d: DVec2| match step {
-        Step::Short => (f(q + d * 0.05) - f(q)) / 0.05,
-        Step::Long => {
-            let [f0, f1, f2] = [0.0, 0.5, 1.0].map(|k| f64::from(f(q + d * k)));
-            ((-3.0 * f0 + 4.0 * f1 - f2) / 1.0) as f32
-        }
-    };
-    (one_sided(&a, n), -one_sided(&b, -n))
-}
-
-/// [`assert_continuous_along`], with slopes read at `step`.
-///
-/// Heights are `f32`, so on high ground they carry noise of about half a
-/// millimetre from point to point; [`Step::Short`] can read that as a slope
-/// change of a few hundredths. [`Step::Long`] reads it as under 0.005, and
-/// still catches a real change of slope (see
-/// `a_kink_just_over_the_limit_is_caught_at_half_metre_steps`).
-fn assert_continuous_with_step(
-    world: &StitchedWorld,
-    border: &[DVec2],
-    per_segment: usize,
-    step: Step,
-    label: &str,
-) {
     for (q, n) in along(border, per_segment) {
-        // Both terrains meet the same height on the border.
+        // Both terrains meet exactly the same height on the border.
         let [a, b] = [side(world, q + n * 1.0), side(world, q - n * 1.0)];
         assert_ne!(
             a.region().id,
@@ -115,41 +65,24 @@ fn assert_continuous_with_step(
             "{label}: {q} should lie on a border"
         );
         let (ha, hb) = (a.height(q), b.height(q));
-        assert!(
-            (ha - hb).abs() < 1e-3,
-            "{label}: heights differ at {q}: {ha} vs {hb}"
-        );
+        assert_eq!(ha, hb, "{label}: heights differ at {q}");
 
-        // The slope across the border matches, from one-sided differences.
-        let (slope_a, slope_b) = slope_gap(|p| a.height(p), |p| b.height(p), q, n, step);
-        assert!(
-            (slope_a - slope_b).abs() < SLOPE_LIMIT,
-            "{label}: slopes differ at {q}: {slope_a} vs {slope_b}"
-        );
-    }
-}
-
-#[test]
-fn a_kink_just_over_the_limit_is_caught_at_half_metre_steps() {
-    // Two planes meeting along a slanted line at the height of the warped
-    // test worlds, as f32 like terrain heights, with slopes across the line
-    // differing by just over the limit, or just under it.
-    let n = DVec2::new(0.6, 0.8);
-    let plane = |slope: f64| move |p: DVec2| (109.4 + slope * p.dot(n)) as f32;
-    for (change, kinked) in [(1.1 * SLOPE_LIMIT, true), (0.8 * SLOPE_LIMIT, false)] {
-        let change = f64::from(change);
-        for k in 0..200 {
-            let q = n.perp() * (f64::from(k) * 13.7 - 1300.0);
-            let (a, b) = slope_gap(plane(0.02 + change), plane(0.02), q, n, Step::Long);
-            assert_eq!(
-                (a - b).abs() >= SLOPE_LIMIT,
-                kinked,
-                "a slope change of {change} at {q} reads as {}",
-                a - b
+        // No step just off the border on either side. The slope may change
+        // across the border (a crease), but the ground leaves the border
+        // height no faster than a 5:1 slope over the first centimetre.
+        for (terrain, d) in [(a, n), (b, -n)] {
+            let off = terrain.height(q + d * 0.01);
+            assert!(
+                (off - ha).abs() <= MAX_STEP,
+                "{label}: the ground steps from {ha} to {off} 1 cm off the border at {q}"
             );
         }
     }
 }
+
+/// The most the ground may move in the first centimetre off a border, in
+/// metres: a 5:1 slope.
+const MAX_STEP: f32 = 0.05;
 
 fn border(offset: DVec2) -> Vec<DVec2> {
     TWO_REGION_BORDER
@@ -258,11 +191,10 @@ fn warped_borders_join_continuously() {
                 flat.warp,
             );
             for border in shared_borders(&world) {
-                assert_continuous_with_step(
+                assert_continuous_along(
                     &world,
                     &border,
                     4,
-                    Step::Long,
                     &format!("warped {} | {}", west.name, east.name),
                 );
             }
@@ -283,7 +215,7 @@ fn warped_borders_join_continuously() {
             );
             for border in borders {
                 let label = format!("{name}, {config:?}");
-                assert_continuous_with_step(&world, &border, 4, Step::Long, &label);
+                assert_continuous_along(&world, &border, 4, &label);
             }
         }
     }
@@ -381,10 +313,10 @@ fn four_regions_meet_at_one_corner() {
 /// Checks that every terrain of `world` meets at `corner`, and that the
 /// borders from `corner` towards each of `ends` are continuous up to it.
 fn assert_regions_meet(world: &StitchedWorld, corner: DVec2, ends: &[DVec2]) {
-    // Every terrain reaches the same height at the corner.
+    // Every terrain reaches exactly the same height at the corner.
     let heights: Vec<f32> = world.terrains().iter().map(|t| t.height(corner)).collect();
     for h in &heights {
-        assert!((h - heights[0]).abs() < 1e-3, "corner heights {heights:?}");
+        assert_eq!(*h, heights[0], "corner heights {heights:?}");
     }
 
     // Around the corner the ground is continuous: small steps on a small circle.

@@ -1,60 +1,34 @@
 //! Terrain generators, and terrains bound to a region.
 
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
 use glam::{DVec2, Vec2};
 use procgena_core::{Ground, GroundSample};
 
-use crate::border::{Pull, SegmentIndex, pull_gradients, surely_beyond};
+use crate::border::{
+    BorderField, BorderProfile, EdgeScales, FieldEdge, Knots, ProfileShape, middle_scales,
+    pin_ramp, pin_shares,
+};
 use crate::carve::{Carved, FeatureKind, FeatureLine, Features, PointOfInterest, Pond, RoadTags};
-use crate::converge::{EdgeTarget, Fade, FadeOwn, total_spread};
+use crate::converge::{BLEND_RATE, BorderTarget, EdgeTarget, fade_width, total_spread};
 use crate::elevation::Elevation;
 use crate::feature::{FeatureId, FeatureTier, TerrainFeature};
-use crate::hash::{SEAM_DETAIL, salt};
 use crate::label::{Labels, Shape, Site, classify, principal_bends, shape_points};
 use crate::measure::{
     CURVATURE_STEP, MEASURE_REACH, Measures, NearbyMeasures, SampleDetail, curvature_of, slope_of,
 };
-use crate::noise::{Octaves, fbm, fbm_gradient};
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::plan;
-use crate::ports::{INNER_DEPTHS, Side, inner_depth, slope_reach};
-use crate::region::{
-    EdgeId, Region, RegionCorner, RegionEdge, RegionId, Segment, point_at, segments,
-};
+use crate::ports::{INNER_DEPTHS, Side, inner_depth};
+use crate::region::{EdgeId, Region, RegionEdge, RegionId, point_at, segments};
 use crate::relief::Relief;
 use crate::road::{CarvedLine, RoadEarthworks, RoadNetwork, RouteStats, earthworks};
 use crate::scale::WorldScale;
-use crate::seam::{
-    CornerOffer, EDGE_STEP, EdgeAgreement, EdgeOffer, EdgeSample, Profile, elevation_samples,
-    relative_to, sample_count, smooth, smootherstep, smootherstep_slope,
-};
+use crate::seam::{CrossingSamples, EdgeAgreement, EdgeOffer, EdgeSample, sample_count};
 
 /// Distances below this (metres) count as on the edge.
 pub(crate) const ON_EDGE: f64 = 1e-9;
-
-/// How far border edges pull on the ground, as a multiple of the margin.
-/// Twice the margin keeps the pull's fade to zero well beyond where the
-/// bending ends.
-pub(crate) const BORDER_REACH: f64 = 2.0;
-/// Width of the strip next to a border where a terrain's own fine detail
-/// gives way to the shared border detail, in metres (at most the margin).
-const DETAIL_BAND: f64 = 48.0;
-
-/// Wavelength of the shared border detail, in metres.
-const DETAIL_WAVELENGTH: f64 = 40.0;
-
-/// Seed of the shared border detail. Every terrain uses the same one, so
-/// both sides of a border add the same detail (see [`SEAM_DETAIL`]).
-const DETAIL_SEED: u32 = salt(SEAM_DETAIL);
-
-/// Octaves of the shared border detail.
-const DETAIL_OCTAVES: Octaves = Octaves {
-    count: 3,
-    gain: 0.5,
-};
 
 /// A terrain type with validated settings, not yet bound to a region.
 ///
@@ -66,15 +40,11 @@ pub struct TerrainGenerator {
     relief: Relief,
 }
 
-/// A terrain bound to its region and bent to meet its border agreements.
+/// A terrain bound to its region and meeting its border agreements.
 #[derive(Debug, Clone)]
 pub struct Terrain {
     generator: TerrainGenerator,
     region: Region,
-    seams: Vec<Seam>,
-    /// Which seam segments can pull on each part of the plane.
-    index: SegmentIndex,
-    margin: f64,
     /// Each shared edge's index in the region, with its agreement.
     agreements: Vec<(usize, EdgeAgreement)>,
     /// The rivers and ponds: the planning stage after the river trace.
@@ -95,14 +65,6 @@ pub struct Terrain {
     scale: WorldScale,
 }
 
-/// One shared edge: the agreed profile and this terrain's own smoothed
-/// profile along it, both as heights above the world elevation E.
-#[derive(Debug, Clone)]
-struct Seam {
-    agreed: Profile,
-    own: Profile,
-}
-
 /// A terrain that could not be built.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -119,13 +81,11 @@ pub enum TerrainError {
     /// that aren't sorted, not negative and adding up to 1, or road grades
     /// out of range.
     InvalidTarget(EdgeId),
-    /// A target gives a blend share to a region that is neither this one
-    /// nor one of the neighbours given.
+    /// A target is for an edge whose neighbour isn't one of the
+    /// neighbours given.
     UnknownNeighbour(RegionId),
     /// A neighbour's settings are invalid.
     NeighbourOptions(RegionId, OptionsError),
-    /// The blend share is outside 0 to 1, or NaN.
-    InvalidBlend(f32),
     /// The river trace given is of another region, this one.
     TraceMismatch(RegionId),
     /// An agreement has the wrong number of samples for its edge.
@@ -154,10 +114,9 @@ impl fmt::Display for TerrainError {
             }
             Self::InvalidTarget(id) => write!(f, "the target for edge {} isn't valid", id.0),
             Self::UnknownNeighbour(id) => {
-                write!(f, "a target blends in region {}, which isn't given", id.0)
+                write!(f, "a target's neighbour, region {}, isn't given", id.0)
             }
             Self::NeighbourOptions(id, e) => write!(f, "neighbour region {}: {e}", id.0),
-            Self::InvalidBlend(b) => write!(f, "blend share {b} is outside 0 to 1"),
             Self::TraceMismatch(id) => {
                 write!(f, "the river trace is of region {}, not this one", id.0)
             }
@@ -206,10 +165,18 @@ impl TerrainGenerator {
     }
 
     /// The terrain's own height at world position `p` (x and z, metres),
-    /// before any bending to meet neighbours, but after fading towards the
-    /// relief targets (see [`with_edge_targets`](Self::with_edge_targets)).
-    /// Defined everywhere.
+    /// before meeting its neighbours' border profiles, but after fading
+    /// towards the relief targets (see
+    /// [`with_edge_targets`](Self::with_edge_targets)). Defined everywhere.
     pub fn natural_height(&self, p: DVec2) -> f32 {
+        self.relief.own_height(p)
+    }
+
+    /// The ground's height at `p` before carving, meeting the border
+    /// profiles: what the built terrain's
+    /// [`uncarved_height`](Terrain::uncarved_height) gives.
+    #[cfg(test)]
+    pub(crate) fn ground_height(&self, p: DVec2) -> f32 {
         self.relief.height(p)
     }
 
@@ -229,39 +196,42 @@ impl TerrainGenerator {
         total_spread(self.relief.spreads())
     }
 
+    /// Whether this generator and `other` have the same relief: the same
+    /// seed and the same base settings, so their heights before carving are
+    /// the same function, bit for bit. Two regions with the same relief
+    /// need no border between them.
+    pub fn same_relief(&self, other: &TerrainGenerator) -> bool {
+        self.options.default_seed == other.options.default_seed
+            && self.options.base == other.options.base
+    }
+
     /// This generator with its relief and road grades fading towards
-    /// `targets` near the matching edges of `region`. Deep inside the region
-    /// both are unchanged. Edges without a target are left as they are.
-    /// Replaces any earlier targets.
+    /// `targets` near the matching edges of `region`: its relief layers
+    /// scale towards each target's amplitude, and its road grades towards
+    /// the target's. Deep inside the region both are unchanged. Edges
+    /// without a target are left as they are, and need no agreement to
+    /// build. Replaces any earlier targets.
     ///
-    /// Near each edge the relief changes in two ways, mixed by `blend`
-    /// (see [`Convergence::blend`](crate::Convergence::blend)): its own
-    /// layers scale towards the target's amplitude, and it fades into the
-    /// target's blend of the regions' own ground. `neighbours` gives the
-    /// settings of every other region with a blend share; the blend uses
-    /// their ground without any fading.
+    /// `neighbours` gives the settings of the region across each targeted
+    /// edge; how far the terrain gives way to the agreed border profile
+    /// follows from how far its mean height lies from theirs.
     ///
     /// Call it before making offers, and use the same region for the
     /// offers and for [`build`](Self::build). Both terrains on an edge
-    /// must be given the same target and blend, or their borders have more
-    /// to bend.
+    /// must be given the same target.
     ///
     /// # Errors
     ///
     /// If a target is for an edge that isn't a shared edge of `region`, if
-    /// two targets are for one edge, if a target isn't valid, if a target
-    /// blends in a region missing from `neighbours`, if a neighbour's
-    /// settings are invalid, or if `blend` is outside 0 to 1.
+    /// two targets are for one edge, if a target isn't valid, if a
+    /// targeted edge's neighbour is missing from `neighbours`, or if a
+    /// neighbour's settings are invalid.
     pub fn with_edge_targets(
         mut self,
         region: &Region,
         targets: &[EdgeTarget],
         neighbours: &[(RegionId, TerrainOptions)],
-        blend: f32,
     ) -> Result<Self, TerrainError> {
-        if !(0.0..=1.0).contains(&blend) {
-            return Err(TerrainError::InvalidBlend(blend));
-        }
         for (i, target) in targets.iter().enumerate() {
             let shared = region
                 .edges
@@ -278,34 +248,184 @@ impl TerrainGenerator {
             }
         }
 
-        // The other regions' reliefs, for the blend.
-        let mut reliefs: Vec<(RegionId, Relief)> = Vec::new();
-        for target in targets {
-            for other in target.blend_regions() {
-                if other == region.id || reliefs.iter().any(|(r, _)| *r == other) {
-                    continue;
-                }
-                let (_, options) = neighbours
-                    .iter()
-                    .find(|(r, _)| *r == other)
-                    .ok_or(TerrainError::UnknownNeighbour(other))?;
-                options
-                    .validate()
-                    .map_err(|e| TerrainError::NeighbourOptions(other, e))?;
-                reliefs.push((other, Relief::new(options)));
-            }
-        }
+        // Each targeted edge, with this terrain's layer scales along it, and
+        // how far its mean height lies from the border profile's.
+        let spreads = self.relief.spreads();
+        let margin = f64::from(self.options.edges.margin);
+        let mut strip = margin;
+        let mut edges = Vec::with_capacity(targets.len());
+        for edge in &region.edges {
+            let Some(target) = targets.iter().find(|t| t.edge == edge.id) else {
+                continue;
+            };
+            let neighbor = edge.neighbor.expect("targets are for shared edges");
+            let (_, options) = neighbours
+                .iter()
+                .find(|(r, _)| *r == neighbor)
+                .ok_or(TerrainError::UnknownNeighbour(neighbor))?;
+            options
+                .validate()
+                .map_err(|e| TerrainError::NeighbourOptions(neighbor, e))?;
+            let theirs = Relief::new(options);
+            let amplitude = target.middle.amplitude;
+            let mean =
+                |relief: &Relief| relief.mean_height(middle_scales(relief.spreads(), amplitude));
+            let (own_mean, their_mean) = (mean(&self.relief), mean(&theirs));
+            let (k_own, k_theirs) = (
+                f64::from(self.options.edges.stiffness),
+                f64::from(options.edges.stiffness),
+            );
+            // Summed in region order, as the profile is mixed.
+            let (first, second) = if region.id < neighbor {
+                ((k_own, own_mean), (k_theirs, their_mean))
+            } else {
+                ((k_theirs, their_mean), (k_own, own_mean))
+            };
+            let profile_mean = (first.0 * first.1 + second.0 * second.1) / (first.0 + second.0);
+            strip = strip.max((profile_mean - own_mean).abs() / BLEND_RATE);
 
-        let own = FadeOwn {
-            region: region.id,
-            spreads: self.relief.spreads(),
-            roads: self.options.features.roads.grades(),
-            mean: self.relief.mean_height(),
+            let length = edge.length();
+            edges.push(FieldEdge {
+                id: edge.id,
+                segments: segments(&edge.polyline),
+                length,
+                target: target.clone(),
+                scales: EdgeScales::new(spreads, target, length),
+            });
+        }
+        let fade = fade_width(spreads, targets, margin);
+        let field = BorderField::new(edges, fade, strip).map(Arc::new);
+        let borders = match &field {
+            Some(field) => self.border_profiles(region, field, neighbours)?,
+            None => Vec::new(),
         };
-        let min_width = f64::from(self.options.edges.margin);
-        let fade = Fade::new(region, targets, own, reliefs, f64::from(blend), min_width);
-        self.relief = self.relief.with_fade(fade);
+        self.relief = self.relief.with_field(field, borders.into());
         Ok(self)
+    }
+
+    /// The agreed profile of each of `field`'s edges, in order, from the
+    /// settings of this terrain and of `neighbours` alone: every region on
+    /// the edges and at their corners must be among them. Both regions on
+    /// an edge compute the same profile, bit for bit.
+    fn border_profiles(
+        &self,
+        region: &Region,
+        field: &BorderField,
+        neighbours: &[(RegionId, TerrainOptions)],
+    ) -> Result<Vec<BorderProfile>, TerrainError> {
+        let elevation = self.relief.elevation();
+        // Any region's relief (built the same way whichever region asks),
+        // stiffness and settings.
+        let side = |id: RegionId| -> Result<(Relief, f64, &TerrainOptions), TerrainError> {
+            let options = if id == region.id {
+                &self.options
+            } else {
+                &neighbours
+                    .iter()
+                    .find(|(r, _)| *r == id)
+                    .ok_or(TerrainError::UnknownNeighbour(id))?
+                    .1
+            };
+            let relief = Relief::new(options).with_elevation(elevation.clone());
+            Ok((relief, f64::from(options.edges.stiffness), options))
+        };
+
+        // A corner's height: the stiffness-weighted mean of every region
+        // there, each scaled to the corner's amplitude, in region order.
+        let corner_height = |position: DVec2, corner: &BorderTarget| {
+            let (mut sum, mut total) = (0.0, 0.0);
+            for &(id, _) in &corner.blend {
+                let (relief, k, _) = side(id)?;
+                let scales = middle_scales(relief.spreads(), corner.amplitude).map(f64::from);
+                sum += k * relief.layer_values(position).combine(&scales);
+                total += k;
+            }
+            Ok::<f32, TerrainError>((sum / total + f64::from(elevation.height(position))) as f32)
+        };
+
+        let mut profiles = Vec::with_capacity(field.edges().len());
+        for edge in field.edges() {
+            let polyline = &region
+                .edges
+                .iter()
+                .find(|e| e.id == edge.id)
+                .expect("field edges are region edges")
+                .polyline;
+            let neighbor = region
+                .edges
+                .iter()
+                .find(|e| e.id == edge.id)
+                .and_then(|e| e.neighbor)
+                .expect("field edges are shared");
+            let length = edge.length;
+            let ramp = pin_ramp(length);
+            let positions = [polyline[0], polyline[polyline.len() - 1]];
+            let corners = [
+                corner_height(positions[0], &edge.target.start)?,
+                corner_height(positions[1], &edge.target.end)?,
+            ];
+            // The corners' heights above E: profiles mix and pin heights
+            // above E, so E passes through them exactly.
+            let ends =
+                [0, 1].map(|i| f64::from(corners[i]) - f64::from(elevation.height(positions[i])));
+
+            // Each side's relief along the edge, above E, scaled as the
+            // edge's target asks of it.
+            let along = |relief: &Relief, scales: &EdgeScales, s: f64| {
+                let (point, _) = point_at(&edge.segments, s);
+                relief.layer_values(point).combine(&scales.at(s).0)
+            };
+            let (own, k_own, own_options) = side(region.id)?;
+            let (theirs, k_theirs, their_options) = side(neighbor)?;
+            let shape = if own_options.default_seed == their_options.default_seed
+                && own_options.base == their_options.base
+            {
+                // The same relief on both sides: the relief itself, offset
+                // at the corners.
+                let offsets = [
+                    ends[0] - along(&own, &edge.scales, 0.0),
+                    ends[1] - along(&own, &edge.scales, length),
+                ];
+                ProfileShape::Relative { offsets, ramp }
+            } else {
+                // Different reliefs: the stiffness-weighted mean of both
+                // sides, in region order, pinned to the corners.
+                let their_scales = EdgeScales::new(theirs.spreads(), &edge.target, length);
+                let mine = (&own, &edge.scales, k_own);
+                let other = (&theirs, &their_scales, k_theirs);
+                let (low, high) = if region.id < neighbor {
+                    (mine, other)
+                } else {
+                    (other, mine)
+                };
+                let mixed = |s: f64| {
+                    (low.2 * along(low.0, low.1, s) + high.2 * along(high.0, high.1, s))
+                        / (low.2 + high.2)
+                };
+                let offsets = [ends[0] - mixed(0.0), ends[1] - mixed(length)];
+                ProfileShape::Shared(Knots::sample(length, ends, |s| {
+                    let (shares, _) = pin_shares(s, length, ramp);
+                    mixed(s) + offsets[0] * shares[0] + offsets[1] * shares[1]
+                }))
+            };
+            profiles.push(BorderProfile { shape, corners });
+        }
+        Ok(profiles)
+    }
+
+    /// The height profile this terrain meets along `edge`, if it is one of
+    /// its targeted edges (see [`with_edge_targets`](Self::with_edge_targets)).
+    /// The neighbour on the edge has the same profile, bit for bit.
+    pub fn border(&self, edge: EdgeId) -> Option<&BorderProfile> {
+        self.relief.border(edge)
+    }
+
+    /// How far, in metres, the terrain gives way to its agreed border
+    /// profiles: the strip width (or its margin without targets).
+    pub(crate) fn strip_width(&self) -> f64 {
+        self.relief
+            .field()
+            .map_or(f64::from(self.options.edges.margin), |f| f.strip())
     }
 
     /// Traces `region`'s own rivers over this terrain's unbent relief: the
@@ -350,9 +470,9 @@ impl TerrainGenerator {
 
     /// The offer for edge number `index` of `region`, a shared edge, from
     /// this generator's `trace` of `region`. Without `crossing`, the offer's
-    /// `inner` and `unfaded` are left empty: [`crossing_samples`] gives
-    /// them, and an agreement needs them only where either side wishes for
-    /// a crossing.
+    /// `inner` and `unfaded` are left empty and its natural cross-slopes are
+    /// 0: [`crossing_samples`] gives them, and an agreement needs them only
+    /// where either side wishes for a crossing.
     ///
     /// [`crossing_samples`]: Self::crossing_samples
     pub(crate) fn edge_offer(
@@ -364,7 +484,7 @@ impl TerrainGenerator {
     ) -> EdgeOffer {
         let edge = &region.edges[index];
         let edges = &self.options.edges;
-        let natural = self.natural_samples(edge);
+        let natural = self.natural_heights(edge);
         let step = edge.length() / (natural.len() - 1) as f64;
         let own = trace.own.as_deref();
         let (rivers, roads) = plan::wishes(
@@ -377,43 +497,61 @@ impl TerrainGenerator {
             step,
         );
         let side = plan::side_of(region, edge);
-        let (inner, unfaded) = if crossing {
-            self.crossing_samples(region, index)
-        } else {
-            (Vec::new(), Vec::new())
-        };
-        EdgeOffer {
+        let offer = EdgeOffer {
             edge: edge.id,
             region: region.id,
             natural,
             stiffness: edges.stiffness,
-            margin: edges.margin,
-            roughness: edges.roughness,
+            margin: self.strip_width() as f32,
             side,
             rivers,
             roads,
             road_grades: self.options.features.roads.grades(),
-            inner,
-            unfaded,
-            fade_width: self.relief.fade_width().unwrap_or(f64::from(edges.margin)) as f32,
+            inner: Vec::new(),
+            unfaded: Vec::new(),
+            fade_width: self
+                .relief
+                .field()
+                .map_or(f64::from(edges.margin), |f| f.fade()) as f32,
+        };
+        if crossing {
+            offer.with_crossing(self.crossing_samples(region, index))
+        } else {
+            offer
         }
     }
 
-    /// The `inner` and `unfaded` samples of the offer for edge number
-    /// `index` of `region` (see [`EdgeOffer`]).
-    pub(crate) fn crossing_samples(
-        &self,
-        region: &Region,
-        index: usize,
-    ) -> (Vec<[f32; INNER_DEPTHS]>, Vec<f32>) {
+    /// The samples of the offer for edge number `index` of `region` that
+    /// only crossings need (see [`EdgeOffer`]).
+    pub(crate) fn crossing_samples(&self, region: &Region, index: usize) -> CrossingSamples {
         let edge = &region.edges[index];
         let side = plan::side_of(region, edge);
-        (self.inner_samples(edge, side), self.unfaded_samples(edge))
+        CrossingSamples {
+            inner: self.inner_samples(edge, side),
+            unfaded: self.unfaded_samples(edge),
+            slopes: self.natural_slopes(edge),
+        }
     }
 
-    /// This terrain's own height and cross-slope at each profile sample of
-    /// `edge`.
-    fn natural_samples(&self, edge: &RegionEdge) -> Vec<EdgeSample> {
+    /// This terrain's own height at each profile sample of `edge`, with a
+    /// cross-slope of 0.
+    fn natural_heights(&self, edge: &RegionEdge) -> Vec<EdgeSample> {
+        let segments = segments(&edge.polyline);
+        let length = edge.length();
+        let count = sample_count(length);
+        let step = length / (count - 1) as f64;
+        (0..count)
+            .map(|i| EdgeSample {
+                height: self
+                    .relief
+                    .own_height(point_at(&segments, i as f64 * step).0),
+                slope: 0.0,
+            })
+            .collect()
+    }
+
+    /// This terrain's own cross-slope at each profile sample of `edge`.
+    fn natural_slopes(&self, edge: &RegionEdge) -> Vec<f32> {
         let segments = segments(&edge.polyline);
         let length = edge.length();
         let count = sample_count(length);
@@ -421,12 +559,7 @@ impl TerrainGenerator {
         (0..count)
             .map(|i| {
                 let (point, normal) = point_at(&segments, i as f64 * step);
-                let slope = self.relief.slope(point).dot(normal) as f32;
-                EdgeSample {
-                    height: self.relief.height(point),
-                    slope,
-                    detail: 0.0,
-                }
+                self.relief.own_slope(point).dot(normal) as f32
             })
             .collect()
     }
@@ -444,7 +577,7 @@ impl TerrainGenerator {
                 let (point, normal) = point_at(&segments, i as f64 * step);
                 std::array::from_fn(|k| {
                     self.relief
-                        .height(point + normal * (side.sign() * inner_depth(k)))
+                        .own_height(point + normal * (side.sign() * inner_depth(k)))
                 })
             })
             .collect()
@@ -463,17 +596,6 @@ impl TerrainGenerator {
                     .unfaded_height(point_at(&segments, i as f64 * step).0)
             })
             .collect()
-    }
-
-    /// Makes this terrain's offer for `corner`, one of `region`'s corners.
-    pub fn corner_offer(&self, region: &Region, corner: &RegionCorner) -> CornerOffer {
-        CornerOffer {
-            corner: corner.id,
-            region: region.id,
-            height: self.relief.height(corner.position),
-            gradient: self.relief.slope(corner.position).as_vec2(),
-            stiffness: self.options.edges.stiffness,
-        }
     }
 
     /// Binds the generator to `region`, bending it to meet `agreements`,
@@ -510,19 +632,6 @@ impl TerrainGenerator {
         agreements: &[EdgeAgreement],
         trace: &RiverTrace,
     ) -> Result<Terrain, TerrainError> {
-        self.build_offered(region, agreements, trace, &HashMap::new())
-    }
-
-    /// [`build_traced`](Self::build_traced), reusing `offers`, this
-    /// generator's offers for some of `region`'s shared edges, keyed by
-    /// edge, instead of sampling those edges again.
-    pub(crate) fn build_offered(
-        self,
-        region: Region,
-        agreements: &[EdgeAgreement],
-        trace: &RiverTrace,
-        offers: &HashMap<EdgeId, EdgeOffer>,
-    ) -> Result<Terrain, TerrainError> {
         if trace.region != region.id {
             return Err(TerrainError::TraceMismatch(trace.region));
         }
@@ -539,7 +648,6 @@ impl TerrainGenerator {
         }
 
         // Every shared edge needs one agreement with the right sample count.
-        let mut seams = Vec::new();
         let mut paired = Vec::new();
         for (index, edge) in region
             .edges
@@ -560,40 +668,12 @@ impl TerrainGenerator {
                 });
             }
 
-            // The agreed profile and this terrain's own, smoothed the same
-            // way as in negotiation, both as heights above E.
-            let e = elevation_samples(edge, expected, self.relief.elevation());
-            let natural = match offers.get(&edge.id) {
-                Some(offer) => offer.natural.clone(),
-                None => self.natural_samples(edge),
-            };
-            let step = edge.length() / (expected - 1) as f64;
-            let own = EdgeAgreement {
-                edge: edge.id,
-                profile: smooth(&relative_to(&natural, e.as_deref(), -1.0), step),
-                ports: Vec::new(),
-            };
-            let agreed = EdgeAgreement {
-                profile: relative_to(&agreement.profile, e.as_deref(), -1.0),
-                ..agreement.clone()
-            };
-            seams.push(Seam {
-                agreed: Profile::new(edge, &agreed),
-                own: Profile::new(edge, &own),
-            });
             paired.push((index, agreement.clone()));
         }
-        let margin = f64::from(self.options.edges.margin);
-        let index = SegmentIndex::new(
-            seams.iter().map(|s| s.agreed.segments()),
-            BORDER_REACH * margin,
-        );
+
         let mut terrain = Terrain {
             generator: self,
             region,
-            seams,
-            index,
-            margin,
             agreements: paired,
             hydrology: Arc::default(),
             roads: None,
@@ -922,157 +1002,11 @@ impl Terrain {
         self.base(p, false).0
     }
 
-    /// The bent height before rivers and roads are cut in, and with
-    /// `slope` its gradient (else zero): analytic through the terrain's own
-    /// relief, E and the shared detail, with the border's pull (its soft
-    /// distance and mixed targets) taken by differences (see
-    /// [`pull_gradients`]).
+    /// The height before rivers and roads are cut in, meeting the agreed
+    /// border profiles, and with `slope` its gradient (else zero), analytic
+    /// throughout.
     fn base(&self, p: DVec2, slope: bool) -> (f32, DVec2) {
-        let relief = &self.generator.relief;
-        let own = f64::from(relief.height(p));
-        let own_slope = || {
-            if slope { relief.slope(p) } else { DVec2::ZERO }
-        };
-        if self.seams.is_empty() {
-            return (own as f32, own_slope());
-        }
-
-        // Mix what every border edge within reach asks for, each pulling
-        // along its whole length, and find the (soft) distance to the
-        // border.
-        let reach = BORDER_REACH * self.margin;
-        let mut pull = Pull::<3>::default();
-        let mut on_edge = None;
-        // First the distance alone, which is cheap; the targets only where
-        // the bending reaches.
-        let near = self.index.near(p);
-        // Cheaper still: points the bending surely can't reach.
-        let segments = near
-            .iter()
-            .map(|&(e, k)| &self.seams[e].agreed.segments()[k]);
-        if surely_beyond(segments, p, reach, self.margin) {
-            return (own as f32, own_slope());
-        }
-        for &(e, k) in near {
-            let seam = &self.seams[e];
-            let segment = &seam.agreed.segments()[k];
-            let (targets, distance) = Targets::at(seam, segment, p);
-            if distance < ON_EDGE {
-                on_edge = Some(targets);
-                break;
-            }
-            pull.add_distance(segment, p, reach);
-        }
-        let distance = pull.distance(reach);
-        if on_edge.is_none() && distance < self.margin {
-            for &(e, k) in near {
-                let seam = &self.seams[e];
-                let target = |along: f64, across: f64| {
-                    let carry = slope_reach(across);
-                    let at = |s: EdgeSample| f64::from(s.height) + f64::from(s.slope) * carry;
-                    let (agreed, own) = (seam.agreed.sample(along), seam.own.sample(along));
-                    [at(agreed), at(own), f64::from(agreed.detail)]
-                };
-                pull.add_targets(&seam.agreed.segments()[k], p, reach, EDGE_STEP, &target);
-            }
-        }
-        // The targets are heights above E; E here is added back.
-        let elevation = self.generator.relief.elevation();
-        let on_e = |targets: Targets| {
-            if elevation.is_flat() {
-                return targets;
-            }
-            targets.raised(f64::from(elevation.height(p)))
-        };
-        let border = match (on_edge, pull.mixed()) {
-            (Some(targets), _) => {
-                let targets = on_e(targets);
-                let slope = if slope {
-                    self.bend_slopes(p, targets.detail).0
-                } else {
-                    DVec2::ZERO
-                };
-                return (targets.seam(p) as f32, slope);
-            }
-            (None, None) => return (own as f32, own_slope()),
-            (None, Some(_)) if distance >= self.margin => return (own as f32, own_slope()),
-            (None, Some([agreed, own, detail])) => on_e(Targets {
-                agreed,
-                own,
-                detail,
-            }),
-        };
-
-        // Across the margin: shift by how far the agreement is from this
-        // terrain's own profile, which keeps the terrain's detail.
-        let t = distance / self.margin;
-        let broad = own + (border.agreed - border.own) * (1.0 - smootherstep(t));
-
-        // Next to the border: give way to the agreed profile and shared detail.
-        let band = DETAIL_BAND.min(self.margin);
-        let seam = border.seam(p);
-        let u = distance / band;
-        let height = (seam + (broad - seam) * smootherstep(u)) as f32;
-        if !slope {
-            return (height, DVec2::ZERO);
-        }
-
-        // The same, differentiated.
-        let (seam_slope, [distance_slope, agreed_slope, own_target_slope]) =
-            self.bend_slopes(p, border.detail);
-        let broad_slope = own_slope() + (agreed_slope - own_target_slope) * (1.0 - smootherstep(t))
-            - distance_slope * ((border.agreed - border.own) * smootherstep_slope(t) / self.margin);
-        let slope = seam_slope * (1.0 - smootherstep(u))
-            + broad_slope * smootherstep(u)
-            + distance_slope * ((broad - seam) * smootherstep_slope(u) / band);
-        (height, slope)
-    }
-
-    /// At `p` near the border: the gradient of the seam height (the agreed
-    /// height plus E plus the shared detail, whose height is `detail`
-    /// there), and the gradients of the soft distance to the border and of
-    /// the agreed and own targets, these three from differences of the
-    /// border's pull (see [`pull_gradients`]).
-    fn bend_slopes(&self, p: DVec2, detail: f64) -> (DVec2, [DVec2; 3]) {
-        let (distance_slope, [agreed_slope, own_target_slope, detail_slope]) =
-            pull_gradients(p, |q| self.bend_at(q));
-        let (noise, noise_slope) = fbm_gradient(p / DETAIL_WAVELENGTH, DETAIL_SEED, DETAIL_OCTAVES);
-        let (noise, noise_slope) = (f64::from(noise), noise_slope / DETAIL_WAVELENGTH);
-        let elevation = self.generator.relief.elevation();
-        let e_slope = if elevation.is_flat() {
-            DVec2::ZERO
-        } else {
-            elevation.gradient(p)
-        };
-        let seam_slope =
-            agreed_slope + e_slope + (detail_slope * noise + noise_slope * detail) * 0.5;
-        (seam_slope, [distance_slope, agreed_slope, own_target_slope])
-    }
-
-    /// The soft distance from `p` to the border and the border's targets
-    /// (agreed height, own height and detail, as heights above E) mixed by
-    /// their pull, or `None` where no edge is within reach. Unlike
-    /// [`base_height`](Self::base_height) it always mixes the targets.
-    fn bend_at(&self, p: DVec2) -> Option<(f64, [f64; 3])> {
-        let reach = BORDER_REACH * self.margin;
-        let near = self.index.near(p);
-        let mut pull = Pull::<3>::default();
-        for &(e, k) in near {
-            pull.add_distance(&self.seams[e].agreed.segments()[k], p, reach);
-        }
-        for &(e, k) in near {
-            let seam = &self.seams[e];
-            let target = |along: f64, across: f64| {
-                let carry = slope_reach(across);
-                let at = |s: EdgeSample| f64::from(s.height) + f64::from(s.slope) * carry;
-                let (agreed, own) = (seam.agreed.sample(along), seam.own.sample(along));
-                [at(agreed), at(own), f64::from(agreed.detail)]
-            };
-            pull.add_targets(&seam.agreed.segments()[k], p, reach, EDGE_STEP, &target);
-        }
-        let distance = pull.distance(reach);
-        let mixed = pull.mixed()?;
-        distance.is_finite().then_some((distance, mixed))
+        self.generator.relief.base(p, slope)
     }
 
     /// Everything the terrain says about `p` in one pass: the carved
@@ -1207,52 +1141,6 @@ impl Ground for Terrain {
     }
 }
 
-/// What the border asks for at one point, mixed from nearby edges.
-#[derive(Debug, Clone, Copy, Default)]
-struct Targets {
-    /// The agreed height.
-    agreed: f64,
-    /// This terrain's own smoothed height, extended the same way.
-    own: f64,
-    /// Height of the shared border detail.
-    detail: f64,
-}
-
-impl Targets {
-    /// The targets of one segment at `p`, with the distance to it. Each
-    /// profile sample at the closest point is carried away from the edge
-    /// along its cross-slope, which levels off a few tens of metres out.
-    fn at(seam: &Seam, segment: &Segment, p: DVec2) -> (Self, f64) {
-        let projection = segment.project(p);
-        let reach = slope_reach(projection.across);
-        let carry = |s: EdgeSample| f64::from(s.height) + f64::from(s.slope) * reach;
-        let agreed = seam.agreed.sample(projection.along);
-        let own = seam.own.sample(projection.along);
-        let targets = Self {
-            agreed: carry(agreed),
-            own: carry(own),
-            detail: f64::from(agreed.detail),
-        };
-        (targets, projection.distance)
-    }
-
-    /// These targets with `height` added to the agreed and own heights.
-    fn raised(self, height: f64) -> Self {
-        Self {
-            agreed: self.agreed + height,
-            own: self.own + height,
-            detail: self.detail,
-        }
-    }
-
-    /// The height both sides meet at the border: the agreed height plus the
-    /// shared detail, which is a function of world position alone.
-    fn seam(self, p: DVec2) -> f64 {
-        let noise = fbm(p / DETAIL_WAVELENGTH, DETAIL_SEED, DETAIL_OCTAVES, 0.0);
-        self.agreed + 0.5 * self.detail * f64::from(noise)
-    }
-}
-
 /// The most the ground of `after` differs from that of `before` along
 /// `lines`, with a margin for the ground between the points measured: on
 /// each point, at both edges and a few metres beyond them.
@@ -1348,7 +1236,7 @@ impl HeightField for TerrainGenerator {
     fn sample(&self, p: DVec2) -> GroundSample {
         GroundSample {
             height: self.natural_height(p),
-            gradient: self.relief.slope(p).as_vec2(),
+            gradient: self.relief.own_slope(p).as_vec2(),
         }
     }
 }
