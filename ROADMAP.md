@@ -1433,9 +1433,10 @@ R3.
     among them, as does `procgena_biome_bevy`'s pool test.
   - Headless viewer shots, with and without `gpu`, show the same stones,
     and the studio's pine forest floor draws them from the pools.
-  - **Left:** the user's OK on the look change. Pooled stones cast a
+  - **Look approved by the user (2026-11-25):** pooled stones cast a
     ground shadow and shade slightly differently from the old
     per-copy rocks; see [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md).
+    Nothing is left.
 - **Then R3's other assets, in this order:** deadwood, mushroom, tree
   (each cheap per variant today, but pools reach 256 specimens at World
   scale). Plant's part follows its own plan.

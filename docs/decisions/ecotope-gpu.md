@@ -60,7 +60,8 @@ cache. The "before" build is master at `94f835a`.
 per-copy rocks didn't show, and their shading differs slightly. Other
 copies are unchanged: 0.18% of the viewport changed, all of it at
 stones. The crops (`stone_look_before_after.png`) are in the session
-notes folder. This look change waits for the user's OK.
+notes folder. Decided by the user (2026-11-25): this look change is
+approved.
 
 ## Bottom line
 
