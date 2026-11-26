@@ -751,10 +751,9 @@ Decided by the user, 2026-11-25:
 - **Hardware:** the reference machine is the M1 Max in use (see
   "Performance targets"); no lower-end Mac for now.
 
-Still open:
-
 - **Paid or signed-in assets** (Quaternius Pro or Source sets, Mixamo):
-  only if the free sets fall short.
+  deferred. The stand-in character, Quaternius's bearded male peasant, is
+  fine for now.
 
 ## Follow-ups for the coordinator
 
