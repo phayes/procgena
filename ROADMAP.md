@@ -2026,6 +2026,28 @@ assigned 2026-11-26 while the user was away.
     Rough (the Time Profiler finds `with_tier` in 1 sample of 8,494), so
     the tiers above Rough cost about nothing; nothing more to cut there.
 
+#### TQ: Query path costs
+
+Assigned 2026-11-26 while the user was away, after TB: speed-up option 4
+in [terrain/speedup_options.md](terrain/speedup_options.md), then the
+per-point search for a point's region. Every step keeps the output
+bitwise identical.
+
+- **Measured with:** `--example river_cost --chunks 16`, 256 chunks of
+  65 × 65 points each read on their own at the fine tier, one thread,
+  rivers and roads off. Instructions are for the whole run
+  (plains / hills / mountains); fingerprints are unchanged at every step,
+  with rivers and roads off and on.
+- **Profile after TB:** a chunk read is about 1 µs a point. Noise is
+  42–54% of it and E another 10–12%. Finding each point's region is
+  38–49%, half of that a sort of 25 nearby sites per point.
+- **Status (2026-11-26):**
+  - Shared noise work (option 4): octave rotations are worked out once;
+    octaves without erosion, ridges and E's height read values only,
+    without gradients. 12.10 / 12.41 / 14.89 G → 10.91 / 11.10 /
+    12.64 G instructions. The gradient and Hessian are not shared yet;
+    the normalisation costs a few multiplies a call and was left.
+
 #### TB: Cheap borders
 
 Decided by the user 2026-11-26. The design is in

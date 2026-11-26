@@ -8,6 +8,8 @@
 //! layer's own seed: a second level under the layer's keyed seed (see
 //! `hash::KEYS`), so these small numbers never clash with a role's salt.
 
+use std::sync::LazyLock;
+
 use glam::{DVec2, I64Vec2, Vec2};
 
 use crate::calibration::{NOISE_SLOPE_MAX, NOISE_STD, RIDGED_MEAN, RIDGED_STD};
@@ -56,9 +58,13 @@ fn lattice_gradient(cell: I64Vec2, seed: u32) -> Vec2 {
 
 /// Quintic fade `6t⁵ − 15t⁴ + 10t³` and its derivative, per axis.
 fn fade(t: Vec2) -> (Vec2, Vec2) {
-    let u = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
     let du = 30.0 * t * t * (t * (t - 2.0) + 1.0);
-    (u, du)
+    (fade_value(t), du)
+}
+
+/// The quintic fade of [`fade`] alone, without its derivative.
+fn fade_value(t: Vec2) -> Vec2 {
+    t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
 }
 
 /// 2D gradient (Perlin) noise with its analytic gradient.
@@ -71,29 +77,56 @@ pub(crate) fn gradient_noise(p: DVec2, seed: u32) -> NoiseSample {
     let cell = floor.as_i64vec2();
     let f = (p - floor).as_vec2();
 
-    // The corners' gradients.
-    let corners = [
+    blend_corners(corners(cell, seed), f)
+}
+
+/// [`gradient_noise`]'s value alone, without its gradient: the same value,
+/// bit for bit, for less work.
+pub(crate) fn gradient_noise_value(p: DVec2, seed: u32) -> f32 {
+    let floor = p.floor();
+    let cell = floor.as_i64vec2();
+    let f = (p - floor).as_vec2();
+    let ramps = corner_ramps(corners(cell, seed), f);
+    blend_value(ramps, fade_value(f))
+}
+
+/// The gradients of lattice cell `cell`'s corners: at (0, 0), (1, 0),
+/// (0, 1) and (1, 1) from it.
+fn corners(cell: I64Vec2, seed: u32) -> [Vec2; 4] {
+    [
         lattice_gradient(cell, seed),
         lattice_gradient(cell + I64Vec2::new(1, 0), seed),
         lattice_gradient(cell + I64Vec2::new(0, 1), seed),
         lattice_gradient(cell + I64Vec2::new(1, 1), seed),
-    ];
-    blend_corners(corners, f)
+    ]
+}
+
+/// Each corner's ramp at fraction `f` of a cell whose corners have
+/// gradients `[ga, gb, gc, gd]` (see [`corners`]).
+fn corner_ramps([ga, gb, gc, gd]: [Vec2; 4], f: Vec2) -> [f32; 4] {
+    [
+        ga.dot(f),
+        gb.dot(f - Vec2::new(1.0, 0.0)),
+        gc.dot(f - Vec2::new(0.0, 1.0)),
+        gd.dot(f - Vec2::new(1.0, 1.0)),
+    ]
+}
+
+/// The corners' ramps `[va, vb, vc, vd]` blended by the fade `u`.
+fn blend_value([va, vb, vc, vd]: [f32; 4], u: Vec2) -> f32 {
+    let k = va - vb - vc + vd;
+    va + u.x * (vb - va) + u.y * (vc - va) + u.x * u.y * k
 }
 
 /// The noise at fraction `f` of a lattice cell (0 to 1 along each axis)
-/// whose corners have gradients `[ga, gb, gc, gd]`: at (0, 0), (1, 0),
-/// (0, 1) and (1, 1).
+/// whose corners have gradients `[ga, gb, gc, gd]` (see [`corners`]).
 fn blend_corners([ga, gb, gc, gd]: [Vec2; 4], f: Vec2) -> NoiseSample {
-    let va = ga.dot(f);
-    let vb = gb.dot(f - Vec2::new(1.0, 0.0));
-    let vc = gc.dot(f - Vec2::new(0.0, 1.0));
-    let vd = gd.dot(f - Vec2::new(1.0, 1.0));
+    let [va, vb, vc, vd] = corner_ramps([ga, gb, gc, gd], f);
 
     // Blend, following Inigo Quilez's analytic-derivative formulation.
     let (u, du) = fade(f);
     let k = va - vb - vc + vd;
-    let value = va + u.x * (vb - va) + u.y * (vc - va) + u.x * u.y * k;
+    let value = blend_value([va, vb, vc, vd], u);
     let gradient = ga
         + u.x * (gb - ga)
         + u.y * (gc - ga)
@@ -135,6 +168,17 @@ pub(crate) fn noise_hessian(p: DVec2, seed: u32) -> [f32; 3] {
 /// The angles follow Game-Heightmap-Generator (MIT): `0.37 + 0.7231·i`
 /// radians.
 fn octave_rotation(i: u32) -> DVec2 {
+    // Worked out once for the octaves a sum can have.
+    static ROTATIONS: LazyLock<[DVec2; MAX_OCTAVES as usize]> =
+        LazyLock::new(|| std::array::from_fn(|i| rotation_of(i as u32)));
+    ROTATIONS
+        .get(i as usize)
+        .copied()
+        .unwrap_or_else(|| rotation_of(i))
+}
+
+/// The rotation [`octave_rotation`] gives octave `i`, worked out.
+fn rotation_of(i: u32) -> DVec2 {
     DVec2::from_angle(0.37 + 0.7231 * f64::from(i))
 }
 
@@ -172,6 +216,16 @@ pub(crate) fn fbm(p: DVec2, seed: u32, octaves: Octaves, erosion: f32) -> f32 {
     let mut slope = Vec2::ZERO;
     let mut amplitude = 1.0;
     let mut frequency = 1.0;
+    if erosion == 0.0 {
+        // Undamped: the octaves' slopes aren't needed.
+        for i in 0..octaves.count {
+            let q = octave_rotation(i).rotate(p) * frequency;
+            sum += amplitude * gradient_noise_value(q, derive_seed(seed, i));
+            amplitude *= octaves.gain;
+            frequency *= LACUNARITY;
+        }
+        return sum / (NOISE_STD * octaves.rms_amplitude());
+    }
     for i in 0..octaves.count {
         let q = octave_rotation(i).rotate(p) * frequency;
         let n = gradient_noise(q, derive_seed(seed, i));
@@ -189,28 +243,73 @@ pub(crate) fn fbm(p: DVec2, seed: u32, octaves: Octaves, erosion: f32) -> f32 {
 /// kilometres is millimetres of world position, so its heights step at
 /// that spacing; this one stays continuous at any wavelength in use.
 fn gradient_noise_precise(p: DVec2, seed: u32) -> (f64, DVec2) {
-    // Split into lattice cell and fraction.
-    let floor = p.floor();
-    let cell = floor.as_i64vec2();
-    let f = p - floor;
-    let g = |dx: i64, dz: i64| lattice_gradient(cell + I64Vec2::new(dx, dz), seed).as_dvec2();
-    let (ga, gb, gc, gd) = (g(0, 0), g(1, 0), g(0, 1), g(1, 1));
-
-    // Each corner's ramp, blended as in `blend_corners`.
-    let va = ga.dot(f);
-    let vb = gb.dot(f - DVec2::X);
-    let vc = gc.dot(f - DVec2::Y);
-    let vd = gd.dot(f - DVec2::ONE);
-    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let PreciseCell {
+        corners: [ga, gb, gc, gd],
+        f,
+        ramps: [va, vb, vc, vd],
+        u,
+    } = PreciseCell::at(p, seed);
     let du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
     let k = va - vb - vc + vd;
-    let value = va + u.x * (vb - va) + u.y * (vc - va) + u.x * u.y * k;
+    let value = precise_value([va, vb, vc, vd], u);
     let gradient = ga
         + u.x * (gb - ga)
         + u.y * (gc - ga)
         + u.x * u.y * (ga - gb - gc + gd)
         + du * (DVec2::new(u.y, u.x) * k + DVec2::new(vb - va, vc - va));
     (value, gradient)
+}
+
+/// [`gradient_noise_precise`]'s value alone: the same value, bit for bit,
+/// for less work.
+fn gradient_noise_precise_value(p: DVec2, seed: u32) -> f64 {
+    let cell = PreciseCell::at(p, seed);
+    precise_value(cell.ramps, cell.u)
+}
+
+/// What [`gradient_noise_precise`] works out about `p`'s lattice cell.
+struct PreciseCell {
+    /// The corners' gradients: at (0, 0), (1, 0), (0, 1) and (1, 1).
+    corners: [DVec2; 4],
+    /// Where `p` lies in the cell, 0 to 1 along each axis.
+    f: DVec2,
+    /// Each corner's ramp at `p`.
+    ramps: [f64; 4],
+    /// The quintic fade of `f`.
+    u: DVec2,
+}
+
+impl PreciseCell {
+    /// The cell holding `p`, for noise seeded with `seed`.
+    fn at(p: DVec2, seed: u32) -> Self {
+        // Split into lattice cell and fraction.
+        let floor = p.floor();
+        let cell = floor.as_i64vec2();
+        let f = p - floor;
+        let g = |dx: i64, dz: i64| lattice_gradient(cell + I64Vec2::new(dx, dz), seed).as_dvec2();
+        let (ga, gb, gc, gd) = (g(0, 0), g(1, 0), g(0, 1), g(1, 1));
+
+        // Each corner's ramp, blended as in `blend_corners`.
+        let ramps = [
+            ga.dot(f),
+            gb.dot(f - DVec2::X),
+            gc.dot(f - DVec2::Y),
+            gd.dot(f - DVec2::ONE),
+        ];
+        let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+        Self {
+            corners: [ga, gb, gc, gd],
+            f,
+            ramps,
+            u,
+        }
+    }
+}
+
+/// The corners' ramps `[va, vb, vc, vd]` blended by the fade `u`, in f64.
+fn precise_value([va, vb, vc, vd]: [f64; 4], u: DVec2) -> f64 {
+    let k = va - vb - vc + vd;
+    va + u.x * (vb - va) + u.y * (vc - va) + u.x * u.y * k
 }
 
 /// [`fbm_gradient`] worked out in `f64` throughout (see
@@ -235,6 +334,21 @@ pub(crate) fn fbm_gradient_precise(p: DVec2, seed: u32, octaves: Octaves) -> (f6
     }
     let norm = f64::from(NOISE_STD * octaves.rms_amplitude());
     (sum / norm, gradient / norm)
+}
+
+/// [`fbm_gradient_precise`]'s value alone: the same value, bit for bit,
+/// for less work.
+pub(crate) fn fbm_precise(p: DVec2, seed: u32, octaves: Octaves) -> f64 {
+    let mut sum = 0.0;
+    let mut amplitude = 1.0_f64;
+    let mut frequency = 1.0;
+    for i in 0..octaves.count {
+        let q = octave_rotation(i).rotate(p) * frequency;
+        sum += amplitude * gradient_noise_precise_value(q, derive_seed(seed, i));
+        amplitude *= f64::from(octaves.gain);
+        frequency *= LACUNARITY;
+    }
+    sum / f64::from(NOISE_STD * octaves.rms_amplitude())
 }
 
 /// [`fbm`] without erosion, with its gradient (the rate of change along x
@@ -366,7 +480,7 @@ pub(crate) fn ridged(p: DVec2, seed: u32, octaves: Octaves) -> f32 {
     let mut frequency = 1.0;
     for i in 0..octaves.count {
         let q = octave_rotation(i).rotate(p) * frequency;
-        let n = gradient_noise(q, derive_seed(seed, i)).value;
+        let n = gradient_noise_value(q, derive_seed(seed, i));
         let crest = (1.0 - (n * std::f32::consts::SQRT_2).abs()).max(0.0);
         let r = crest * crest;
         sum += amplitude * r * weight;
@@ -381,6 +495,34 @@ pub(crate) fn ridged(p: DVec2, seed: u32, octaves: Octaves) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn value_only_noise_matches_the_full_noise_bit_for_bit() {
+        let octaves = Octaves {
+            count: MAX_OCTAVES,
+            gain: 0.5,
+        };
+        for i in 0..2_000 {
+            let i = f64::from(i);
+            let p = DVec2::new(i * 37.618 - 30_000.0, i * -21.414 + 9_000.0) / 7.3;
+            let seed = 17 + i as u32;
+            assert_eq!(
+                gradient_noise_value(p, seed).to_bits(),
+                gradient_noise(p, seed).value.to_bits()
+            );
+            assert_eq!(
+                gradient_noise_precise_value(p, seed).to_bits(),
+                gradient_noise_precise(p, seed).0.to_bits()
+            );
+            assert_eq!(
+                fbm_precise(p, seed, octaves).to_bits(),
+                fbm_gradient_precise(p, seed, octaves).0.to_bits()
+            );
+        }
+        for i in 0..MAX_OCTAVES + 2 {
+            assert_eq!(octave_rotation(i), rotation_of(i));
+        }
+    }
 
     /// The steepest the noise gets: every choice of corner gradients, on a
     /// fine grid over the cell. Run with `--ignored`; it takes seconds in

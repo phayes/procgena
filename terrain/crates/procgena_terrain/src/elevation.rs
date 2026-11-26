@@ -8,7 +8,7 @@ use glam::DVec2;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::hash::{ELEVATION_CONTINENTS, ELEVATION_UPLIFT, seed_for};
-use crate::noise::{MAX_OCTAVES, Octaves, fbm_gradient_precise, fbm_slope_bound};
+use crate::noise::{MAX_OCTAVES, Octaves, fbm_gradient_precise, fbm_precise, fbm_slope_bound};
 use crate::options::NoiseLayer;
 
 /// Reads and writes a `DVec2` as `[x, z]` in settings files.
@@ -271,16 +271,17 @@ impl Elevation {
     /// E at world position `p` (x and z, metres), in metres above sea
     /// level.
     pub fn height(&self, p: DVec2) -> f32 {
-        self.sample(p).0 as f32
+        self.sample(p, false).0 as f32
     }
 
     /// The rate of change of E along x and z at `p`, as rise over run.
     pub fn gradient(&self, p: DVec2) -> DVec2 {
-        self.sample(p).1
+        self.sample(p, true).1
     }
 
-    /// E and its gradient at `p`.
-    fn sample(&self, p: DVec2) -> (f64, DVec2) {
+    /// E at `p`, and with `slope` its gradient (else zero). The height is
+    /// the same either way.
+    fn sample(&self, p: DVec2, slope: bool) -> (f64, DVec2) {
         let Some(field) = &self.field else {
             return (0.0, DVec2::ZERO);
         };
@@ -299,10 +300,14 @@ impl Elevation {
             let wavelength = f64::from(layer.wavelength);
             // In f64: at wavelengths of kilometres an f32 noise would step
             // every few millimetres.
-            let (value, slope) = fbm_gradient_precise(p / wavelength, seed, octaves(layer));
             let scale = 0.5 * f64::from(layer.height);
-            height += scale * value;
-            gradient += slope * (scale / wavelength);
+            if slope {
+                let (value, rise) = fbm_gradient_precise(p / wavelength, seed, octaves(layer));
+                height += scale * value;
+                gradient += rise * (scale / wavelength);
+            } else {
+                height += scale * fbm_precise(p / wavelength, seed, octaves(layer));
+            }
         }
 
         // The bumps: `height · (1 − t²)³` with `t` the distance over the
@@ -526,13 +531,23 @@ mod tests {
         let step = DVec2::new(1e-3, 1.3e-4);
         let start = DVec2::new(-300.0, 1.0);
         let mut worst = 0.0f64;
-        let (mut last, mut last_slope) = elevation.sample(start);
+        let (mut last, mut last_slope) = elevation.sample(start, true);
         for k in 1..=200_000 {
-            let (height, slope) = elevation.sample(start + step * f64::from(k));
+            let (height, slope) = elevation.sample(start + step * f64::from(k), true);
             let expected = 0.5 * (slope + last_slope).dot(step);
             worst = worst.max((height - last - expected).abs());
             (last, last_slope) = (height, slope);
         }
         assert!(worst < 1e-6, "E steps by {worst} m beyond its slope");
+    }
+
+    #[test]
+    fn height_is_the_same_with_or_without_the_slope() {
+        let elevation = Elevation::new(steep(), 11).unwrap();
+        for p in points(60_000.0).take(5_000) {
+            let (with, _) = elevation.sample(p, true);
+            let (without, _) = elevation.sample(p, false);
+            assert_eq!(with.to_bits(), without.to_bits(), "at {p}");
+        }
     }
 }

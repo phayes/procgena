@@ -13,11 +13,11 @@
 //! (default 3), `--no-build` skips the cold build of the region's
 //! neighbours and builds only the region at the origin, `--no-probe` skips
 //! the per-point times, `--chunks <n>` reads an n × n block of chunks round
-//! a river, and `--features-on` switches each preset's rivers and roads
+//! a river (round the origin if there is none), and `--features-on` switches each preset's rivers and roads
 //! back on (the presets ship without them).
 //!
 //! It prints fingerprints of the built regions' rivers and ponds, and of
-//! their roads plus the ground and water every 16 m, which stay the same
+//! their roads plus the ground, water and slope every 16 m, which stay the same
 //! as long as the terrain does.
 //!
 //! The per-point times are the fastest pass over the probe grid's points,
@@ -185,6 +185,9 @@ fn main() {
                         hash.add(terrain.height(p).to_bits().into());
                         let water = terrain.water_level(p);
                         hash.add(water.map_or(u64::MAX, |w| w.to_bits().into()));
+                        let gradient = terrain.sample(p).gradient;
+                        hash.add(gradient.x.to_bits().into());
+                        hash.add(gradient.y.to_bits().into());
                     }
                     x += 16.0;
                 }
@@ -221,33 +224,39 @@ impl Fnv {
 }
 
 /// Reads an `n` × `n` block of 64 m chunks round the middle of the
-/// longest river of `terrain`, every metre at the fine tier, as chunks read
-/// their ground, and prints the time.
+/// longest river of `terrain` (or round the origin if it has none), each
+/// chunk on its own every metre at the fine tier, as chunks read their
+/// ground, and prints the time.
 fn river_chunks(world: &WorldTerrain, terrain: &Terrain, n: i64) {
-    let Some(mid) = terrain
+    let mid = terrain
         .rivers()
         .iter()
         .max_by_key(|r| r.points.len())
-        .map(|r| r.points[r.points.len() / 2])
-    else {
-        println!("  no river in the region at the origin");
-        return;
+        .map_or(DVec2::ZERO, |r| r.points[r.points.len() / 2]);
+    let first = (mid / 64.0).floor() - DVec2::splat((n / 2) as f64);
+    let chunk = |corner: DVec2| -> Vec<DVec2> {
+        (0..=64)
+            .flat_map(|z| (0..=64).map(move |x| corner + DVec2::new(x as f64, z as f64)))
+            .collect()
     };
-    let corner = ((mid / 64.0).floor() - DVec2::splat((n / 2) as f64)) * 64.0;
-    let points: Vec<DVec2> = (0..=64 * n)
-        .flat_map(|z| (0..=64 * n).map(move |x| corner + DVec2::new(x as f64, z as f64)))
+    let chunks: Vec<Vec<DVec2>> = (0..n)
+        .flat_map(|z| (0..n).map(move |x| (first + DVec2::new(x as f64, z as f64)) * 64.0))
+        .map(chunk)
         .collect();
     let started = Instant::now();
-    let read = world.surfaces(&points, FeatureTier::Fine);
+    let reads: Vec<_> = chunks
+        .iter()
+        .map(|points| world.surfaces(points, FeatureTier::Fine))
+        .collect();
     let elapsed = started.elapsed().as_secs_f64();
     let mut hash = Fnv::default();
-    for s in &read {
+    for s in reads.iter().flatten() {
         hash.add(s.height.to_bits().into());
         hash.add(s.water.map_or(u64::MAX, |w| w.to_bits().into()));
     }
     println!(
-        "  {n} × {n} chunks round a river ({} points): {elapsed:.2} s, fingerprint {:016x}",
-        points.len(),
+        "  {n} × {n} chunks ({} points): {elapsed:.2} s, fingerprint {:016x}",
+        chunks.iter().map(Vec::len).sum::<usize>(),
         hash.0
     );
 }
