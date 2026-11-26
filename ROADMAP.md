@@ -755,11 +755,11 @@ algorithm may replace it):
   moisture, rules from field values to Biome presets, pins), seed
   derivation for each Biome and its Terrain, and the terrain source it
   hands WorldTerrain. This is world_plan's former phase W5. The large-world
-  image example, redone through the World. A studio World tab once G6 can
+  image example, redone through the World. A studio World kind once G6 can
   draw the land.
 - **Needs:** B0, G5, F2 (seed hashing), D3 (open question 5: Terrain and
   Biome ids). D4 (region size and shape) sets only the final region size;
-  W0 starts on today's 4 km default and chooses each region's Biome type
+  W0 starts on today's 2 km default and chooses each region's Biome type
   freely, so neighbours may share a type. D3 adds: `region_seed` with
   `"terrain.region.local"` and `"biome.region.local"`, `terrain_seed`
   removed, `Biome::terrain_options` passing the World seed, stable ids for
@@ -767,7 +767,7 @@ algorithm may replace it):
 - **Done when:** a World of empty Biomes builds the same land whatever order
   its regions are asked for, pinned regions keep their Biome, and the
   image example shows Biomes following E and the selector fields.
-- **Status (2026-11-24): done, at scale 1 on 4 km regions, except stable
+- **Status (2026-11-24): done, at scale 1 on 2 km regions, except stable
   ids for designer polygons (lattice worlds only so far).** New crate
   `procgena_world` (`world/crates/procgena_world`): `WorldOptions` (seed,
   scale pair, region graph, E, convergence, ruggedness and moisture
