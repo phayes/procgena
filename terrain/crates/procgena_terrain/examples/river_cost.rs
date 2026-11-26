@@ -4,14 +4,21 @@
 //! and on points outside it.
 //!
 //! ```bash
-//! RAYON_NUM_THREADS=1 cargo run --release -p procgena_terrain --example river_cost
+//! cargo run --release -p procgena_terrain --example river_cost
 //! ```
 //!
 //! Options: `--preset <key>` (default: every shipped preset), `--seed <n>`
 //! world seed (default 1), `--spacing <m>` the probe grid's spacing in
 //! metres (default 8), `--repeat <n>` timing passes, the fastest kept
-//! (default 3), `--no-build` skips the 3 × 3 cold build and builds only
-//! the region at the origin.
+//! (default 3), `--no-build` skips the cold build of the region's
+//! neighbours and builds only the region at the origin, `--no-probe` skips
+//! the per-point times, `--chunks <n>` reads an n × n block of chunks round
+//! a river, and `--features-on` switches each preset's rivers and roads
+//! back on (the presets ship without them).
+//!
+//! It prints fingerprints of the built regions' rivers and ponds, and of
+//! their roads plus the ground and water every 16 m, which stay the same
+//! as long as the terrain does.
 //!
 //! The per-point times are the fastest pass over the probe grid's points,
 //! each class timed on its own: the bent ground before carving
@@ -29,6 +36,11 @@ use procgena_terrain::{
     RegionStage, Terrain, TerrainPreset, WorldTerrain, WorldTerrainOptions,
 };
 
+/// The river sources per km² each shipped preset was tuned for, which
+/// `--features-on` restores. The presets ship with rivers and roads off.
+const RIVER_DENSITIES: [(&str, f32); 3] =
+    [("plains", 0.6), ("rolling_hills", 1.0), ("mountains", 1.2)];
+
 fn main() {
     // Options.
     let args: Vec<String> = std::env::args().collect();
@@ -45,13 +57,30 @@ fn main() {
     let build = !args.iter().any(|a| a == "--no-build");
     let probe = !args.iter().any(|a| a == "--no-probe");
     let chunks: i64 = option("--chunks").map_or(0, |s| s.parse().expect("--chunks <n>"));
+    let features_on = args.iter().any(|a| a == "--features-on");
 
     for preset in TerrainPreset::all() {
         if only.as_deref().is_some_and(|key| key != preset.key) {
             continue;
         }
-        println!("== {} (seed {seed})", preset.key);
-        let options = preset.terrain.clone();
+        println!(
+            "== {} (seed {seed}){}",
+            preset.key,
+            if features_on {
+                ", rivers and roads on"
+            } else {
+                ""
+            }
+        );
+        let mut options = preset.terrain.clone();
+        if features_on {
+            let (_, density) = RIVER_DENSITIES
+                .iter()
+                .find(|(key, _)| *key == preset.key)
+                .expect("every shipped preset has a river density");
+            options.features.rivers.density = *density;
+            options.features.roads.enabled = true;
+        }
         let source = move |_: RegionId, _: DVec2, _: &Elevation| options.clone();
 
         // Stage times, summed over regions.
@@ -126,6 +155,43 @@ fn main() {
             }
         }
         println!("  rivers and ponds fingerprint {:016x}", hash.0);
+
+        // Every built region's roads, and its ground and water every 16 m.
+        let mut hash = Fnv::default();
+        for &id in &ids {
+            let terrain = world.terrain(id).expect("the region builds");
+            for road in terrain.roads() {
+                for (p, level) in road.points.iter().zip(&road.levels) {
+                    hash.add(p.x.to_bits());
+                    hash.add(p.y.to_bits());
+                    hash.add(level.to_bits().into());
+                }
+            }
+            let Boundary::Polygon(polygon) = &terrain.region().boundary else {
+                continue;
+            };
+            let (lo, hi) = polygon
+                .iter()
+                .fold((DVec2::INFINITY, DVec2::NEG_INFINITY), |(lo, hi), &p| {
+                    (lo.min(p), hi.max(p))
+                });
+            let (lo, hi) = ((lo / 16.0).floor() * 16.0, (hi / 16.0).ceil() * 16.0);
+            let mut z = lo.y;
+            while z <= hi.y {
+                let mut x = lo.x;
+                while x <= hi.x {
+                    let p = DVec2::new(x, z);
+                    if terrain.region().boundary.contains(p) {
+                        hash.add(terrain.height(p).to_bits().into());
+                        let water = terrain.water_level(p);
+                        hash.add(water.map_or(u64::MAX, |w| w.to_bits().into()));
+                    }
+                    x += 16.0;
+                }
+                z += 16.0;
+            }
+        }
+        println!("  roads and ground fingerprint {:016x}", hash.0);
 
         let terrain = world.terrain(centre).expect("the region builds");
         if chunks > 0 {

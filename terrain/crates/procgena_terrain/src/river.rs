@@ -179,6 +179,12 @@ fn next_steps(
     None
 }
 
+/// How many river sources a region with outline `polygon` tries to place
+/// at `density` sources per km². With none, [`trace_own`] traces nothing.
+pub(crate) fn source_count(polygon: &[DVec2], density: f32) -> usize {
+    (f64::from(density) * polygon_area(polygon) / 1.0e6).round() as usize
+}
+
 /// Traces the region's own rivers over `grid` (heights of the terrain's own,
 /// unbent ground), starting from the cells ranked highest by `rank` (one
 /// value per cell of `grid`).
@@ -205,7 +211,7 @@ pub(crate) fn trace_own(
     } = *tracing;
     let mut rivers: Vec<Traced> = Vec::new();
     let mut occupied: Occupied = vec![None; grid.heights.len()];
-    let count = (f64::from(density) * polygon_area(polygon) / 1.0e6).round() as usize;
+    let count = source_count(polygon, density);
     if count == 0 {
         return (rivers, occupied);
     }

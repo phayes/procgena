@@ -504,6 +504,10 @@ pub(crate) fn coarse_routes(
     grades: &(dyn Fn(DVec2) -> RoadGrades + Sync),
     ground: &(dyn Fn(DVec2) -> f32 + Sync),
 ) -> Routes {
+    // With no road to route, there is no grid to read.
+    if starts.is_empty() {
+        return Routes::none(RouteStats::default());
+    }
     let started = Instant::now();
     let grid = Grid::with_cell(polygon, ground, COARSE_CELL);
     let grid_time = started.elapsed();

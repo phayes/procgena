@@ -258,16 +258,49 @@ struct Settings {
 /// One region's side of its borders: what it needs from itself before any
 /// negotiation.
 ///
-/// The first planning stage: relief, river trace and offers. The feature
-/// tiers are later stages, cached as terrains of each tier.
+/// The first planning stage: the converged relief. The river trace and
+/// each edge's offer are worked out the first time they are asked for, so
+/// a neighbour that needs one edge's offer pays for that edge only. The
+/// feature tiers are later stages, cached as terrains of each tier.
 struct Plan {
     region: Arc<Region>,
     /// The generator, converged towards its neighbours.
     generator: TerrainGenerator,
     /// The region's own rivers, traced once for the offers and the build.
-    trace: RiverTrace,
-    /// The offer for each shared edge.
-    offers: HashMap<EdgeId, EdgeOffer>,
+    trace: OnceLock<RiverTrace>,
+    /// For each shared edge, its index in the region and its offer without
+    /// the crossing samples.
+    offers: HashMap<EdgeId, (usize, OnceLock<EdgeOffer>)>,
+    /// For each shared edge, its offer with the crossing samples.
+    crossing_offers: HashMap<EdgeId, OnceLock<EdgeOffer>>,
+}
+
+impl Plan {
+    /// The region's own rivers.
+    fn trace(&self) -> &RiverTrace {
+        self.trace
+            .get_or_init(|| self.generator.trace_rivers(&self.region))
+    }
+
+    /// The offer for shared edge `edge`, with the crossing samples only
+    /// with `crossing` (see [`EdgeOffer::inner`]); `None` if the region has
+    /// no such shared edge.
+    fn offer(&self, edge: EdgeId, crossing: bool) -> Option<&EdgeOffer> {
+        let (index, offer) = self.offers.get(&edge)?;
+        let offer = offer
+            .get_or_init(|| (self.generator).edge_offer(&self.region, *index, self.trace(), false));
+        if !crossing {
+            return Some(offer);
+        }
+        Some(self.crossing_offers[&edge].get_or_init(|| {
+            let (inner, unfaded) = self.generator.crossing_samples(&self.region, *index);
+            EdgeOffer {
+                inner,
+                unfaded,
+                ..offer.clone()
+            }
+        }))
+    }
 }
 
 impl WorldTerrain {
@@ -659,7 +692,7 @@ impl WorldTerrain {
             })
             .collect();
 
-        // The converged generator and its offers.
+        // The converged generator; its trace and offers come when asked for.
         let neighbours: Vec<(RegionId, TerrainOptions)> = settings
             .iter()
             .filter(|(r, _)| **r != id)
@@ -675,17 +708,23 @@ impl WorldTerrain {
                 self.options.convergence.blend,
             )
             .map_err(|e| WorldError::Terrain(id, e))?;
-        let trace = generator.trace_rivers(&region);
-        let offers = generator
-            .offers_traced(&region, &trace)
-            .into_iter()
-            .map(|o| (o.edge, o))
+        let shared = || {
+            region
+                .edges
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| e.neighbor.is_some())
+        };
+        let offers = shared()
+            .map(|(i, e)| (e.id, (i, OnceLock::new())))
             .collect();
+        let crossing_offers = shared().map(|(_, e)| (e.id, OnceLock::new())).collect();
         Ok(Plan {
             region,
             generator,
-            trace,
+            trace: OnceLock::new(),
             offers,
+            crossing_offers,
         })
     }
 
@@ -711,18 +750,24 @@ impl WorldTerrain {
             corners.insert(corner.id, negotiate_corner(corner, &offers).map_err(seam)?);
         }
 
-        // Every shared edge, from both sides' offers.
+        // Every shared edge, from both sides' offers, with their crossing
+        // samples only where either side wishes for a crossing.
         let mut agreements = Vec::new();
+        let mut offers = HashMap::new();
         for edge in &region.edges {
             let Some(neighbor) = edge.neighbor else {
                 continue;
             };
             let other = self.plan(RegionKey::from_id(neighbor))?;
-            let mine = &plan.offers[&edge.id];
-            let theirs = other
-                .offers
-                .get(&edge.id)
-                .ok_or(WorldError::Seam(id, SeamError::Mismatch))?;
+            let mismatch = || WorldError::Seam(id, SeamError::Mismatch);
+            let wished = |o: &EdgeOffer| !o.rivers.is_empty() || !o.roads.is_empty();
+            let mut mine = plan.offer(edge.id, false).ok_or_else(mismatch)?;
+            let mut theirs = other.offer(edge.id, false).ok_or_else(mismatch)?;
+            if wished(mine) || wished(theirs) {
+                mine = plan.offer(edge.id, true).ok_or_else(mismatch)?;
+                theirs = other.offer(edge.id, true).ok_or_else(mismatch)?;
+            }
+            offers.insert(edge.id, mine.clone());
             let agreed = negotiate(
                 edge,
                 mine,
@@ -737,7 +782,7 @@ impl WorldTerrain {
 
         plan.generator
             .clone()
-            .build_traced(Region::clone(region), &agreements, &plan.trace)
+            .build_offered(Region::clone(region), &agreements, plan.trace(), &offers)
             .map(|terrain| terrain.with_scale(self.options.scale))
             .map_err(|e| WorldError::Terrain(id, e))
     }

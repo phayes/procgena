@@ -54,17 +54,13 @@ const NEIGHBOURS: [(isize, isize); 16] = [
 
 impl Grid {
     /// Builds the grid over `polygon`, with heights from `height`.
-    pub(crate) fn new(polygon: &[DVec2], height: impl Fn(DVec2) -> f32 + Sync) -> Self {
+    pub(crate) fn new(polygon: &[DVec2], height: impl Fn(DVec2) -> f32) -> Self {
         Self::with_cell(polygon, height, CELL)
     }
 
     /// Like [`Grid::new`], with cells of `cell` metres where the region is
     /// small enough (larger regions get larger cells).
-    pub(crate) fn with_cell(
-        polygon: &[DVec2],
-        height: impl Fn(DVec2) -> f32 + Sync,
-        cell: f64,
-    ) -> Self {
+    pub(crate) fn with_cell(polygon: &[DVec2], height: impl Fn(DVec2) -> f32, cell: f64) -> Self {
         Self::with_cell_where(polygon, height, cell, |_| true)
     }
 

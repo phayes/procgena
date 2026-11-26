@@ -2007,7 +2007,18 @@ assigned 2026-11-26 while the user was away.
 - **Done when:** output is bitwise identical to the featureless presets
   and the fixtures suites still pass, and the single-thread cost of
   plans before the first picture is measured before and after.
-- **Status (2026-11-26):** in progress.
+- **Status (2026-11-26):** done. Fingerprints of every built region's
+  rivers, ponds, roads, and ground and water every 16 m are bitwise
+  identical, with features off and with them switched back on
+  (`--example river_cost`, `--features-on`). The terrain suites pass.
+  Cold build of the origin region and its 5 neighbours, one thread, whole
+  run's instructions:
+  - features off: plains 39.3 G → 12.5 G, hills 40.1 G → 12.8 G,
+    mountains 85.1 G → 30.1 G (−65 to −68%); the build itself went from
+    8–15 s to 0.8–1.2 s, and plans from about 300–500 ms to under 1 ms
+    each;
+  - features on: −17 to −19%.
+  - Mid's `RouteStats` now has zero counts where no road starts.
 
 #### TB: Cheap borders
 

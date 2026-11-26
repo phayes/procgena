@@ -75,10 +75,13 @@ pub struct EdgeOffer {
     /// in from each of the edge's [`sample_count`] samples. Crossings are
     /// placed only where this stays close to the border profile carried
     /// inward, and where a river's water would not sit above it.
+    ///
+    /// May be empty, together with `unfaded`, when neither offer on the
+    /// edge has a river or road wish: no crossing is placed then.
     pub inner: Vec<[f32; INNER_DEPTHS]>,
     /// The terrain's height at each of the edge's [`sample_count`] samples
     /// with no fading towards its neighbours: the ground its roads must
-    /// reach from a crossing.
+    /// reach from a crossing. May be empty, as for `inner`.
     pub unfaded: Vec<f32>,
     /// How far from the edge the terrain fades towards its neighbours, in
     /// metres. Positive.
@@ -288,8 +291,17 @@ pub fn negotiate(
     }
     let length = edge.length();
     let count = sample_count(length);
+    // The crossing samples may be left out when neither side wishes for a
+    // crossing.
+    let wished = [a, b]
+        .iter()
+        .any(|o| !o.rivers.is_empty() || !o.roads.is_empty());
     for offer in [a, b] {
-        for found in [offer.natural.len(), offer.inner.len(), offer.unfaded.len()] {
+        let crossing = [offer.inner.len(), offer.unfaded.len()];
+        let given = wished || crossing != [0, 0];
+        let lengths =
+            std::iter::once(offer.natural.len()).chain(crossing.into_iter().filter(|_| given));
+        for found in lengths {
             if found != count {
                 return Err(SeamError::SampleCount {
                     expected: count,
@@ -765,6 +777,44 @@ mod tests {
                 &t,
                 &Elevation::flat()
             ),
+            Err(SeamError::SampleCount { .. })
+        ));
+    }
+
+    #[test]
+    fn crossing_samples_are_needed_only_for_wished_crossings() {
+        let e = edge();
+        let (s, t) = (corner(&e, true, 15.0), corner(&e, false, 25.0));
+        let bare = |region, base| EdgeOffer {
+            inner: Vec::new(),
+            unfaded: Vec::new(),
+            ..offer(&e, region, base, 1.0)
+        };
+        let (a, b) = (bare(4, 10.0), bare(9, 30.0));
+        let full = negotiate(
+            &e,
+            &offer(&e, 4, 10.0, 1.0),
+            &offer(&e, 9, 30.0, 1.0),
+            &s,
+            &t,
+            &Elevation::flat(),
+        );
+        let without = negotiate(&e, &a, &b, &s, &t, &Elevation::flat());
+        assert_eq!(without, full, "the same agreement without the samples");
+
+        // A wish on either side needs both sides' samples.
+        let wish = PortWish {
+            along: e.length() / 2.0,
+            level: 0.0,
+            width: 6.0,
+            ground: f32::INFINITY,
+        };
+        let wishing = EdgeOffer {
+            roads: vec![wish],
+            ..offer(&e, 9, 30.0, 1.0)
+        };
+        assert!(matches!(
+            negotiate(&e, &a, &wishing, &s, &t, &Elevation::flat()),
             Err(SeamError::SampleCount { .. })
         ));
     }

@@ -1,5 +1,6 @@
 //! Terrain generators, and terrains bound to a region.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -338,36 +339,76 @@ impl TerrainGenerator {
     /// If `trace` is of another region.
     pub fn offers_traced(&self, region: &Region, trace: &RiverTrace) -> Vec<EdgeOffer> {
         assert_eq!(trace.region, region.id, "the trace is of this region");
-        let own = trace.own.as_deref();
-        let edges = &self.options.edges;
         region
             .edges
             .iter()
             .enumerate()
             .filter(|(_, e)| e.neighbor.is_some())
-            .map(|(i, edge)| {
-                let natural = self.natural_samples(edge);
-                let step = edge.length() / (natural.len() - 1) as f64;
-                let (rivers, roads) =
-                    plan::wishes(&self.options, &self.relief, region, own, i, &natural, step);
-                let side = plan::side_of(region, edge);
-                EdgeOffer {
-                    edge: edge.id,
-                    region: region.id,
-                    natural,
-                    stiffness: edges.stiffness,
-                    margin: edges.margin,
-                    roughness: edges.roughness,
-                    side,
-                    rivers,
-                    roads,
-                    road_grades: self.options.features.roads.grades(),
-                    inner: self.inner_samples(edge, side),
-                    unfaded: self.unfaded_samples(edge),
-                    fade_width: self.relief.fade_width().unwrap_or(f64::from(edges.margin)) as f32,
-                }
-            })
+            .map(|(i, _)| self.edge_offer(region, i, trace, true))
             .collect()
+    }
+
+    /// The offer for edge number `index` of `region`, a shared edge, from
+    /// this generator's `trace` of `region`. Without `crossing`, the offer's
+    /// `inner` and `unfaded` are left empty: [`crossing_samples`] gives
+    /// them, and an agreement needs them only where either side wishes for
+    /// a crossing.
+    ///
+    /// [`crossing_samples`]: Self::crossing_samples
+    pub(crate) fn edge_offer(
+        &self,
+        region: &Region,
+        index: usize,
+        trace: &RiverTrace,
+        crossing: bool,
+    ) -> EdgeOffer {
+        let edge = &region.edges[index];
+        let edges = &self.options.edges;
+        let natural = self.natural_samples(edge);
+        let step = edge.length() / (natural.len() - 1) as f64;
+        let own = trace.own.as_deref();
+        let (rivers, roads) = plan::wishes(
+            &self.options,
+            &self.relief,
+            region,
+            own,
+            index,
+            &natural,
+            step,
+        );
+        let side = plan::side_of(region, edge);
+        let (inner, unfaded) = if crossing {
+            self.crossing_samples(region, index)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        EdgeOffer {
+            edge: edge.id,
+            region: region.id,
+            natural,
+            stiffness: edges.stiffness,
+            margin: edges.margin,
+            roughness: edges.roughness,
+            side,
+            rivers,
+            roads,
+            road_grades: self.options.features.roads.grades(),
+            inner,
+            unfaded,
+            fade_width: self.relief.fade_width().unwrap_or(f64::from(edges.margin)) as f32,
+        }
+    }
+
+    /// The `inner` and `unfaded` samples of the offer for edge number
+    /// `index` of `region` (see [`EdgeOffer`]).
+    pub(crate) fn crossing_samples(
+        &self,
+        region: &Region,
+        index: usize,
+    ) -> (Vec<[f32; INNER_DEPTHS]>, Vec<f32>) {
+        let edge = &region.edges[index];
+        let side = plan::side_of(region, edge);
+        (self.inner_samples(edge, side), self.unfaded_samples(edge))
     }
 
     /// This terrain's own height and cross-slope at each profile sample of
@@ -469,6 +510,19 @@ impl TerrainGenerator {
         agreements: &[EdgeAgreement],
         trace: &RiverTrace,
     ) -> Result<Terrain, TerrainError> {
+        self.build_offered(region, agreements, trace, &HashMap::new())
+    }
+
+    /// [`build_traced`](Self::build_traced), reusing `offers`, this
+    /// generator's offers for some of `region`'s shared edges, keyed by
+    /// edge, instead of sampling those edges again.
+    pub(crate) fn build_offered(
+        self,
+        region: Region,
+        agreements: &[EdgeAgreement],
+        trace: &RiverTrace,
+        offers: &HashMap<EdgeId, EdgeOffer>,
+    ) -> Result<Terrain, TerrainError> {
         if trace.region != region.id {
             return Err(TerrainError::TraceMismatch(trace.region));
         }
@@ -509,7 +563,10 @@ impl TerrainGenerator {
             // The agreed profile and this terrain's own, smoothed the same
             // way as in negotiation, both as heights above E.
             let e = elevation_samples(edge, expected, self.relief.elevation());
-            let natural = self.natural_samples(edge);
+            let natural = match offers.get(&edge.id) {
+                Some(offer) => offer.natural.clone(),
+                None => self.natural_samples(edge),
+            };
             let step = edge.length() / (expected - 1) as f64;
             let own = EdgeAgreement {
                 edge: edge.id,

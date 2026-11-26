@@ -16,7 +16,7 @@ use crate::ports::{
 };
 use crate::region::{Boundary, Region, RegionEdge, point_at, segments};
 use crate::relief::Relief;
-use crate::river::{End, Occupied, Traced, Tracing, trace_inbound, trace_own};
+use crate::river::{End, Occupied, Traced, Tracing, source_count, trace_inbound, trace_own};
 use crate::road::{
     AlignmentPiece, RoadEarthworks, RoadId, RoadNetwork, RoadNode, RoadNodeId, RoadNodeKind,
     RoadSegment, RoadStart, RoadStation, RouteStats, Routes, SectionShape, Waters, along_mean,
@@ -104,8 +104,11 @@ const BREACH_SHARE: f32 = 0.03;
 /// The region's own rivers, traced over its unbent relief.
 #[derive(Debug, Clone)]
 pub(crate) struct OwnRivers {
-    grid: Grid,
+    /// The grid the rivers were traced on, `None` where the region places
+    /// no sources, so nothing was traced.
+    grid: Option<Grid>,
     rivers: Vec<Traced>,
+    /// Which river passes each cell of `grid`; empty without a grid.
     occupied: Occupied,
 }
 
@@ -132,6 +135,15 @@ pub(crate) fn own_rivers(
     let Boundary::Polygon(polygon) = &region.boundary else {
         return None;
     };
+    let r = &options.features.rivers;
+    if source_count(polygon, r.density) == 0 {
+        return Some(OwnRivers {
+            grid: None,
+            rivers: Vec::new(),
+            occupied: Vec::new(),
+        });
+    }
+
     // Sources are ranked by the relief alone: on sloping land E would put
     // every source at the region's high end. The rivers still run down E,
     // which is added to the same relief heights, so each is read once.
@@ -143,7 +155,6 @@ pub(crate) fn own_rivers(
             grid.heights[i] += elevation.height(grid.centre(i));
         }
     }
-    let r = &options.features.rivers;
     let tracing = Tracing {
         source_zone: source_zone(options),
         density: r.density,
@@ -153,7 +164,7 @@ pub(crate) fn own_rivers(
     };
     let (rivers, occupied) = trace_own(&grid, &rank, region, polygon, &tracing);
     Some(OwnRivers {
-        grid,
+        grid: Some(grid),
         rivers,
         occupied,
     })
@@ -423,7 +434,28 @@ pub(crate) fn hydrology(
     let Some(own) = own else {
         return Hydrology::default();
     };
-    let bent = own.grid.with_heights(base);
+    // Without the region's own rivers or a river crossing, there is nothing
+    // to plan. Otherwise the rivers are fitted to the bent ground on the
+    // trace's grid.
+    let crossings = agreements.iter().any(|(_, a)| {
+        a.ports
+            .iter()
+            .any(|p| matches!(p.kind, PortKind::River { .. }))
+    });
+    if own.rivers.is_empty() && !crossings {
+        return Hydrology::default();
+    }
+    let (bent, mut occupied) = match &own.grid {
+        Some(grid) => (grid.with_heights(base), own.occupied.clone()),
+        None => {
+            let Boundary::Polygon(polygon) = &region.boundary else {
+                unreachable!("only a region with a polygon has its own rivers");
+            };
+            let grid = Grid::new(polygon, base);
+            let occupied = vec![None; grid.heights.len()];
+            (grid, occupied)
+        }
+    };
     let r = &options.features.rivers;
     let pond = |centre: DVec2, level: f32, width: f32| Pond {
         centre,
@@ -477,7 +509,6 @@ pub(crate) fn hydrology(
     // crossing, or into a pond. Rivers are visited in tracing order, so a
     // river's junction is always fitted before the river joining it.
     let mut traced = own.rivers.clone();
-    let mut occupied = own.occupied.clone();
     let breach = breach(options);
     for k in 0..traced.len() {
         let river = traced[k].clone();
