@@ -320,6 +320,49 @@ fn main() -> std::io::Result<()> {
         100.0 * f64::from(same) / f64::from(pairs.max(1))
     );
 
+    // Patches: neighbouring regions of one Biome joined up. Patches cut by
+    // the edge of the map count only their part inside it.
+    let mut patch_of: HashMap<RegionId, usize> = HashMap::new();
+    let mut patches: Vec<(&str, usize)> = Vec::new();
+    let mut ordered: Vec<RegionId> = biomes.keys().copied().collect();
+    ordered.sort_by_key(|r| r.0);
+    for start in ordered {
+        if patch_of.contains_key(&start) {
+            continue;
+        }
+        let key: &str = &biomes[&start].preset.key;
+        let (index, mut size, mut todo) = (patches.len(), 0, vec![start]);
+        patch_of.insert(start, index);
+        while let Some(region) = todo.pop() {
+            size += 1;
+            for edge in &world.terrain().region(region).edges {
+                let Some(n) = edge.neighbor else { continue };
+                if biomes.get(&n).is_some_and(|b| b.preset.key == key) && !patch_of.contains_key(&n)
+                {
+                    patch_of.insert(n, index);
+                    todo.push(n);
+                }
+            }
+        }
+        patches.push((key, size));
+    }
+    for (key, _) in &counts {
+        let sizes: Vec<usize> = patches
+            .iter()
+            .filter(|(k, _)| k == key)
+            .map(|&(_, s)| s)
+            .collect();
+        let lone = sizes.iter().filter(|&&s| s == 1).count();
+        let total: usize = sizes.iter().sum();
+        println!(
+            "{key}: {} patches, mean {:.1} regions, largest {}, {lone} lone regions ({:.0} %)",
+            sizes.len(),
+            total as f64 / sizes.len().max(1) as f64,
+            sizes.iter().max().unwrap_or(&0),
+            100.0 * lone as f64 / total.max(1) as f64,
+        );
+    }
+
     // The land in the middle: build the regions it touches on all cores.
     let started = Instant::now();
     let mut land = Image::new(args.size, args.land_km * 1000.0, args.centre_km * 1000.0);

@@ -9,14 +9,12 @@ mod suitability;
 use std::collections::HashMap;
 
 use glam::DVec2;
-use procgena_terrain::{
-    Elevation, NoiseLayer, RegionGraph, RegionGraphError, RegionGraphOptions, RegionId, RegionKey,
-};
+use procgena_terrain::{Elevation, NoiseLayer, RegionGraph, RegionId, RegionKey};
 
 use crate::options::BiomeSelectionOptions;
 use crate::world::FieldValues;
 
-pub(crate) use relaxation::lattice_neighbours;
+use relaxation::lattice_neighbours;
 #[cfg(test)]
 pub(crate) use sampling::SELECTION;
 
@@ -46,25 +44,6 @@ impl FieldSampler {
     }
 }
 
-/// The region graph of `regions` and `seed` without jitter: its sites are
-/// the points of the hexagonal lattice.
-///
-/// # Errors
-///
-/// If `regions` aren't valid.
-pub(crate) fn lattice(
-    regions: RegionGraphOptions,
-    seed: u32,
-) -> Result<RegionGraph, RegionGraphError> {
-    RegionGraph::new(
-        RegionGraphOptions {
-            jitter: 0.0,
-            ..regions
-        },
-        seed,
-    )
-}
-
 /// One region's Biome, as selection chose it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Selected {
@@ -90,16 +69,16 @@ pub(crate) struct BiomeSelector {
     affinity: Affinity,
     /// The catalogue index of each pinned region's Biome.
     pins: HashMap<RegionId, usize>,
-    /// The region graph without jitter, whose sites are the lattice points
-    /// the fields are read at.
+    /// The World's lattice graph, whose sites are the lattice points the
+    /// fields are read at.
     lattice: RegionGraph,
 }
 
 impl BiomeSelector {
     /// The selector for checked `options` in a World with seed `seed`,
     /// vertical scale `vertical`, a catalogue of `n` Biomes and `pins` by
-    /// catalogue index. `lattice` is the World's region graph with no
-    /// jitter (see [`lattice`]). `index` turns a Biome key into its
+    /// catalogue index. `lattice` is the World's region graph as a
+    /// [`RegionGraph::lattice`]. `index` turns a Biome key into its
     /// catalogue index.
     ///
     /// # Errors
@@ -133,8 +112,8 @@ impl BiomeSelector {
         })
     }
 
-    /// The lattice point of `region`: where its fields are read. It
-    /// doesn't depend on the region graph's jitter or on any Biome.
+    /// The lattice point of `region`: its site, where its fields are read.
+    /// It doesn't depend on the jitter or on any Biome.
     pub fn site(&self, region: RegionId) -> DVec2 {
         self.lattice.site(RegionKey::from_id(region))
     }
@@ -276,7 +255,7 @@ mod tests {
         pins: HashMap<RegionId, usize>,
     ) -> BiomeSelector {
         options.validate().unwrap();
-        let lattice = lattice(RegionGraphOptions::default(), seed).unwrap();
+        let lattice = RegionGraph::lattice(RegionGraphOptions::default(), seed).unwrap();
         BiomeSelector::new(options, seed, lattice, 1.0, CATALOGUE.len(), pins, index).unwrap()
     }
 

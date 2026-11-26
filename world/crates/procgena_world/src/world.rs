@@ -13,7 +13,7 @@ use procgena_terrain::{
 };
 
 use crate::options::{BiomeRule, WorldOptions, WorldOptionsError};
-use crate::selection::{BiomeSelector, FieldSampler, Selected, lattice};
+use crate::selection::{BiomeSelector, FieldSampler, Selected};
 
 // Seed keys, named `<crate>.<area>.<role>`. They are frozen: renaming one
 // changes every World built from it. Add a new key for a new role, and list
@@ -163,6 +163,10 @@ struct Choice {
     biomes: Vec<(BiomePreset, TerrainOptions)>,
     /// E and the selector fields.
     fields: FieldSampler,
+    /// The region graph without its edge policy: jittered for the rules,
+    /// the lattice for weighted selection. It gives the rules each
+    /// region's site and point pins their regions.
+    graph: RegionGraph,
     /// How unpinned regions get their Biome.
     mode: Mode,
 }
@@ -172,8 +176,6 @@ enum Mode {
     /// The first rule whose bounds hold at the region's site, else the
     /// fallback.
     Rules {
-        /// The region graph, for each region's site.
-        graph: RegionGraph,
         /// Each rule, with the index of its Biome.
         rules: Vec<(BiomeRule, usize)>,
         /// The index of the fallback Biome.
@@ -193,13 +195,12 @@ impl Choice {
     fn choose(&self, region: RegionId) -> Selected {
         match &self.mode {
             Mode::Rules {
-                graph,
                 rules,
                 fallback,
                 pins,
                 vertical,
             } => {
-                let fields = self.fields.at(graph.site(RegionKey::from_id(region)));
+                let fields = self.fields.at(self.graph.site(RegionKey::from_id(region)));
                 if let Some(&biome) = pins.get(&region) {
                     return Selected {
                         biome,
@@ -297,14 +298,22 @@ impl World {
             .collect::<Result<Vec<_>, WorldError>>()?;
         let fallback = index(&options.biomes.fallback)?;
 
-        // Each pin's region: given by id, or the region holding its point.
-        let graph = RegionGraph::new(options.regions, options.seed)
-            .map_err(|e| WorldError::Options(WorldOptionsError::Regions(e)))?;
+        // The region graph: the lattice for weighted selection, whose
+        // outlines don't depend on any Biome, else today's jittered graph.
+        let weighted = options.biome_selection.is_some();
+        let graph = if weighted {
+            RegionGraph::lattice(options.regions, options.seed)
+        } else {
+            RegionGraph::new(options.regions, options.seed)
+        }
+        .map_err(|e| WorldError::Options(WorldOptionsError::Regions(e)))?;
+
+        // Each pin's region: given by id, or the region its point names.
         let mut pins = HashMap::new();
         for pin in &options.pins {
             let region = match (pin.region, pin.at) {
                 (Some(id), _) => RegionId(id),
-                (None, Some(p)) => graph.region_at(DVec2::from_array(p)).id(),
+                (None, Some(p)) => Self::pin_region(&graph, weighted, DVec2::from_array(p)),
                 (None, None) => unreachable!("checked by `WorldOptions::validate`"),
             };
             if pins.insert(region, index(&pin.biome)?).is_some() {
@@ -333,15 +342,13 @@ impl World {
             Some(selection) => Mode::Weighted(BiomeSelector::new(
                 selection,
                 options.seed,
-                lattice(options.regions, options.seed)
-                    .map_err(|e| WorldError::Options(WorldOptionsError::Regions(e)))?,
+                graph.clone(),
                 vertical,
                 resolved.len(),
                 pins,
                 |key: &str| -> Result<usize, WorldError> { index(key) },
             )?),
             None => Mode::Rules {
-                graph,
                 rules,
                 fallback,
                 pins,
@@ -351,6 +358,7 @@ impl World {
         let choice = Arc::new(Choice {
             biomes: resolved,
             fields,
+            graph,
             mode,
         });
 
@@ -376,6 +384,18 @@ impl World {
         )
         .map_err(WorldError::Terrain)?;
 
+        // With weighted selection the land is on the lattice, and only the
+        // borders between different Biomes are warped.
+        let terrain = if weighted {
+            let choice = Arc::clone(&choice);
+            terrain.with_lattice_regions(Arc::new(move |a: RegionId, b: RegionId| {
+                let both = choice.choose_many(&[a, b]);
+                both[0].biome != both[1].biome
+            }))
+        } else {
+            terrain
+        };
+
         Ok(Self {
             options,
             choice,
@@ -394,9 +414,37 @@ impl World {
         &self.terrain
     }
 
-    /// The region holding world position `p` (x and z, metres).
+    /// The region holding world position `p` (x and z, metres): the one
+    /// whose land is there.
     pub fn region_at(&self, p: DVec2) -> RegionId {
         self.terrain.region_at(p)
+    }
+
+    /// The region a pin `at` point `p` names (see [`BiomePin`](crate::BiomePin)).
+    ///
+    /// With the rules it is [`region_at`](Self::region_at). With weighted
+    /// selection it is the region whose outline holds `p` before the
+    /// borders between different Biomes are warped, so pins never depend
+    /// on the Biomes they choose: within the warp's amplitude of such a
+    /// border (50 m by default) it can be the region across the border from
+    /// `region_at`.
+    pub fn pin_region_at(&self, p: DVec2) -> RegionId {
+        Self::pin_region(
+            &self.choice.graph,
+            self.options.biome_selection.is_some(),
+            p,
+        )
+    }
+
+    /// The region a point pin at `p` names, with `graph` the World's graph
+    /// without its edge policy and `weighted` whether it uses weighted
+    /// selection.
+    fn pin_region(graph: &RegionGraph, weighted: bool, p: DVec2) -> RegionId {
+        if weighted {
+            graph.outline_at(p).id()
+        } else {
+            graph.region_at(p).id()
+        }
     }
 
     /// The Biome instance filling `region`.

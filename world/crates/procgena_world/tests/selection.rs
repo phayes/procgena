@@ -5,7 +5,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
-use glam::IVec2;
+use glam::{DVec2, IVec2};
 use procgena_biome::{Biome, BiomePreset, BiomeTerrain};
 use procgena_terrain::{FeatureTier, RegionId, RegionKey};
 use procgena_world::{
@@ -103,6 +103,165 @@ fn the_land_takes_the_selected_biomes_terrain_and_joins_at_borders() {
         );
         assert!((h0 - h1).abs() < 0.5, "{h0} vs {h1} at {p}");
     }
+}
+
+#[test]
+fn weighted_regions_are_lattice_hexagons_warped_only_between_biomes() {
+    let world = World::new(weighted(12)).expect("valid World");
+    let warp = world.options().regions.warp.amplitude;
+    let (mut straight, mut wiggly) = (0, 0);
+    for id in patch(8) {
+        let region = world.terrain().region(id);
+        let biome = world.biome(id).preset.key.clone();
+
+        // Exactly the six lattice neighbours, each a corner-to-corner edge.
+        let mut beside: Vec<RegionId> = region.edges.iter().map(|e| e.neighbor.unwrap()).collect();
+        beside.sort_unstable();
+        let mut lattice: Vec<RegionId> = RegionKey::from_id(id)
+            .lattice_neighbours()
+            .map(RegionKey::id)
+            .to_vec();
+        lattice.sort_unstable();
+        assert_eq!(beside, lattice);
+
+        for edge in &region.edges {
+            let n = edge.neighbor.unwrap();
+            // Both sides hold the same edge.
+            let theirs = world.terrain().region(n);
+            let theirs = theirs.edges.iter().find(|e| e.id == edge.id).unwrap();
+            assert_eq!(theirs.polyline, edge.polyline);
+
+            // Straight between equal Biomes, warped otherwise.
+            let chord = (edge.polyline[0], *edge.polyline.last().unwrap());
+            let off = edge
+                .polyline
+                .iter()
+                .map(|&p| {
+                    let d = (chord.1 - chord.0).normalize();
+                    (p - chord.0).perp_dot(d).abs()
+                })
+                .fold(0.0, f64::max);
+            if world.biome(n).preset.key == biome {
+                assert_eq!(edge.polyline.len(), 2, "{id:?} | {n:?}");
+                straight += 1;
+            } else {
+                assert!(off <= warp + 1e-9);
+                if off > 1.0 {
+                    wiggly += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        straight > 0 && wiggly > 0,
+        "{straight} straight, {wiggly} wiggly"
+    );
+}
+
+#[test]
+fn a_point_pin_uses_the_outline_before_warping() {
+    // Look along a warped border for a point that the warp hands to the
+    // region across it.
+    let options = weighted(12);
+    let world = World::new(options.clone()).expect("valid World");
+    let found = patch(8).into_iter().find_map(|id| {
+        let region = world.terrain().region(id);
+        region.edges.iter().find_map(|edge| {
+            let n = edge.neighbor?;
+            edge.polyline.windows(2).find_map(|pair| {
+                let p = (pair[0] + pair[1]) / 2.0;
+                [p + DVec2::X, p - DVec2::X, p + DVec2::Y, p - DVec2::Y]
+                    .into_iter()
+                    .find(|&q| {
+                        let (owner, named) = (world.region_at(q), world.pin_region_at(q));
+                        owner != named && [id, n].contains(&owner) && [id, n].contains(&named)
+                    })
+            })
+        })
+    });
+    let p = found.expect("some point lies in a warp lobe");
+    let (owner, named) = (world.region_at(p), world.pin_region_at(p));
+
+    // The land there belongs to `owner`, and the pin goes to `named`.
+    assert_eq!(world.biome_at(p).region, owner);
+    let pinned = World::new(WorldOptions {
+        pins: vec![BiomePin::at(p, "mountains")],
+        ..options
+    })
+    .expect("valid World");
+    assert!(pinned.biome(named).pinned);
+    assert!(!pinned.biome(owner).pinned);
+}
+
+#[test]
+fn land_joins_across_straight_and_warped_borders() {
+    let seed = 12;
+    let world = World::new(weighted(seed)).expect("valid World");
+    let mut checked = [false, false];
+    for id in patch(6) {
+        let region = world.terrain().region(id);
+        for edge in &region.edges {
+            let n = edge.neighbor.unwrap();
+            let same = world.biome(n).preset.key == world.biome(id).preset.key;
+            if checked[usize::from(same)] {
+                continue;
+            }
+            checked[usize::from(same)] = true;
+            for pair in edge.polyline.windows(2) {
+                for t in [0.25, 0.5, 0.75] {
+                    let p = pair[0].lerp(pair[1], t);
+                    let across = (pair[1] - pair[0]).perp().normalize() * 0.05;
+                    let (h0, h1) = (
+                        world.terrain().height(p - across),
+                        world.terrain().height(p + across),
+                    );
+                    assert!((h0 - h1).abs() < 0.5, "same {same}: {h0} vs {h1} at {p}");
+                }
+            }
+        }
+        if checked == [true, true] {
+            return;
+        }
+    }
+    panic!("found no border of each kind: {checked:?}");
+}
+
+#[test]
+fn threads_and_query_order_dont_change_biomes() {
+    let world = World::new(weighted(31)).expect("valid World");
+    let ids = patch(12);
+    let alone: Vec<String> = world
+        .biomes(&ids)
+        .iter()
+        .map(|b| b.preset.key.to_string())
+        .collect();
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..4)
+            .map(|t| {
+                let (world, ids) = (&world, &ids);
+                scope.spawn(move || {
+                    // Each thread in its own order, some one at a time and
+                    // some in uneven batches.
+                    let mut order: Vec<usize> = (0..ids.len()).collect();
+                    order.rotate_left(t * ids.len() / 4);
+                    if t % 2 == 1 {
+                        order.reverse();
+                    }
+                    let mut out = vec![String::new(); ids.len()];
+                    for chunk in order.chunks(1 + 7 * t) {
+                        let batch: Vec<RegionId> = chunk.iter().map(|&i| ids[i]).collect();
+                        for (&i, biome) in chunk.iter().zip(world.biomes(&batch)) {
+                            out[i] = biome.preset.key.to_string();
+                        }
+                    }
+                    out
+                })
+            })
+            .collect();
+        for handle in handles {
+            assert_eq!(handle.join().unwrap(), alone);
+        }
+    });
 }
 
 #[test]

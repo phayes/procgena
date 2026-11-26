@@ -14,7 +14,7 @@ use crate::converge::{
 };
 use crate::elevation::{Elevation, ElevationError, ElevationOptions};
 use crate::feature::FeatureTier;
-use crate::graph::{RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey};
+use crate::graph::{EdgePolicy, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey};
 use crate::label::Labels;
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
 use crate::region::{CornerId, EdgeId, Region, RegionId};
@@ -316,6 +316,18 @@ impl WorldTerrain {
             elevation,
             graph,
         })
+    }
+
+    /// This world on a lattice graph ([`RegionGraph::lattice`]): every
+    /// region a hexagon with six neighbours and drifting corners, with
+    /// only the edges `edges` names warped. Call it straight after
+    /// [`new`](Self::new), before asking for any region.
+    #[must_use]
+    pub fn with_lattice_regions(mut self, edges: Arc<dyn EdgePolicy>) -> Self {
+        self.graph = RegionGraph::lattice(self.options.regions, self.options.seed)
+            .expect("checked by `new`")
+            .with_edge_policy(edges);
+        self
     }
 
     /// This world, telling `hook` whenever a region stage starts or

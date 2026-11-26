@@ -9,10 +9,11 @@
 
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
+use std::sync::Arc;
 
 use glam::{DVec2, I64Vec2, IVec2};
 
-use crate::hash::{GRAPH_SITE_X, GRAPH_SITE_Z, hash2, seed_for};
+use crate::hash::{GRAPH_CORNER_DRIFT, GRAPH_SITE_X, GRAPH_SITE_Z, hash2, mix64, seed_for};
 use crate::ports::CORNER_CLEARANCE;
 use crate::region::{Boundary, Region, RegionCorner, RegionEdge, RegionId};
 use crate::warp::{BorderWarp, BorderWarpError, side_amplitude, warp_side};
@@ -87,6 +88,33 @@ impl RegionKey {
     pub fn from_id(id: RegionId) -> Self {
         Self(IVec2::new((id.0 >> 32) as u32 as i32, id.0 as u32 as i32))
     }
+
+    /// The six regions beside this one on the hexagonal lattice, sorted:
+    /// exactly the regions sharing an edge with it in a
+    /// [`RegionGraph::lattice`]. Neighbours of neighbours are mutual.
+    /// Coordinates wrap at the ends of `i32`.
+    pub fn lattice_neighbours(self) -> [RegionKey; 6] {
+        // Odd rows sit half a cell towards +x, so the rows above and below
+        // hold `x - 1` and `x` beside an even row, `x` and `x + 1` beside an
+        // odd one.
+        let IVec2 { x, y: z } = self.0;
+        let left = if z.rem_euclid(2) == 1 {
+            x
+        } else {
+            x.wrapping_sub(1)
+        };
+        let key = |x: i32, z: i32| RegionKey(IVec2::new(x, z));
+        let mut out = [
+            key(x.wrapping_sub(1), z),
+            key(x.wrapping_add(1), z),
+            key(left, z.wrapping_sub(1)),
+            key(left.wrapping_add(1), z.wrapping_sub(1)),
+            key(left, z.wrapping_add(1)),
+            key(left.wrapping_add(1), z.wrapping_add(1)),
+        ];
+        out.sort_unstable();
+        out
+    }
 }
 
 /// How the plane is split into regions.
@@ -96,7 +124,9 @@ pub struct RegionGraphOptions {
     /// The lattice spacing, about the width of a region, in metres.
     pub size: f64,
     /// How far each site moves from its lattice point, from 0 (a regular
-    /// hexagonal tiling) to [`MAX_JITTER`].
+    /// hexagonal tiling) to [`MAX_JITTER`]. In a
+    /// [`RegionGraph::lattice`], the sites stay on the lattice and this
+    /// sets how far the corners drift instead.
     pub jitter: f64,
     /// Edges shorter than this, in metres, are merged away: their two
     /// corners become one corner, touched by four or more regions. At
@@ -187,13 +217,87 @@ impl RegionGraphOptions {
 /// on its own, from the settings and seed alone, so any region can be
 /// asked for at any time, in any order, on any thread, with the same
 /// result.
+///
+/// A graph comes in one of two layouts:
+///
+/// - [`new`](Self::new): every site is jittered inside its lattice cell
+///   and the regions are the Voronoi cells of the sites, so a region has
+///   any number of neighbours.
+/// - [`lattice`](Self::lattice): every site sits on the hexagonal lattice,
+///   so every region has exactly the six neighbours of
+///   [`RegionKey::lattice_neighbours`]. Instead of the sites, the corners
+///   drift, each by its own capped amount, so the regions are irregular
+///   hexagons. An [`EdgePolicy`] can keep chosen edges straight.
 #[derive(Debug, Clone)]
 pub struct RegionGraph {
     options: RegionGraphOptions,
     seed: u32,
+    layout: Layout,
+    /// Which edges are warped.
+    edges: Edges,
     /// Sites placed by hand, in millimetres, for tests of awkward layouts.
     #[cfg(test)]
     placed: HashMap<RegionKey, I64Vec2>,
+}
+
+/// How a [`RegionGraph`] places its sites and corners.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Layout {
+    /// Jittered sites, Voronoi cells, short edges merged.
+    Jittered,
+    /// Sites on the lattice, corners drifting.
+    Lattice,
+}
+
+/// The most a corner of a [`RegionGraph::lattice`] drifts from its place on
+/// the regular lattice, as a share of a lattice edge (the spacing over
+/// √3), at [`MAX_JITTER`].
+///
+/// At a quarter of an edge, every edge keeps at least half its length
+/// (more than the minimum edge, since the spacing is at least five minimum
+/// edges), and seen from the site a corner turns by less than 15° of the
+/// 60° between corners, so every region stays a simple polygon around its
+/// site and the regions touching each other never change.
+const MAX_CORNER_DRIFT: f64 = 0.25;
+
+/// Decides which edges between regions of a [`RegionGraph`] are warped by
+/// its [`BorderWarp`]; the rest stay straight lines between their corners.
+///
+/// It must give the same answer every time it is asked about the same
+/// pair, from any thread. It is always asked with the smaller id first, so
+/// both regions on an edge get the same edge. It never changes which
+/// regions are neighbours or where corners lie.
+///
+/// Any `Fn(RegionId, RegionId) -> bool` closure that is `Send + Sync` is a
+/// policy.
+pub trait EdgePolicy: Send + Sync {
+    /// Whether the edge between regions `a` and `b` (`a < b`) is warped.
+    fn warped(&self, a: RegionId, b: RegionId) -> bool;
+}
+
+impl<F> EdgePolicy for F
+where
+    F: Fn(RegionId, RegionId) -> bool + Send + Sync,
+{
+    fn warped(&self, a: RegionId, b: RegionId) -> bool {
+        self(a, b)
+    }
+}
+
+/// The [`EdgePolicy`] of a graph: every edge, or the ones a policy names.
+#[derive(Clone)]
+enum Edges {
+    All,
+    Policy(Arc<dyn EdgePolicy>),
+}
+
+impl fmt::Debug for Edges {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::All => f.write_str("All"),
+            Self::Policy(_) => f.write_str("Policy(..)"),
+        }
+    }
 }
 
 /// Every region whose site lies on one empty circle (a raw Voronoi
@@ -221,13 +325,67 @@ impl RegionGraph {
         Ok(Self::unchecked(options, seed))
     }
 
+    /// The lattice graph for `options` and the world's `seed`: every site on
+    /// the hexagonal lattice, every region with exactly six neighbours, and
+    /// each corner drifted from its place on the lattice by up to
+    /// `options.jitter / MAX_JITTER` of a quarter of a lattice edge (the
+    /// spacing over √3), in a direction of its own. At jitter 0 every
+    /// region is a regular hexagon.
+    ///
+    /// Drifting never changes which regions touch, and every corner and
+    /// outline comes from the settings and seed alone. Every edge is warped
+    /// as [`new`](Self::new)'s are, unless an [`EdgePolicy`] given with
+    /// [`with_edge_policy`](Self::with_edge_policy) keeps it straight.
+    ///
+    /// # Errors
+    ///
+    /// If `options` aren't valid (see [`RegionGraphOptions::validate`]).
+    pub fn lattice(options: RegionGraphOptions, seed: u32) -> Result<Self, RegionGraphError> {
+        options.validate()?;
+        Ok(Self {
+            layout: Layout::Lattice,
+            ..Self::unchecked(options, seed)
+        })
+    }
+
+    /// This graph, warping only the edges `policy` names; the rest are
+    /// straight lines between their corners. Changes no corner, outline
+    /// before warping, or neighbour.
+    #[must_use]
+    pub fn with_edge_policy(mut self, policy: Arc<dyn EdgePolicy>) -> Self {
+        self.edges = Edges::Policy(policy);
+        self
+    }
+
     /// The graph for settings already checked.
     fn unchecked(options: RegionGraphOptions, seed: u32) -> Self {
         Self {
             options,
             seed,
+            layout: Layout::Jittered,
+            edges: Edges::All,
             #[cfg(test)]
             placed: HashMap::new(),
+        }
+    }
+
+    /// How far sites move from the lattice, as a share of half the
+    /// spacing: the jitter, or 0 for a lattice graph.
+    fn site_jitter(&self) -> f64 {
+        match self.layout {
+            Layout::Jittered => self.options.jitter,
+            Layout::Lattice => 0.0,
+        }
+    }
+
+    /// Whether the edge between regions `a` and `b` is warped.
+    fn warps(&self, a: RegionKey, b: RegionKey) -> bool {
+        match &self.edges {
+            Edges::All => true,
+            Edges::Policy(policy) => {
+                let (a, b) = (a.id().min(b.id()), a.id().max(b.id()));
+                policy.warped(a, b)
+            }
         }
     }
 
@@ -250,7 +408,10 @@ impl RegionGraph {
     /// would be, in metres: the search must reach that much further.
     #[cfg(test)]
     fn placed_offset(&self) -> f64 {
-        let unplaced = Self::unchecked(self.options, self.seed);
+        let unplaced = Self {
+            placed: HashMap::new(),
+            ..self.clone()
+        };
         self.placed
             .iter()
             .map(|(&k, &p)| (p - unplaced.site_mm(k)).as_dvec2().length() / PER_METRE)
@@ -283,7 +444,7 @@ impl RegionGraph {
             f64::from(h) / f64::from(u32::MAX) * 2.0 - 1.0
         };
         let jitter = DVec2::new(unit(GRAPH_SITE_X), unit(GRAPH_SITE_Z));
-        let site = point + jitter * (0.5 * self.options.jitter * size);
+        let site = point + jitter * (0.5 * self.site_jitter() * size);
         (site * PER_METRE).round().as_i64vec2()
     }
 
@@ -291,7 +452,7 @@ impl RegionGraph {
     /// way reach for certain, in metres: every site nearer than this is
     /// among them.
     fn coverage(&self, window: i32) -> f64 {
-        let (size, jitter) = (self.options.size, self.options.jitter);
+        let (size, jitter) = (self.options.size, self.site_jitter());
         // Rows beyond the window are at least this far off, less both
         // sites' jitter; columns likewise, less half a cell of stagger.
         let rows = f64::from(window + 1) * ROW * size;
@@ -328,7 +489,11 @@ impl RegionGraph {
         let mut corners: Vec<RegionCorner> = Vec::with_capacity(sides.len());
         for side in &sides {
             let (a, b) = (side.from.position, side.to.position);
-            let amplitude = local.amplitude(side);
+            let amplitude = if self.warps(key, side.neighbour) {
+                local.amplitude(side)
+            } else {
+                0.0
+            };
             let polyline = warp_side(a, b, amplitude, &self.options.warp, self.seed);
             points.extend_from_slice(&polyline[..polyline.len() - 1]);
             edges.push(
@@ -350,21 +515,7 @@ impl RegionGraph {
     /// The region holding `p`. Points on a border may go to either side.
     pub fn region_at(&self, p: DVec2) -> RegionKey {
         let mut local = Local::new(self);
-
-        // The regions nearest first; merged corners shift outlines away
-        // from the plain Voronoi cells, so the owner isn't always the
-        // nearest site, but it is close by.
-        let near = self.cell_near(p);
-        let mut candidates: Vec<(f64, RegionKey)> = (-2..=2)
-            .flat_map(|dz| (-2..=2).map(move |dx| RegionKey(near.0 + IVec2::new(dx, dz))))
-            .map(|k| (self.site(k).distance_squared(p), k))
-            .collect();
-        candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-        let straight = candidates
-            .iter()
-            .map(|&(_, k)| k)
-            .find(|&k| local.outline(k).contains(p))
-            .unwrap_or(candidates[0].1);
+        let straight = self.outline_holding(&mut local, p);
 
         // Warping moves a border by at most the amplitude, and only between
         // the two regions on it, so only a point that near a border can
@@ -379,6 +530,34 @@ impl RegionGraph {
         near.into_iter()
             .find(|&k| self.build(&mut local, k).boundary.contains(p))
             .unwrap_or(straight)
+    }
+
+    /// The region whose outline holds `p` before any border is warped: its
+    /// corners joined by straight lines. Unlike [`region_at`](Self::region_at),
+    /// the answer doesn't depend on the [`EdgePolicy`]. Near a warped
+    /// border it can differ from `region_at`, by up to the warp's
+    /// amplitude. Points on a border may go to either side.
+    pub fn outline_at(&self, p: DVec2) -> RegionKey {
+        self.outline_holding(&mut Local::new(self), p)
+    }
+
+    /// [`outline_at`](Self::outline_at), reusing the outlines already
+    /// worked out in `local`.
+    fn outline_holding(&self, local: &mut Local, p: DVec2) -> RegionKey {
+        // The regions nearest first; merged or drifted corners shift
+        // outlines away from the plain Voronoi cells, so the owner isn't
+        // always the nearest site, but it is close by.
+        let near = self.cell_near(p);
+        let mut candidates: Vec<(f64, RegionKey)> = (-2..=2)
+            .flat_map(|dz| (-2..=2).map(move |dx| RegionKey(near.0 + IVec2::new(dx, dz))))
+            .map(|k| (self.site(k).distance_squared(p), k))
+            .collect();
+        candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        candidates
+            .iter()
+            .map(|&(_, k)| k)
+            .find(|&k| local.outline(k).contains(p))
+            .unwrap_or(candidates[0].1)
     }
 
     /// How far the edge between `key` and its `neighbour` may be warped,
@@ -532,8 +711,30 @@ impl<'a> Local<'a> {
         let sum = merged
             .iter()
             .fold(DVec2::ZERO, |sum, c| sum + self.position(c));
+        let drift = self.drift(merged.first().expect("a corner merges with itself"));
         let incident = merged.iter().flatten().map(|k| k.id());
-        RegionCorner::new(sum / merged.len() as f64, incident)
+        RegionCorner::new(sum / merged.len() as f64 + drift, incident)
+    }
+
+    /// How far raw corner `corner` drifts from its place: nothing in a
+    /// jittered graph; in a lattice graph, a point spread evenly over a
+    /// disc whose radius is set by the jitter (see [`RegionGraph::lattice`]),
+    /// from the seed and the corner's sites alone.
+    fn drift(&self, corner: &Corner) -> DVec2 {
+        let graph = self.graph;
+        if graph.layout == Layout::Jittered {
+            return DVec2::ZERO;
+        }
+        let edge = graph.options.size / 3f64.sqrt();
+        let radius = MAX_CORNER_DRIFT * edge * graph.options.jitter / MAX_JITTER;
+        let h = corner.iter().fold(
+            u64::from(seed_for(graph.seed, GRAPH_CORNER_DRIFT)),
+            |h, k| mix64(h, k.id().0),
+        );
+        // Two uniform numbers in [0, 1) from the top 53 bits of two hashes.
+        let unit = |h: u64| (h >> 11) as f64 / (1u64 << 53) as f64;
+        let (u, v) = (unit(h), unit(mix64(h, 1)));
+        radius * u.sqrt() * DVec2::from_angle(std::f64::consts::TAU * v)
     }
 
     /// The raw corners at the far ends of the sides that meet at raw corner
@@ -1312,6 +1513,152 @@ mod tests {
                     "{half} of {edges} held under half"
                 );
                 assert!(50 * none <= edges, "{none} of {edges} not warped");
+            }
+        }
+    }
+
+    /// Lattice graphs with no drift, the default and the most, each with
+    /// straight borders and the strongest warp.
+    fn lattice_graphs() -> Vec<RegionGraph> {
+        let mut out = Vec::new();
+        for jitter in [0.0, 0.6, MAX_JITTER] {
+            for warp in [STRAIGHT, strongest_warp()] {
+                let options = RegionGraphOptions {
+                    size: 2000.0,
+                    jitter,
+                    min_edge: MIN_EDGE,
+                    warp,
+                };
+                out.push(RegionGraph::lattice(options, 7).unwrap());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn lattice_regions_have_their_six_lattice_neighbours_and_tile() {
+        let far = 300_000;
+        let keys: Vec<RegionKey> = block(4)
+            .chain([
+                RegionKey(IVec2::new(far, -far)),
+                RegionKey(IVec2::new(-far, far + 1)),
+            ])
+            .collect();
+        for graph in lattice_graphs() {
+            for &key in &keys {
+                let region = graph.region(key);
+                let mut beside: Vec<RegionKey> = region
+                    .edges
+                    .iter()
+                    .map(|e| key_of(e.neighbor.unwrap()))
+                    .collect();
+                beside.sort_unstable();
+                assert_eq!(beside, key.lattice_neighbours(), "{key:?}");
+                for n in key.lattice_neighbours() {
+                    assert!(n.lattice_neighbours().contains(&key), "{key:?}");
+                }
+                assert!(region.corners.iter().all(|c| c.incident.len() == 3));
+                // Every edge keeps at least half a lattice edge.
+                let short = graph.options.size / 3f64.sqrt() / 2.0;
+                for edge in &region.edges {
+                    let chord = edge.polyline[0].distance(*edge.polyline.last().unwrap());
+                    assert!(chord >= short, "{key:?}: {chord}");
+                }
+            }
+            assert_agree(&graph, block(5));
+            assert_simple(&graph, block(6));
+            assert_tiles(&graph, 4800.0);
+        }
+    }
+
+    #[test]
+    fn lattice_corners_drift_up_to_their_cap() {
+        let options = RegionGraphOptions {
+            jitter: MAX_JITTER,
+            warp: STRAIGHT,
+            ..RegionGraphOptions::default()
+        };
+        let drifted = RegionGraph::lattice(options, 3).unwrap();
+        let regular = RegionGraph::lattice(
+            RegionGraphOptions {
+                jitter: 0.0,
+                ..options
+            },
+            3,
+        )
+        .unwrap();
+        let unjittered = RegionGraph::new(
+            RegionGraphOptions {
+                jitter: 0.0,
+                ..options
+            },
+            3,
+        )
+        .unwrap();
+        let cap = MAX_CORNER_DRIFT * options.size / 3f64.sqrt();
+        let mut most: f64 = 0.0;
+        for key in block(6) {
+            // Sites stay on the lattice.
+            assert_eq!(drifted.site(key), unjittered.site(key));
+            let (a, b) = (drifted.region(key), regular.region(key));
+            assert_eq!(b, unjittered.region(key));
+            assert_eq!(a.corners.len(), b.corners.len());
+            for (c, d) in a.corners.iter().zip(&b.corners) {
+                assert_eq!(c.incident, d.incident);
+                let moved = c.position.distance(d.position);
+                assert!(moved <= cap + 1e-9, "{key:?}: {moved}");
+                most = most.max(moved);
+            }
+        }
+        assert!(most > 0.8 * cap, "corners should use their room: {most}");
+    }
+
+    #[test]
+    fn an_edge_policy_straightens_only_the_edges_it_leaves_out() {
+        let options = RegionGraphOptions {
+            warp: strongest_warp(),
+            ..RegionGraphOptions::default()
+        };
+        // Warp the edges whose smaller id is even.
+        let policy = |a: RegionId, b: RegionId| {
+            assert!(a < b);
+            a.0.is_multiple_of(2)
+        };
+        let all = RegionGraph::lattice(options, 9).unwrap();
+        let some = RegionGraph::lattice(options, 9)
+            .unwrap()
+            .with_edge_policy(Arc::new(policy));
+        let (mut straight, mut warped) = (0, 0);
+        for key in block(4) {
+            let (a, b) = (all.region(key), some.region(key));
+            assert_eq!(a.corners, b.corners);
+            for (ea, eb) in a.edges.iter().zip(&b.edges) {
+                let lowest = key.id().min(ea.neighbor.unwrap());
+                if lowest.0.is_multiple_of(2) {
+                    assert_eq!(ea.polyline, eb.polyline);
+                    warped += 1;
+                } else {
+                    assert_eq!(eb.polyline.len(), 2, "{key:?}");
+                    straight += 1;
+                }
+            }
+        }
+        assert!(straight > 0 && warped > 0);
+        assert_agree(&some, block(4));
+        assert_simple(&some, block(5));
+        assert_tiles(&some, 4800.0);
+
+        // The outline before warping doesn't depend on the policy, and is
+        // what region_at finds when nothing is warped.
+        let none = RegionGraph::lattice(options, 9)
+            .unwrap()
+            .with_edge_policy(Arc::new(|_: RegionId, _: RegionId| false));
+        for i in 0..60 {
+            for j in 0..60 {
+                let p = DVec2::new(f64::from(i) * 97.3 - 2900.0, f64::from(j) * 101.1 - 3000.0);
+                let here = all.outline_at(p);
+                assert_eq!(some.outline_at(p), here);
+                assert_eq!(none.region_at(p), here, "{p}");
             }
         }
     }

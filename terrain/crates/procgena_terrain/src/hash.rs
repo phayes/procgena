@@ -90,6 +90,8 @@ pub(crate) const GRAPH_SITE_X: &str = "terrain.graph.site_x";
 pub(crate) const GRAPH_SITE_Z: &str = "terrain.graph.site_z";
 /// The irregularities of region borders made by the border warp.
 pub(crate) const GRAPH_BORDER_WARP: &str = "terrain.graph.border_warp";
+/// How far each corner of a lattice graph drifts from the lattice.
+pub(crate) const GRAPH_CORNER_DRIFT: &str = "terrain.graph.corner_drift";
 /// The gully cells' jitter. A fixed seed, the same in every world, so
 /// gullies match across borders whatever the neighbours' seeds.
 pub(crate) const GULLY_CELLS: &str = "terrain.gully.cells";
@@ -123,6 +125,7 @@ pub(crate) const KEYS: &[&str] = &[
     GRAPH_SITE_X,
     GRAPH_SITE_Z,
     GRAPH_BORDER_WARP,
+    GRAPH_CORNER_DRIFT,
     GULLY_CELLS,
     SEAM_DETAIL,
     REGION_LOCAL,

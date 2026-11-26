@@ -3,34 +3,15 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 
-use glam::IVec2;
 use procgena_terrain::{RegionId, RegionKey};
 
-/// The six regions beside `region` on the staggered hexagonal lattice the
-/// region graph is built on, sorted by id.
-///
-/// Rows of odd `z` are shifted half a cell towards +x, so the neighbours in
-/// the rows above and below are at `x - 1` and `x` for even rows, and at
-/// `x` and `x + 1` for odd rows. Every id has six; the neighbour relation
-/// is symmetric. Coordinates wrap at the ends of `i32`.
+/// The six regions beside `region` on the hexagonal lattice (see
+/// [`RegionKey::lattice_neighbours`]): the regions sharing an edge with it
+/// in a weighted World.
 pub(crate) fn lattice_neighbours(region: RegionId) -> [RegionId; 6] {
-    let IVec2 { x, y: z } = RegionKey::from_id(region).0;
-    let left = if z.rem_euclid(2) == 1 {
-        x
-    } else {
-        x.wrapping_sub(1)
-    };
-    let key = |x: i32, z: i32| RegionKey(IVec2::new(x, z)).id();
-    let mut out = [
-        key(x.wrapping_sub(1), z),
-        key(x.wrapping_add(1), z),
-        key(left, z.wrapping_sub(1)),
-        key(left.wrapping_add(1), z.wrapping_sub(1)),
-        key(left, z.wrapping_add(1)),
-        key(left.wrapping_add(1), z.wrapping_add(1)),
-    ];
-    out.sort_unstable();
-    out
+    RegionKey::from_id(region)
+        .lattice_neighbours()
+        .map(RegionKey::id)
 }
 
 /// Every region within some number of steps of a set of targets.
@@ -127,60 +108,12 @@ impl Ball {
 
 #[cfg(test)]
 mod tests {
-    use procgena_terrain::{BorderWarp, RegionGraph, RegionGraphOptions};
+    use glam::IVec2;
 
     use super::*;
 
     fn key(x: i32, z: i32) -> RegionId {
         RegionKey(IVec2::new(x, z)).id()
-    }
-
-    #[test]
-    fn lattice_neighbours_are_the_edges_of_the_unjittered_graph() {
-        let graph = RegionGraph::new(
-            RegionGraphOptions {
-                jitter: 0.0,
-                warp: BorderWarp {
-                    amplitude: 0.0,
-                    ..BorderWarp::default()
-                },
-                ..RegionGraphOptions::default()
-            },
-            9,
-        )
-        .unwrap();
-        let far = 400_000;
-        for (x, z) in [
-            (0, 0),
-            (1, 1),
-            (-1, -1),
-            (-2, 3),
-            (5, -4),
-            (-7, -8),
-            (far, far + 1),
-            (-far, -far),
-        ] {
-            let mut edges: Vec<RegionId> = graph
-                .region(RegionKey::from_id(key(x, z)))
-                .edges
-                .iter()
-                .map(|e| e.neighbor.unwrap())
-                .collect();
-            edges.sort_unstable();
-            assert_eq!(edges, lattice_neighbours(key(x, z)), "({x}, {z})");
-        }
-    }
-
-    #[test]
-    fn lattice_neighbours_are_symmetric() {
-        for z in -5..5 {
-            for x in -5..5 {
-                let id = key(x, z);
-                for n in lattice_neighbours(id) {
-                    assert!(lattice_neighbours(n).contains(&id), "({x}, {z})");
-                }
-            }
-        }
     }
 
     #[test]
