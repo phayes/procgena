@@ -3,8 +3,9 @@
 This document describes where procgena is heading: how single assets build
 up, level by level, into a whole world, and the rules every asset follows so
 that they fit together. Each level's API, phases and tests live in that
-level's own plan, linked below where one exists (Ecotope, Biome and World
-have none yet).
+level's own plan or decision record, linked below where one exists. What
+is built, and what comes next, lives in [ROADMAP.md](ROADMAP.md); the
+"Status" notes below only say where each level stands and link there.
 
 Everything is in metres, as in the rest of the workspace.
 
@@ -39,8 +40,8 @@ Everything is in metres, as in the rest of the workspace.
   it does inside one.
 - **Each level talks to the one below through small, shared interfaces**
   that mostly exist already:
-  - `Ground` (today in `procgena_mesh`) gives a Scatter its ground height
-    and slope.
+  - `Ground` (in `procgena_core`) gives a Scatter its ground height and
+    slope.
     Terrain supplies both, so no level below re-derives slope from heights.
   - A density function `Fn(x, z) -> 0..1` thins a Scatter. This is the mask.
   - Terrain labels (`Landform`, `Flags`, `Measures`) pick the Ecotope.
@@ -59,9 +60,6 @@ Everything is in metres, as in the rest of the workspace.
 - **Assets follow one contract.** CPU and GPU building, one LOD model, one
   content hash, specimen and copy ids, and the same Scatter inputs, including
   masks. Plant is the furthest from it today.
-- **Renames this vision asks for:** `TreeGrove` becomes `TreeScatter`, and
-  `PlantField` becomes `PlantScatter`. See "Naming" and "Architectural
-  TODOs".
 
 ## The hierarchy
 
@@ -168,14 +166,14 @@ engine-free core plus a Bevy crate.
 
 **What it owns.** Its options, presets (each with a `default_seed`),
 levels of detail, materials and textures. It makes a tagged `Specimen`
-(today `procgena_mesh::Object`).
+(`procgena_specimen`).
 
 **What it gets from above.** Its specimen slot (which seeds its shape) and,
 for each copy, a transform. An asset does not know where it stands.
 
 **Status.** Built: `procgena_tree`, `procgena_plant`, `procgena_deadwood`,
-`procgena_stone`, and `procgena_mushroom`. Planned: `procgena_fruit`,
-an attached asset (see 1.2 and [fruit/plan.md](fruit/plan.md)).
+`procgena_stone`, `procgena_mushroom`, and `procgena_fruit`, an attached
+asset (see 1.2).
 
 **Mushrooms.** A `Mushroom` asset is a whole growth: how many stems, and
 how they cluster, including fairy-ring layouts. A single mushroom, a tuft
@@ -237,17 +235,13 @@ step pinned to the `SpecimenId` it indexes, for example
 `… / fruit 17 / item 2` (see "Queries: reading the result" and
 [D3](docs/decisions/D3.md) section 7b).
 
-**Status.** `procgena_fruit` is built (milestone I1b in
-[ROADMAP.md](ROADMAP.md), fruit step AC1): the tree places clusters and
-picks each one's slot per tree specimen, and fruit specimens have their
-own mesh levels. The cluster cards built on 2026-11-24 are removed.
-Fruit steps B1 and B2 are built: tree groves and single trees draw their
+**Status.** Built (milestone I1b in [ROADMAP.md](ROADMAP.md);
+[fruit/plan.md](fruit/plan.md)): the tree places clusters and picks each
+one's slot per tree specimen; tree Scatters and single trees draw their
 clusters as attached copies of the shared instanced renderer
 (`InstancedAttached`: one row table per host slot, a GPU step per host
-copy, then one per row), each cluster at its own fruit level. Fruit
-impostors are still to do; see the
-"Fruit as an attached asset" TODO and the "As built" notes in
-[fruit/plan.md](fruit/plan.md).
+copy, then one per row), each cluster through its own game level, lower
+mesh and impostor, until the tree's own impostor takes over.
 
 ### 2. Scatter
 
@@ -285,10 +279,10 @@ time, and gives its mask over a chunk without drawing anything. See
 
 | Scatter | Today | Notes |
 |---------|-------|-------|
-| `TreeScatter` | Built ([tree/docs/scatters.md](tree/docs/scatters.md), [tree/PLAN-tree-grove.md](tree/PLAN-tree-grove.md)) | `TreeScatterPlacement::new` takes a `ScatterInput`: ground, area, seed and mask. |
+| `TreeScatter` | Built ([tree/docs/scatters.md](tree/docs/scatters.md)) | `TreeScatterPlacement::new` takes a `ScatterInput`: ground, area, seed and mask. |
 | `PlantScatter` | Built ([plant/docs/scatters.md](plant/docs/scatters.md)) | Has `density_map` and `with_density_from_fn`: the mask hook exists. Placed on the GPU. |
 | `MushroomScatter` | A ground Scatter of `Mushroom`s (`new`, C1), and still grows on tagged host meshes (`on`) | Growing on hosts moves to the later `MushroomGrowth` modifier. |
-| `DeadwoodScatter` | Partly: `StickScatter` in `procgena_deadwood` | Scatters sticks and twigs over a `Ground`, with a density function. Needs logs and stumps, and a slope limit. |
+| `DeadwoodScatter` | Built (C1), named `StickScatter` in `procgena_deadwood` | Sticks, twigs, branches, logs and stumps over a `ScatterInput`, with a density function and a slope limit; logs and branches lie along the slope. |
 | `StoneScatter` | Built (C1): `StoneScatter` in `procgena_stone`, drawn by `StonePool` | Classes of stones, single or in clusters, over a `Ground` with a mask, patches, a slope limit, tilt to the slope and burial. |
 
 ### 3. Ecotope
@@ -308,11 +302,10 @@ ground.
 - Its ground layers: materials such as needle litter, moss and mud, each
   with a rule over slope, height, water and road distance, labels, noise
   and its own Scatters (litter under trees), laid over its Biome's base
-  ground and weighted by its coverage. Planned (milestones GM0–GM6) in
-  [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md);
-  GM0 built the engine-free model (`procgena_terrain::ground`) and the
-  Ecotope's `ground` map, painted from its placed copies (coverage not
-  yet).
+  ground and weighted by its coverage. Designed in
+  [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md)
+  (milestones GM0–GM5 in the roadmap). The Ecotope's `ground` map is
+  painted from its placed copies; coverage is not built yet.
 
 **What it gets from above.** Its area, as a coverage function from 0 to 1
 that the Biome works out from Terrain labels and border noise. Also the
@@ -353,8 +346,8 @@ every texel a footprint above touches, and leaves no footprints of its
 own. `procgena_biome_bevy`'s
 `EcotopeParams` places an Ecotope in the background and, after an edit,
 draws again only the Scatters whose settings, seed or footprints above
-them changed. The studio's Ecotope tab edits an Ecotope over flat or
-rolling ground with it.
+them changed. The studio's Ecotope document edits an Ecotope over flat
+or rolling ground with it.
 
 ### 4. Biome and Terrain
 
@@ -367,7 +360,7 @@ side by side differ in seed, and the Ecotope border protocol blends their
 cover across the border like any other region border. Nothing forces
 neighbours to choose different types (decided by the user in D3,
 corrected 2026-11-24). Region size and shape are decision gate D4. Terrain is still its
-own type: it is edited on its own (in its own studio tab), and one Terrain
+own type: it is edited on its own (its own kind in the studio), and one Terrain
 preset can be reused by many Biome presets ("alpine forest" and "alpine
 meadow" on the same mountains).
 
@@ -579,9 +572,9 @@ which can be bounded or infinite. Today it gives `height`, `water_level`,
 rivers, roads and ponds as features with stable ids and bounds. Roads
 are a planning stage of their own, so a distant view can skip them. It
 meshes the ground as heightfield chunks on the shared chunk grid (64 m,
-doubling per level), with crack-free transitions between levels and a
-provisional (road-free) stage for far chunks; `procgena_terrain_bevy`
-streams them around the camera, and the studio has a Terrain tab. The
+doubling per level), with crack-free transitions between levels and
+provisional feature tiers for far chunks; `procgena_terrain_bevy`
+streams them around the camera, and the studio edits Terrains as a kind. The
 labels (`annotate`: a `Landform` and `Flags` per point, from
 `Measures` and the ground's shape read at the World's scale) are built,
 per point and per tile.
@@ -629,8 +622,8 @@ The World holds the Biomes; it does not hold Terrains directly.
   moisture) at each region, and a user can pin a region's Biome. A pin
   that should also raise the land adds a height bump to E. See "Choosing
   biomes" in [terrain/world_plan.md](terrain/world_plan.md).
-- World-wide settings: seed and sea level (`WorldContext` in the terrain
-  plan).
+- World-wide settings: the seed. Sea level is E's zero, not a setting of
+  its own.
 - The specimen budget `N` for each pool, where it overrides a preset's
   default (see "Specimen budget").
 - Running every Biome border negotiation: step 1 through WorldTerrain,
@@ -690,12 +683,12 @@ reference "stitcher" (`StitchedWorld`) stays as a test fixture.
 | Biome → Terrain | Terrain options (preset or inline) and seed; far tint from Ecotope coverage | New |
 | World → WorldTerrain | Region graph options; a terrain source giving each region's Terrain from its Biome | Region types in the terrain plan; the source is new |
 | WorldTerrain → Terrain | `Region` and its `EdgeAgreement`s and `CornerAgreement`s | Yes, in `procgena_terrain` |
-| Terrain → Biome | `height`, slope and `annotate` at a point; tiles of the same | `height`, slope (`Ground`) and tiles of both; `annotate` is new |
+| Terrain → Biome | `height`, slope and `annotate` at a point; tiles of the same | Yes: `height`, slope (`Ground`), `annotate`, and labelled `HeightTile`s |
 | Biome → Ecotope | Coverage function from 0 to 1, ground, seed | New |
-| Ecotope → Scatter | `Ground` (height and slope), density function, area, seed, copy-address prefix (region and key salts) | `ScatterInput` in `procgena_core::scatter` (see [C1](docs/decisions/C1.md)) without the address prefix; stone and mushroom (`MushroomScatter::new`) take it, and tree and deadwood are moving to it |
+| Ecotope → Scatter | `Ground` (height and slope), density function, area, seed, copy-address prefix (region and key salts) | `ScatterInput` in `procgena_core::scatter` (see [C1](docs/decisions/C1.md)) without the address prefix; tree, stone, dead wood and mushroom (`MushroomScatter::new`) take it |
 | Scatter → Scatter below | Mask: density function from 0 to 1 | New |
 | Scatter → Asset | Transform and variant | Yes |
-| Modifier → Asset | Host `Specimen` and `TagFilter` | Yes, as `Object` in `procgena_mesh` |
+| Modifier → Asset | Host `Specimen` and `TagFilter` | Yes, in `procgena_specimen` |
 
 ## Rules that hold at every level
 
@@ -718,13 +711,10 @@ reference "stitcher" (`StitchedWorld`) stays as a test fixture.
 
 Slope is needed at almost every level: Biome rules match on it, Scatters
 reject steep spots (`max_slope` on trees), and pieces of dead wood lean to
-the cross-slope. Today each consumer works it out again from heights: the
-tree scatter samples points around each trunk, and the stick scatter
-samples under each piece. That is several extra height queries per copy,
-each of which runs the terrain's whole stack (relief, bending, rivers,
-roads).
-
-The terrain knows its slope better than anyone sampling it:
+the cross-slope. Working it out again from heights would cost several
+extra height queries per copy, each of which runs the terrain's whole
+stack (relief, bending, rivers, roads). The terrain knows its slope
+better than anyone sampling it:
 
 - **Relief** has an analytic gradient from its noise's own derivatives
   (G2), and the border offers read it too (decided 2026-11-24).
@@ -735,10 +725,10 @@ The terrain knows its slope better than anyone sampling it:
 - **Tiles** can carry a gradient grid next to the height grid, filled in the
   same pass.
 
-So the plan:
+So:
 
-- **`Ground` gains a gradient** at a point, with a default that takes
-  central differences of `height`. Decided 2026-11-23 (D1): `Ground` is
+- **`Ground` has a gradient** at a point, with a default that takes
+  central differences of `height`. Decided in D1: `Ground` is
   `Send + Sync` and has `height(DVec2) -> f32`, `gradient(DVec2) -> Vec2`
   and `sample(DVec2) -> GroundSample` (both at once, by default from the
   other two), taking World `f64` positions. Flat ground, closures and
@@ -763,7 +753,7 @@ Every level gets its seed from the level that holds it, never from its own
 preset or options. One World seed fixes everything below it.
 
 - **Presets carry only a `default_seed`.** It is used when the item is built
-  on its own: a single tree in its viewer, a Terrain in its studio tab, an
+  on its own: a single tree in its viewer, a Terrain in the studio, an
   Ecotope previewed on flat ground. Once the item sits inside a higher
   level, its `default_seed` is ignored.
 - **A child's seed is a hash of its parent's seed and the child's stable
@@ -848,7 +838,7 @@ over the whole World, and copies are spread over that cap by hashing.
     one function that turns it into the specimen's seed.
     Because the World seed is in it, every World grows its own specimens.
     An asset built on its own (in
-    its viewer or studio tab) uses its `default_seed` in place of the World
+    its viewer or the studio) uses its `default_seed` in place of the World
     seed.
 - **A budget per pool.** Each pool has a specimen budget `N`: the most
   distinct specimens of it anywhere in the World. Copies with the same
@@ -984,7 +974,7 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
 |-------|--------|------|----------|
 | **Plan** | One whole region, once | Up to about a second | Terrain rivers and roads; the Biome's Ecotope layout |
 | **Place** | One chunk of one Scatter | Cheap | Spots, specimen slots, masks |
-| **Draw** | One copy at one detail level | Varies | Full mesh, far form or impostor |
+| **Draw** | One copy at one step of its chain | Varies | Game level, lower mesh or impostor |
 
 - **Plan.** Terrain plans a whole region before it can give any chunk of it
   (as measured on 2026-11-23, road routing alone takes about 25 ms on
@@ -1013,10 +1003,9 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   negotiates only its rough border (low-band relief and crossings), and
   only regions near the camera and their ring negotiate detail. See
   "Border negotiation per tier" under 4.2.
-- **Measured against the budget** (2026-11-24, release, studio view on
-  rolling hills): a region plan takes about 0.6–0.9 s, inside the "up to
-  about a second" above, but one near region's roads take about 5 s. The
-  plan (terrain/edit_cache_plan.md, TE5) speeds the road search first.
+- **Measured against the budget:** a region plan fits the "up to about a
+  second" above. Road planning, once the one stage far over it, now takes
+  well under it (ROADMAP milestones TE5, RB0 and RB1 hold the figures).
 - **Place.** Placement is decided per Scatter and per chunk. It needs the
   plan, the Ground and the masks from above, and never the drawn meshes.
 - **Draw.** Drawing picks a detail level per copy, as rule 2 says. An
@@ -1048,8 +1037,9 @@ So on the far mountain of story 1, the terrain shows coarse chunks, the
 tree Scatter is placed and drawn as impostors, boulders above the trees are
 placed but not drawn, and the small Scatters below are not placed at all.
 
-**Distances are in metres**, scaled by each copy's size (rule 2), and by the
-viewer's field of view, so a zoomed view pulls detail in (story 11).
+**Steps switch by size on screen** (rule 2), so a copy's size, the
+viewer's field of view and the resolution count together, and a zoomed
+view pulls detail in (story 11).
 
 **Thinning at a distance happens when drawing.** Far away, a Scatter may
 draw fewer of its copies: a copy is drawn when a hash of its copy id is
@@ -1062,9 +1052,9 @@ touches placement, so masks and spacing are the same at every distance.
 The same tree must stand in the same spot at every distance (story 2), so
 placement never depends on chunk size, load tier or load order.
 
-- **Spots sit on a lattice fixed to the World.** Today a grove's lattice is
-  fixed to the grove's own centre (`site_id(i, j)`), and plant's 16 m cells
-  to their field; both move to World coordinates.
+- **Spots sit on a lattice fixed to the World.** Tree, stone, dead wood
+  and mushroom Scatters place on World lattices (C2), and plant's blades
+  on a World-fixed grid of tile cells (plant P3).
 - **A spot belongs to the chunk holding its lattice cell's corner**, so
   every spot has one owner even when the lattice spacing doesn't divide the
   chunk size. A copy may stand outside its chunk by up to the Scatter's
@@ -1153,8 +1143,8 @@ integrated GPU and on a discrete GPU is still owed.
 
 - **One chunk grid.** Terrain's chunks are 64 m across at full detail and
   double at each coarser level. Scatters use the same grid, each at the
-  level that suits its range. Plant's 16 m GPU cells are small enough to
-  fit inside once they are fixed to the World.
+  level that suits its range. Plant's 16 m GPU cells, fixed to the World,
+  fit inside it.
 - **Requests, not cameras.** Cameras, areas (an editor, an export, a
   server's players) and queries that ask to pay for unloaded areas (see
   "Queries") all send load requests. One loader merges
@@ -1437,50 +1427,9 @@ offers it, through a query result's address.
 ## Asset alignment
 
 The asset crates grew one at a time, and each solved the same problems its
-own way. This section lists where they differ today, then the single rule
-each area should follow.
-
-### Where they stand (surveyed 2026-11-23)
-
-This table summarises a read-through of each crate on that date. Check the
-code before relying on a single cell.
-
-Assets and their Scatters:
-
-| Area | Tree | Plant | Stone | Deadwood | Mushroom | Clump |
-|------|------|-------|-------|----------|----------|-------|
-| Core / Bevy split | Yes | No: one Bevy crate | Yes | Yes | Yes | Yes |
-| CPU mesh | Yes | No (CPU copy is test-only) | Yes | Yes | Yes | Yes |
-| GPU build | No | Yes, everything | Yes (`gpu` feature) | No | No | Yes, but Bevy doesn't use it |
-| `procgena_mesh` Object | Yes | No | Yes | Yes | Yes, own local tags | Yes, reads and writes |
-| Detail levels | 4 + impostor + cull | 3, per blade on GPU | Up to 8, by resolution | 4 + cull | 4 + cull | None |
-| LOD scaled by size | Yes, by height, per copy | No | Yes | Yes, also radii | Yes, per copy | No |
-| Far form | Billboard leaves | Far ground material | None | Strips | Flat cap + ribbon | None |
-| Transition | Crossfade; grove dither | GPU dither | Crossfade; pool GPU dither | Crossfade | Crossfade | None |
-| Cache key | Stable hash (`tree_id`) | None | Options JSON | Options JSON | Options JSON | None |
-| Meshes shared | Yes, pruned by use | n/a | Yes | Yes | Yes | No |
-| Seed | Yes | None | Yes | Yes | Yes | Yes |
-| Variant seeding | Hash with salt | n/a | `seed + v` | `sub_seed` | Golden-ratio mix | n/a |
-| Scatter type | `TreeScatter` (was `TreeGrove`) | `PlantScatter` (was `PlantField`) | `StonePool` (drawing only) | `StickScatter` | `MushroomScatter`; clusters via `ClusterOptions` | `Placement::Scatter` on a host |
-| Placement | Lattice, rank thinning, edit-stable | GPU blue-noise tiles | None | Jittered grid | Random points on host triangles | Random points on host |
-| Ground | `Ground` or host mesh | Own `PlantGround` | Flat, own settle | `Ground` or host mesh | Host `Object` only | Host `Object` |
-| Mask in | Density function | Density image or function | None | Density function | None | Facing and exposure |
-| Slope | Footprint samples, limit | None (blades straight up) | n/a | Plane fit, no limit | Face normal, limit | Facing |
-| Copy id | Stable lattice cell | None | None | Index | Index | n/a |
-| Many copies drawn by | Own instanced renderer | GPU indirect | GPU-driven pool | Entity per copy per level | Entity per copy per level | Entity per clump |
-| Promotion, queries | Yes: within, ray cast | Density sample only | No | No | No | No |
-| Wind | Yes | Yes, own system | No | No | No | No (doesn't follow tree wind) |
-| Texturing | UV bark | Procedural, no textures | Triplanar, size per level | UV bark + end photos | Triplanar | Triplanar |
-| Presets (since F3) | Catalogue struct | Catalogue struct | Catalogue struct | Catalogue struct | Catalogue struct | Catalogue struct |
-| Files (since F3) | `.tree.yml`, `.tree_scatter.yml` | `.plant.yml`, `.plant_scatter.yml` | `.stone.yml` | `.deadwood.yml` | `.mushroom.yml` | `.clump.yml` |
-| Scatter options serde (since F3) | Yes | Yes, through its file layer | Yes | Yes | Yes | n/a |
-| OBJ / glTF export | Yes | No | Yes | Yes | Yes | No |
-| Errors | `validate`, `Finished` event | Clamps and warns | `validate`, `Finished` event | `validate`, `Finished` event | `validate`, `Finished` event | `validate`, `Finished` event |
-| Runtime edits | Promotion | Brush, mow, regrow | No | No | No | No |
-| Interaction | User colliders on promoted trees | Trampling, rapier and avian bridges | No | No | No | No |
-| Quality tiers | No | `LOW`..`ULTRA` | `LOW`..`ULTRA` | No | No | No |
-| Test style | Silhouette IoU per level | CPU oracle, GPU tests, goldens, bench | CPU/GPU parity, bench | Headless, shader compile | Headless, silhouette | CPU/GPU parity |
-| Studio | Tree, Tree Scatter tabs | Plant, Plant Scatter tabs | Stone tab | Single piece and scatter views | Single mushroom only | Covers on tree, stone, dead wood |
+own way. This section gives the single rule each area follows; each rule's
+"Change" line names the crates still to move, and the roadmap's
+milestones (R1–R4, I1, IX) schedule them.
 
 Each crate also has things worth spreading:
 
@@ -1548,28 +1497,21 @@ Each rule says what every asset does, and which crates have to change.
      (`procgena_terrain::ChunkLevels`). The shared instanced renderer
      takes each slot's `DistanceChain` and its parts by `Step` directly,
      and works out the bands on the GPU for every view from that view's
-     field of view (Step 4). The bullets below describe the older model
-     where they talk of levels, far forms and metre distances.
-   - **Attached assets own their levels.** Fruit and flowers are their own
-     asset (decided by the user, superseding the cluster-card plan of
-     2026-11-23): each cluster specimen has its own mesh levels, sized by
-     the cluster, then its own impostor, keyed by its `SpecimenId` like any
+     field of view (Step 4).
+   - **Attached assets own their chain.** Fruit and flowers are their own
+     asset: each cluster specimen has its own game level, lower mesh and
+     impostor, sized by the cluster, keyed by its `SpecimenId` like any
      specimen and inside the specimen budget. The host decides which
-     attached copies each of its levels draws; the attached asset decides
-     how each looks. The host picks it in two steps: a coarse range per
+     attached copies each of its steps draws; the attached asset decides
+     how each looks. The host picks them in two steps: a coarse range per
      host on the CPU, then, only for hosts that span more than one
-     attached level, a fine check per attached copy on the GPU. (The
-     superseded cluster cards were built anyway on 2026-11-24, and are
-     off by default; see the "Fruit as an attached asset" TODO.)
-   - The levels run in order: meshes, then the far form, then the impostor
-     (from `procgena_impostor`, keyed by `SpecimenId`) where the asset has
-     one, then the cull distance. The cull distance ends
-     the Scatter's draw range (see "Loading by chunk"). An attached asset's
-     chain ends where its host's impostor begins, and the host's impostor
-     includes it. Every impostor covers the viewer elevations its preset
-     declares, from straight above down to a lowest elevation: −90° (the
-     full sphere) by default. Trees declare −45°, so they look right from
-     below on a mountain slope.
+     attached step, a fine check per attached copy on the GPU.
+   - The cull ends the Scatter's draw range (see "Loading by chunk"). An
+     attached asset's chain ends where its host's impostor begins, and
+     the host's impostor includes it. Every impostor covers the viewer
+     elevations its preset declares, from straight above down to a lowest
+     elevation: −90° (the full sphere) by default. Trees declare −45°, so
+     they look right from below on a mountain slope.
    - One quality setting (`LOW`..`ULTRA`) that scales every asset's
      distances together: it divides the chain's size-on-screen thresholds,
      and never changes a copy's `game_level`. Impostor views are sized for
@@ -1586,8 +1528,7 @@ Each rule says what every asset does, and which crates have to change.
    The specimen id plus the detail level keys one shared cache, pruned by
    use. `procgena_core` has the hasher (`ContentHash`, `ContentHasher`,
    `OptionsHash`) and the ids (`GeneratorKind`, `PoolId`, `SpecimenId`).
-   - Change: stone, deadwood and mushroom drop their JSON-string keys; plant
-     and clump gain a hash.
+   - Change: plant and clump gain a hash.
 4. **Two ids: one for the specimen, one for the copy.**
    - A **specimen id** (`SpecimenId`) is the content hash: copies with
      equal ids share one specimen.
@@ -1598,8 +1539,8 @@ Each rule says what every asset does, and which crates have to change.
      from its copy seed, so copies of one specimen still look unique.
    - Variants are seeded by one shared function, not four, and the number
      of distinct specimens is capped World-wide by the specimen budget.
-   - Change: deadwood and mushroom indexes become copy ids; stone and plant
-     gain them; tree's lattice cell becomes world-anchored.
+   - Change: plant gains copy ids (tree, stone, dead wood and mushroom
+     have them since C2).
 5. **Every Scatter takes the same inputs.** `Ground` (with slope), a mask,
    an area and a seed. It has a slope limit, and gives back the mask it
    leaves for the Scatters below. Placement is shared, and must give the
@@ -1611,16 +1552,16 @@ Each rule says what every asset does, and which crates have to change.
    also states what "Loading by chunk" needs: a draw range, its reach
    distances `S`, `J` and `F`, and where its mask comes from; it places by
    chunk on a lattice fixed to the World.
-   - Change: plant drops `PlantGround` for `Ground`; stone gains placement;
-     deadwood gains a slope limit; mushroom moves to the ground (its host
-     placement becomes `MushroomGrowth`).
+   - Change: plant drops `PlantGround` for `Ground`; mushroom's placement on
+     host meshes becomes `MushroomGrowth`.
 6. **One renderer for many copies.** A shared, GPU-driven instanced
    renderer, from stone's pool (per-view and shadow culling) and tree's
    grove renderer (dither in every pass). No asset draws an entity per
    copy.
-   - Change: deadwood and mushroom move off entity-per-copy; tree and stone
-     merge their two renderers into the shared one. Plant keeps building in
-     its shader, but its copies follow the same id and query contract.
+   - Built in R2 (`procgena_core_bevy::instanced`) for tree, stone, dead
+     wood and mushroom Scatters; single pieces stay entities. Plant keeps
+     building in its shader, but its copies follow the same id and query
+     contract.
 7. **Promotion and queries everywhere.** Every Scatter supports
    `within`, ray casts and promotion, generalising `TreeScatterTrees` and
    `PromotedTree`.
@@ -1629,9 +1570,8 @@ Each rule says what every asset does, and which crates have to change.
    `Specimen`, and every tag lives in `procgena_specimen::tags`. Every
    single asset carries a `GeneratedSpecimen`. A Scatter is too big for
    one merged mesh, so it offers each slot's `Specimen` plus its list of
-   copies, as the grove does today with variants.
-   - Change: plant joins; mushroom's local tags move; deadwood and mushroom
-     scatters offer a `Specimen` per slot.
+   copies.
+   - Change: plant joins.
 9. **One wind.** One wind resource and one shader module, for every asset
    that sways. Clumps on a tree sway with it.
    - Change: plant and tree merge their wind; clump follows its host.
@@ -1653,9 +1593,9 @@ Each rule says what every asset does, and which crates have to change.
       whose `kind` changes replaced whole (`kind` is kept for that; a plain
       setting named `kind` is written under another name). Unknown and
       wrongly typed settings are errors that name their path.
-    - Done in F3 (2026-11-23) for tree, the tree Scatter, plant, the plant
-      Scatter, stone, deadwood, mushroom, clump and terrain. Biome presets
-      have the shape but no files yet: `Biome` has no serde until B1/W0.
+    - Built for tree, the tree Scatter, plant, the plant Scatter, stone,
+      deadwood, mushroom, clump, terrain, Ecotope and World. Biome presets
+      have the shape but no files yet: `Biome` gains serde in B1.
       Stone, stick and mushroom Scatters have serde but no presets yet.
     - **Metadata beside the presets.** Each kind ships a
       `presets/<kind>.meta.yml` (read by `procgena_core::meta`) giving its
@@ -1664,10 +1604,8 @@ Each rule says what every asset does, and which crates have to change.
       `<KIND>_META` constant with any choice lists it names
       (`meta_choices()`). A test in each crate (`tests/meta.rs`) keeps it in
       step with the options: every setting has an entry, every entry a
-      setting. Tools build their settings panels from it. Done in ST1
-      (2026-11-24) for tree, the tree Scatter, stone, clump, mushroom, dead
-      wood, fruit, flower, terrain and World; plant, the plant Scatter and the
-      Ecotope follow.
+      setting. Tools build their settings panels from it. Plant, the plant
+      Scatter and the Ecotope don't have one yet (ROADMAP ST1).
     - **Writing is lossy for now** (user decision, 2026-11-24): saving
       rewrites the whole file as `base` plus differences, in a stable
       order, so hand-written comments and layout in an updated file are
@@ -1700,13 +1638,14 @@ Each rule says what every asset does, and which crates have to change.
     `XFinished`, `XPart`, a plugin with texture root, size and compression,
     and stats. Errors come from `validate()`, not from clamping.
     - Change: plant moves to this pattern.
-13. **Shared plumbing.** One hashing and random-number module (clump copies
-    stone's today), one texture loader with `TextureSize` and
-    `TextureCompression`, texture size per detail level (stone's), one set
-    of test helpers (CPU/GPU parity, silhouette IoU per level, goldens,
-    bench).
-    - Change: everyone moves onto the shared modules; clump drops its copy
-      of stone's random numbers.
+13. **Shared plumbing.** One hashing and random-number module
+    (`procgena_core`), one texture loader with `TextureSize` and
+    `TextureCompression` (`procgena_core_bevy::texture`), texture size per
+    detail level (stone's), one set of test helpers (CPU/GPU parity,
+    silhouette IoU per level, goldens, bench).
+    - Change: the assets move onto the shared texture loader (the ground
+      uses it; clump and stone still have their own), and everyone onto
+      shared test helpers.
 14. **Edits and interaction for all.** Plant's brushes and trampling grow
     into the shared edits (remove, reserve) and an interactor contract that
     any swaying asset can read.
@@ -1716,12 +1655,14 @@ Each rule says what every asset does, and which crates have to change.
 ### Plant: the furthest from the rest
 
 Plant is the most advanced at drawing and the furthest from the shared
-contract. To align it:
+contract. It is split into an engine-free core and a Bevy crate, takes a
+seed, and places on World-fixed cells (plant P1–P3,
+[plant/alignment_plan.md](plant/alignment_plan.md)). To finish aligning
+it:
 
-- Split into an engine-free core and a Bevy crate.
 - Promote its CPU copy of the shader logic from tests to a real CPU path:
   placement and geometry, producing a tagged `Specimen`.
-- Add a seed (today randomness comes only from position) and copy ids.
+- Add copy ids.
 - Use the shared `Ground` instead of `PlantGround`, and take slope from
   it so blades can follow the ground.
 - Add `validate()`, a content hash, export and promotion.
@@ -1730,23 +1671,22 @@ contract. To align it:
 
 ### Where shared code lives
 
-Three shared crates, two of them new:
+Three shared crates:
 
-- **`procgena_mesh`**, renamed **`procgena_specimen`** (see "Naming"),
-  describes one generated specimen: its detail levels, tagged parts and
-  tags. `Ground` moves out of it into the core crate, since it is about
-  placement, not about one specimen.
-- A new **engine-free core crate, `procgena_core`**
+- **`procgena_specimen`** (see "Naming") describes one generated
+  specimen: its detail levels, tagged parts and tags. `Ground` lives in
+  the core crate, since it is about placement, not about one specimen.
+- An **engine-free core crate, `procgena_core`**
   (`core/crates/procgena_core`), for the rules: content hash, seeds and
   ids, the specimen budget, the LOD type, `Ground`, the `Scatter` trait,
   shared placement, masks, edits and queries, and presets with their
   `.<kind>.yml` files (`procgena_core::preset`, added in F3). It uses no
   game engine, and `procgena_specimen` depends on it, not the other way
   round.
-- A new **Bevy crate, `procgena_core_bevy`**
+- A **Bevy crate, `procgena_core_bevy`**
   (`core/crates/procgena_core_bevy`), for shared runtime: the instanced
   renderer, the dither shader, the shared cache, wind, texture loading,
-  promotion. It is created in R1 with its first content.
+  promotion.
 
 Decided by the user on 2026-11-23 (gate D1, see
 [docs/decisions/D1.md](docs/decisions/D1.md)).
@@ -1755,8 +1695,8 @@ One existing utility crate stays apart: **`procgena_impostor`** bakes a
 specimen into an octahedral impostor, the last level of the shared LOD
 model (rule 2). A bake is keyed by the specimen's `SpecimenId` and its
 bake settings. Baking ahead is done per Ecotope: every specimen slot its
-Scatters can draw. (Today it is keyed by tree, and prepared per grove.)
-Each bake sets its own view count and frame size, and its view coverage,
+Scatters can draw (today it is still prepared per tree Scatter, by
+`PrepareTreeScatter`; roadmap I2). Each bake sets its own view count and frame size, and its view coverage,
 which its preset declares as the lowest viewer elevation baked
 (`ViewCoverage`, −90°, the full sphere, by default). The octahedral
 layout is warped so that the whole atlas covers only the declared views.
@@ -1764,9 +1704,8 @@ Views below the lowest elevation show the lowest baked ring. Coverage is
 part of the bake key. An instanced draw may compose a host's record with
 an attached copy's transform.
 
-Changing `procgena_specimen` rebuilds most of the workspace, so the new
-crates take whatever changes often, and the rename is done together with
-the move into the new crates rather than on its own.
+Changing `procgena_specimen` rebuilds most of the workspace, so the core
+crates take whatever changes often.
 
 ### Decisions to make
 
@@ -1787,41 +1726,30 @@ the move into the new crates rather than on its own.
 
 ## Naming
 
-- **`procgena_mesh` → `procgena_specimen`.** What a generator hands over is
-  one specimen: a generated example of a tree, stone or mushroom, with its
-  detail levels and tagged parts, that many placed copies share. Not all
-  specimens are meshes (a stone's shape field, plants built on the GPU),
-  so "mesh" is too narrow. "Instance" was rejected: here it means a placed
-  copy, the opposite of the shared specimen. Done in F1 (2026-11-23); where
-  this document still says `procgena_mesh` or `Object` about today's code,
-  read `procgena_specimen` and `Specimen`.
-- **The types follow the crate:**
-
-  | Today (`procgena_mesh`) | Becomes (`procgena_specimen`) |
-  |---|---|
-  | `Object` | `Specimen` |
-  | `ObjectError` | `SpecimenError` |
-  | `GeneratedObject` (Bevy component) | `GeneratedSpecimen` |
-  | `Object::single`, `Object::merged`, `HeightGrid::from_object` | `Specimen::single`, `Specimen::merged`, `Specimen::height_grid` (`HeightGrid` lives in `procgena_core`, below `procgena_specimen`) |
-  | Each asset's `object()` method, such as `Stone::object` | `specimen()` |
-  | Helpers such as `object_parts` and `object_from_meshes` (deadwood, mushroom) | `specimen_parts`, `specimen_from_meshes` |
-  | (none) | `SpecimenId`: the content hash naming one specimen |
-
+- **`procgena_specimen`.** What a generator hands over is one specimen: a
+  generated example of a tree, stone or mushroom, with its detail levels
+  and tagged parts, that many placed copies share. Not all specimens are
+  meshes (a stone's shape field, plants built on the GPU), so "mesh" is
+  too narrow. "Instance" is not used for it: here it means a placed copy,
+  the opposite of the shared specimen.
+- **The types follow the crate:** `Specimen`, `SpecimenError`,
+  `GeneratedSpecimen` (the Bevy component), `Specimen::single`,
+  `Specimen::merged`, `Specimen::height_grid` (`HeightGrid` lives in
+  `procgena_core`, below `procgena_specimen`), each asset's `specimen()`
+  method, and `SpecimenId`, the content hash naming one specimen.
   `Level`, `Part`, `SurfaceMesh`, `Surface`, `Tag`, `TagSet` and
-  `TagFilter` keep their names: they describe pieces of a specimen, not the
-  specimen itself.
+  `TagFilter` describe pieces of a specimen.
 - **New levels get a crate** in the same layout as the assets. The Biome
   and the Ecotope share one: `procgena_biome` in
   `biome/crates/procgena_biome`, with a `procgena_biome_bevy` beside it for
   drawing (decided by the user, 2026-11-24). The World gets its own.
 - **The doc's word "specimen"** also replaces the earlier "shape" for one
   generated variant: specimen id, specimen budget.
-- **The level is called Scatter**, and each kind is `<Asset>Scatter`.
-  `StickScatter` and `MushroomScatter` already follow this pattern.
-- **`TreeGrove` → `TreeScatter`.** "Grove" can stay as the name of tree
-  presets (a pine grove, an oak grove), but not of the type.
-- **`PlantField` → `PlantScatter`.**
-- **`StoneField` keeps its name.** It is the signed-distance field of one
+- **The level is called Scatter**, and each kind is `<Asset>Scatter`:
+  `TreeScatter`, `PlantScatter`, `StoneScatter`, `MushroomScatter`, and
+  dead wood's `StickScatter`. "Grove" stays as the name of tree presets (a
+  pine grove, an oak grove), never of the type.
+- **`StoneField` is not a Scatter.** It is the signed-distance field of one
   rock.
 
 ## Architectural TODOs
@@ -1831,27 +1759,14 @@ it starts.
 
 ### Renames and alignment
 
-- [x] **Rename `TreeGrove` → `TreeScatter`** in `procgena_tree` and
-  `procgena_tree_bevy`. Done in F3: `ScatterTree`, `TreeScatterPreset`,
-  `TreeScatterPlacement`, `TreeCopy`, `TreeScatterError`,
-  `TreeScatterVariation`, the Bevy `TreeScatter*` types and
-  `TreeScatterTrees`; `.tree_scatter.yml` files; `tree/docs/scatters.md`;
-  the examples and the studio's tab. `PromotedTree` keeps its name: it
-  names a tree. Private helpers and prose still say "grove" in places.
-- [x] **Rename deadwood's `Placement`**. Done in F3: `RestingPose`,
-  `Piece::pose` and `DeadwoodPose` in `procgena_deadwood_bevy`; deadwood
-  uses core's `Placement` under its own name.
-- [x] **Rename `PlantField` → `PlantScatter`** in `procgena_plant`. Done in
-  F3: `ScatterPlant`, `PlantScatterPreset`, `.plant_scatter.yml` files,
-  `procgena_plant_web` and the studio's tab.
 - [ ] **The same inputs for every Scatter.** Ground, mask, area and seed
-  are passed the same way in every Scatter crate. Today trees take
-  `&dyn Ground` and `Option<&dyn Fn>`, plants take a density image or a
-  closure, sticks take a `Ground` and a density function, and mushrooms take
-  a host mesh. The shared type, `ScatterInput` in `procgena_core::scatter`,
-  is built (C1, see [docs/decisions/C1.md](docs/decisions/C1.md)), and
-  stone takes it. Tree, deadwood and mushroom still have to move to it;
-  plant joins at R3.
+  are passed the same way in every Scatter crate, as `ScatterInput` in
+  `procgena_core::scatter` (see [docs/decisions/C1.md](docs/decisions/C1.md)).
+  Tree, stone, dead wood and mushroom take it. Plant bakes its ground and
+  density from one in the Ecotope (P2) and joins fully at R3. Private
+  helpers and prose in the tree crates still say "grove" in places, and
+  `PromotedTree::grove` and `TreeScatterHit::grove` are public fields of
+  that name (ROADMAP follow-ups).
 - [x] **Mushroom as a whole growth**: fold stems and clustering into the
   `Mushroom` asset, moving the existing fairy-ring layout into it, and make `MushroomScatter` a
   ground Scatter of `Mushroom`s. Done in C1: `MushroomScatter::new` takes a
@@ -1881,9 +1796,10 @@ it starts.
 ### New Scatters
 
 - [x] **`DeadwoodScatter`**: grow `StickScatter` to cover logs and stumps,
-  and give it a slope limit. Done in C1 under its old name (F3 renames it):
-  it takes a `ScatterInput`, has `max_slope`, a `fallen_logs` preset, and
-  places with `place()`, logs along the slope and stumps upright.
+  and give it a slope limit. Done in C1, as `StickScatter`: it takes a
+  `ScatterInput`, has `max_slope`, a `fallen_logs` preset, and places with
+  `place()`, logs along the slope and stumps upright. Renaming the type to
+  `DeadwoodScatter` is an unscheduled follow-up (ROADMAP).
 - [x] **`StoneScatter`**: boulders, rocks and pebbles over a `Ground`, with
   clustering and partial burial. Done in C1: patches in the density, and
   pebble clusters whose members are ordinary copies.
@@ -1909,9 +1825,10 @@ it starts.
   version comes before the `Scatter` trait (roadmap C3a): it runs on any
   `Ground`, knows nothing of Terrain, and calls today's Scatters through
   their `ScatterInput`. The early version is built (keys, priorities,
-  seeds, presets, centre-only mask chaining, the Bevy view); still to do
-  are the `Scatter` trait in place of its adapters, the documented
-  priority bands, exact exclusion, plant, and a studio tab (C3).
+  seeds, presets, centre-only mask chaining, the Bevy view, plants through
+  an adapter, and the studio's Ecotope document); still to do are the
+  `Scatter` trait in place of its adapters, the documented priority bands
+  and exact exclusion (C3).
 - [ ] **Ecotope border protocol**: offers, a symmetric agreement and
   conforming, for Ecotopes meeting inside a Biome and across Biome
   borders, including one merged priority order (a sort by `priority`,
@@ -1919,9 +1836,9 @@ it starts.
 - [ ] **Biome crate**: one Terrain (by preset or inline), Ecotope rules
   matched on terrain labels, border noise and shapes, the two-step border
   negotiation, presets.
-- [ ] **WorldTerrain**: grow the terrain crate's reference stitcher into the
-  level that runs the seam protocol over a whole region graph, with the
-  region graph, E and a terrain source.
+- [x] **WorldTerrain**: the level that runs the seam protocol over a whole
+  region graph, with the region graph, E and a terrain source. Built
+  (G5); the reference stitcher stays as a test fixture.
 - [ ] **Terrain features**: one feature type for rivers, roads and ponds,
   then staged and separately cached planning with
   benchmarks, then cliffs and landforms (see
@@ -1964,8 +1881,8 @@ it starts.
 - [ ] **World-stable ids**: the integer `CopyAddress` (region, Ecotope and
   Scatter key salts, `CellId`, index) from a world-anchored lattice, as
   "Queries" describes. Done in C2 for tree, stone, deadwood and mushroom
-  (`procgena_core::CopyAddress`); plant's blades wait for World tile
-  cells (R3). Part paths (`PartStep`, `Address`) are built in
+  (`procgena_core::CopyAddress`); plant's blades sit on World tile cells
+  (P3) and get addresses in R3. Part paths (`PartStep`, `Address`) are built in
   `procgena_core`; the tree and fruit resolve their own steps
   (`Skeleton::part`, `Fruit::part`). A World-level `resolve` is still to do.
 - [ ] **Edits**: remove, replace, reserve and stamp, keyed by id, with
@@ -1977,19 +1894,13 @@ it starts.
 
 ### Asset alignment
 
-- [ ] **Shared crates**: `procgena_core` is created (F1), holding the hash,
-  `Rng` (stone's and clump's) and `Ground`. `procgena_core_bevy` is
-  created (R1). Still to do: tree's, deadwood's and mushroom's random
-  numbers (F2).
-- [x] **Rename `procgena_mesh` → `procgena_specimen`** (done in F1), with the type
-  renames in "Naming" (`Object` → `Specimen`, `GeneratedObject` →
-  `GeneratedSpecimen`, every asset's `object()` → `specimen()`), and move
-  `Ground`, `FlatGround` and `HeightGrid` into the core crate, in the same
-  change as the move into the shared crates.
-- [ ] **Content hash** for every options type, replacing JSON cache keys.
-  The core half is done (F2): `ContentHash`, `ContentHasher`,
-  `content_hash` and `OptionsHash` in `procgena_core`. Still to do: each
-  asset's options implement it.
+- [x] **Shared crates**: `procgena_core` holds the hash, `Rng`, `Ground`,
+  `FlatGround` and `HeightGrid`, and every asset draws its random numbers
+  from it; `procgena_core_bevy` holds the shared runtime.
+- [ ] **Content hash** for every options type: `ContentHash`,
+  `ContentHasher`, `content_hash` and `OptionsHash` in `procgena_core`,
+  implemented by tree, stone, dead wood, mushroom and clump. Still to do:
+  plant.
 - [ ] **Specimen budget**: options hash and `SpecimenId`, a per-pool `N` with
   World overrides by path, fixed per World, rendezvous slot choice with
   `N` ≤ 256 and no excluded slots, and stand subsets. Slots are equal,
@@ -1997,7 +1908,7 @@ it starts.
   `GeneratorKind`, `PoolId` and `SpecimenId { world_seed, pool, slot }`
   with `SpecimenId::seed` in `procgena_core`. Still to do: the slot
   function, `N` and its overrides, stand subsets, and adoption.
-  Today each Scatter sets its own variant count (`GroveTree::variants`,
+  Today each Scatter sets its own variant count (`ScatterTree::variants`,
   `StonePool`, `StickScatter`, mushroom clusters) with no World-wide cap.
 - [x] **Shared LOD type, dither shader and quality setting**, adopted by
   every asset. Under IX the shared type is the chain
@@ -2034,9 +1945,9 @@ it starts.
   stone, mushroom and dead wood use it
   (mushroom and dead wood since IX Step 3); under IX every kind ends in an impostor. Assets built on their own, and grove and
   pool variants today, key their impostor by `SpecimenId(seed, pool, 0)`
-  with their own build seed; passing the real slot id is I2's. Still to
-  do: baking ahead per Ecotope (I2), and impostors in the shared renderer
-  (R2).
+  with their own build seed; passing the real slot id is I2's. The shared
+  instanced renderer draws impostors as each slot's last step. Still to
+  do: baking ahead per Ecotope (I2).
   The impostor's default view coverage is the full sphere (lowest
   elevation −90°). The tree declares −45°: a viewer looking up a hillside
   at an impostor-distance tree sees it from at most about 38° below, at
@@ -2046,23 +1957,17 @@ it starts.
   they ever gain an impostor. View coverage is built (see "Impostor bake
   options"): `default_tree_impostor()` declares −45° at 10 × 10 views and
   `default_stone_impostor()` −45° at 8 × 8.
-- [ ] **Fruit as an attached asset** ([fruit/plan.md](fruit/plan.md)):
-  the `procgena_fruit` crate (cluster builder and meshers moved from the
-  tree, in the cluster frame), the tree's `AttachedFruit`, pools and
-  per-tree-specimen slots, fruit LOD levels and impostors, cluster-table
-  instancing in the grove with a two-step detail check. Needs F1, F2 and
-  D3 for its first step, then R1 and I1. Milestone I1b.
-  - Done in fruit step AC1 (2026-11-24): the crate, `AttachedFruit`,
-    per-tree-specimen slots, part paths, export, and the removal of the
-    superseded cluster cards. Fruit levels, the attached instancing (B1,
-    B2) and the fruit impostors (D2) are done since; see the "As built"
-    sections in [fruit/plan.md](fruit/plan.md).
+- [x] **Fruit as an attached asset** ([fruit/plan.md](fruit/plan.md)):
+  the `procgena_fruit` crate (cluster builder and meshers, in the cluster
+  frame), the tree's `AttachedFruit`, pools and per-tree-specimen slots,
+  part paths, export, the fruit chain and impostors, and attached copies
+  in the shared renderer with a two-step detail check (milestone I1b).
 - [x] **Impostor bake options**: per-bake view count and frame size,
   view coverage declared per preset as a lowest viewer elevation (−90° by
   default, −45° for trees, in the bake key), with the octahedral layout
   warped to the declared range, a composed host-plus-attached instance,
   and a vertex offset hook for wind. Per-bake view count and size are
-  done (`BakeSettings`, I1). The rest is done (fruit step D1):
+  done (`BakeSettings`, I1). The rest is done (I1b):
   - `ViewCoverage` is a field of `BakeSettings`, so it is in the key.
     −90° (`SPHERE`) lays out the whole octahedron; any other value warps
     the angle from +Y so the declared cap fills the atlas, and 0°
@@ -2102,7 +2007,7 @@ it starts.
   the user 2026-11-24); a promoted tree keeps its copy's phase in its
   `MeshTag`. Plant and clumps don't share it yet.
 - [x] **One preset and file pattern**: done in F3 (see rule 10). Left for
-  later: `.biome.yml` files once `Biome` has serde (B1/W0), and presets
+  later: `.biome.yml` files once `Biome` has serde (B1), and presets
   and files for the stone, stick and mushroom Scatters, which have serde
   but no presets yet.
 - [ ] **Export** for plant, clump and every Scatter.
@@ -2123,10 +2028,10 @@ it starts.
   long-range one. Tree, deadwood and mushroom Scatters take their draw
   range from their size-scaled cull distance (tree since 2026-11-24, from
   `TreeOptions::height_bound`); stone still uses a fixed stand-in.
-- [ ] **World-anchored lattices**: every Scatter's spots on a lattice fixed
+- [x] **World-anchored lattices**: every Scatter's spots on a lattice fixed
   to the World, each spot owned by one chunk. Done in C2 for tree, stone,
-  deadwood and mushroom (`scatter::Lattice`, `ChunkGrid`, `K_d`); plant's
-  16 m cells are still local to their field (R3).
+  deadwood and mushroom (`scatter::Lattice`, `ChunkGrid`, `K_d`), and for
+  plant's 16 m cells in P3.
 - [ ] **Region plans ahead of view**: plan regions one region beyond the
   view distance, and cache plans on disk, stage by stage, so a far region
   needs only its relief and seam stage to be drawn.
@@ -2135,12 +2040,12 @@ it starts.
   coverage for beyond the last impostor.
 - [ ] **Seeds from outside**: one shared seed-hashing function (parent seed
   plus child id), and every preset's and options struct's `seed` renamed to
-  `default_seed`, used only when the item is built on its own. The core
-  half is done (F2): `hash::{salt, derive_seed, seed_for}`, `ChildKey` and
-  `child_seed` in `procgena_core`. The `default_seed` renames are done
-  (F3), on every asset, Scatter and Terrain options type; plant gained a
-  `default_seed` that nothing reads yet (R3 wires it in). Still to do:
-  `region_seed`, and the terrain switching to core's functions.
+  `default_seed`, used only when the item is built on its own. Built:
+  `hash::{salt, derive_seed, seed_for}`, `ChildKey`, `child_seed` and
+  `region_seed` in `procgena_core`, and `default_seed` on every asset,
+  Scatter and Terrain options type. Still to do: the terrain switching
+  from its own private copies (`procgena_terrain/src/hash.rs`) to core's
+  functions.
 - [ ] **Studio**: every level (Ecotope, Biome, World, and each asset and
   Scatter) is a kind in the studio's registry, opened from its Library
   and shown in its Outline beside the levels below, instead of a tab per
@@ -2251,7 +2156,7 @@ scheduled as the CT and RB milestones in ROADMAP.md, behind gate D6.
     plus a part path, so the same choice covers it. A part edit such as a
     harvest hides that copy for that host copy only, and leaves the shared
     specimens and impostors alone.
-11. **What is the ground at a distance?** (gate D6, from the canonical
+11. ~~**What is the ground at a distance?**~~ (gate D6, from the canonical
     TIN design, 2026-11-25.) The TIN is realized per chunk, lazily, but
     big trees are placed out to about 2 km and labels are read for far
     regions. The options:
