@@ -2558,11 +2558,14 @@ in a `tin` module of `procgena_terrain`.
     finest chunk read at an earlier tier builds its TIN at once when
     `ChunkSource::tier_change_known` says the fine tier changes nothing
     there, answered from tiers already built (so the coarse picture is
-    never held up). On a cold load nothing is built yet, so each finest
-    chunk is still read twice (64 extra reads at 4 km, 0.1–0.3 s). A
-    settings-only fact, "this region's later tiers add nothing" (no road,
-    no river source of its own, and no river flowing in from a
-    neighbour), would let cold loads build the TIN on the first read too;
+    never held up). On a cold load it helps once coarser chunks' upgrade
+    checks have built the fine tier: at 4 km with features off,
+    `load_timeline --tin` reads 253 chunks instead of 316. Finest chunks
+    read before then (and all of them when features make the fine tier
+    costly to check early) are still read twice. A settings-only fact,
+    "this region's later tiers add nothing" (no road, no river source of
+    its own, and no river flowing in from a neighbour), would let those
+    build the TIN on the first read too;
   - hard normals on breaklines once CT3 or CT4 add breakline kinds;
   - TIN LODs and height textures;
   - canonical chunks prefetched for a gameplay radius (today they follow
