@@ -24,7 +24,17 @@ with the advisor where needed, for the user to review.
      - a parallel `with_heights` pass.
    - The real cost per point is the border fade and pulls, about 88% of
      the chunk reads along a river.
-3. **Adaptive TIN sampling's default tolerance (CT-A)** is chosen by the
+3. **Adaptive TIN sampling (CT-A).** The user decided to use the adaptive
+   TIN, with its allowed error as a world-wide setting, so a game can
+   choose low-poly terrain. The coordinator chose the **RELAXED** default:
+   - plains need about 12.6× fewer `H*` reads, hills 1.8–3× fewer and
+     mountains 1.0–1.2× fewer;
+   - max error stays within the dense build's max;
+   - the worst overshoot on the 1 m lattice is 131 mm, 1.26× the
+     tolerance.
+   Named low-poly levels are added. The river-band tolerance stays strict.
+   The original rule follows.
+   **The default tolerance** is chosen by the
    coordinator from the worker's trade-off curve. The user allowed "a
    slightly looser mesh if we get major speedups" and asked the coordinator
    to choose. The rule: take the knee of the curve. About 2× today's max
