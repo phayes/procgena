@@ -451,6 +451,16 @@ pub trait ChunkSource: Sync {
         let _ = key;
         self.tier(from) != self.tier(to)
     }
+
+    /// [`tier_changes`](Self::tier_changes) if it can be answered without
+    /// building anything, `None` otherwise. Ask it where building now
+    /// would hold up something more urgent.
+    ///
+    /// The default asks `tier_changes`, which is right for a source whose
+    /// `tier_changes` builds nothing.
+    fn tier_change_known(&self, key: ChunkKey, from: FeatureTier, to: FeatureTier) -> Option<bool> {
+        Some(self.tier_changes(key, from, to))
+    }
 }
 
 /// How far past a chunk's sides its read looks: the ring of samples
@@ -591,6 +601,25 @@ impl ChunkSource for WorldTerrain {
                     _ => true,
                 },
             )
+    }
+
+    /// [`tier_changes`](ChunkSource::tier_changes) from the region
+    /// terrains already kept at both tiers; `None` if any of them isn't
+    /// kept. Builds nothing.
+    fn tier_change_known(&self, key: ChunkKey, from: FeatureTier, to: FeatureTier) -> Option<bool> {
+        if from == to {
+            return Some(false);
+        }
+        let ring = DVec2::splat(2.0 * key.step());
+        let reach = DVec2::splat(read_reach(key));
+        let (min, max) = (key.min_corner() - reach, key.max_corner() + reach);
+        let mut changes = false;
+        for id in regions_reaching(self, key.min_corner() - ring, key.max_corner() + ring) {
+            let a = self.kept_terrain(id, from)?;
+            let b = self.kept_terrain(id, to)?;
+            changes |= a.lines_within(min, max, from) != b.lines_within(min, max, to);
+        }
+        Some(changes)
     }
 }
 

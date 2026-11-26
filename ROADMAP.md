@@ -2554,6 +2554,15 @@ in a `tin` module of `procgena_terrain`.
     vertices: both chunks hold those at the same positions and read the
     same `H*`, so the lighting stays seamless across chunk edges. Mountains
     would read about 200 for normals instead of 1,344;
+  - **follow-up for when features come back, TIN on the first read:** a
+    finest chunk read at an earlier tier builds its TIN at once when
+    `ChunkSource::tier_change_known` says the fine tier changes nothing
+    there, answered from tiers already built (so the coarse picture is
+    never held up). On a cold load nothing is built yet, so each finest
+    chunk is still read twice (64 extra reads at 4 km, 0.1–0.3 s). A
+    settings-only fact, "this region's later tiers add nothing" (no road,
+    no river source of its own, and no river flowing in from a
+    neighbour), would let cold loads build the TIN on the first read too;
   - hard normals on breaklines once CT3 or CT4 add breakline kinds;
   - TIN LODs and height textures;
   - canonical chunks prefetched for a gameplay radius (today they follow

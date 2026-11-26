@@ -488,7 +488,12 @@ impl ChunkRead {
         tin: Option<&ContractCache>,
         paint: bool,
     ) -> Result<Self, ReadError> {
-        let fine = source.tier(tier) == FeatureTier::Fine;
+        // A finest-level chunk is canonical at the fine tier, and at an
+        // earlier one the source already knows the fine tier changes
+        // nothing about (asked without building, so the earlier tier stays
+        // quick); its canonical mesh is then exactly the fine tier's.
+        let fine = source.tier(tier) == FeatureTier::Fine
+            || source.tier_change_known(key, tier, FeatureTier::Fine) == Some(false);
         let canonical = tin.filter(|_| key.level == 0 && fine);
         let geometry = match canonical.map(|contracts| TinRead::build(source, key, contracts)) {
             Some(Ok(read)) => Geometry::Tin(read),
@@ -2151,6 +2156,69 @@ mod tests {
         assert_eq!(coarse.len(), direct.len());
         for (key, read) in &coarse {
             assert!(read == &direct[key], "{key:?} differs");
+        }
+    }
+
+    #[test]
+    fn canonical_chunks_known_unchanged_are_built_on_their_first_read() {
+        use procgena_terrain::tin::build_chunk;
+        use procgena_terrain::{Elevation, WorldTerrain, fixtures};
+
+        // Medium fixtures with rivers and roads switched on, so some
+        // chunks change at the fine tier and some don't.
+        let featured = |_: RegionId, _: DVec2, _: &Elevation| {
+            let mut options = fixtures::rolling_hills_medium().terrain.clone();
+            options.features.roads.enabled = true;
+            options.features.rivers.density = 1.0;
+            options
+        };
+        let world = || WorldTerrain::new(fixtures::world_medium(), Arc::new(featured)).unwrap();
+
+        // Settles a coarse-first canonical stream viewed from a point on
+        // the border of the region at the origin, with that region (but not
+        // its neighbour) built at every tier beforehand if `warm`: its
+        // canonical chunks' hashes, and how many chunk reads it took.
+        let settled = |warm: bool| {
+            let _streaming = streaming();
+            let mut app = app();
+            let world = world();
+            let origin = world.region_at(DVec2::ZERO);
+            let border = &world.region(origin).edges[0].polyline;
+            let on_border = border[border.len() / 2];
+            let site = world.site(origin);
+            let eye = on_border + (site - on_border).normalize() * 200.0;
+            if warm {
+                for tier in FeatureTier::ALL {
+                    world.terrain_tier(origin, tier).unwrap();
+                }
+            }
+            app.world_mut().spawn(TerrainStream {
+                tin: true,
+                ..TerrainStream::world(world)
+            });
+            app.world_mut().spawn((
+                TerrainViewer,
+                Transform::from_xyz(eye.x as f32, 40.0, eye.y as f32),
+            ));
+            let progress = settle(&mut app, 20_000);
+            assert_eq!(progress.failed, 0);
+            (canonical_hashes(&mut app), progress.sampled)
+        };
+        let (cold, cold_reads) = settled(false);
+        let (warm, warm_reads) = settled(true);
+
+        // With the fine tier kept, some finest chunks are canonical from
+        // their first read and aren't read again; others still are.
+        assert!(warm_reads < cold_reads, "{warm_reads} against {cold_reads}");
+        let level0 = cold.len();
+        assert!(warm_reads > cold_reads - level0, "some chunks can't");
+
+        // Every canonical chunk is the same either way, and as built alone.
+        assert_eq!(warm, cold);
+        let alone = world();
+        for (&key, &hash) in &warm {
+            let built = build_chunk(&alone, key, &alone.tin_tolerance()).unwrap();
+            assert_eq!(hash, built.content_hash(), "{key:?}");
         }
     }
 
