@@ -291,9 +291,14 @@ For distant display, select detail using projected size and conservative geometr
 
 Generate meshes directly at the requested LOD from a shared descriptor; do not require generation of a high-resolution mesh first. Distant rock proxies may use a low-poly solid or heightfield projection, but never add the same elevation twice. Near/far transitions need stitching or controlled morphing. Keep the common world sampling lattice; filter high-frequency noise consistently rather than introducing unrelated terrain at a distance.
 
-Use the architecture's coarse-first streaming, request-driven loading, zoom-aware detail and cancellation. A distant visual tile may be provisional, but any dependent Scatter placement must use true ground and canonical exclusion masks (the existing “no trees in boulders” user story). If that information is unavailable, defer the affected placement rather than inventing different placements.
+Use the architecture's coarse-first streaming, request-driven loading, zoom-aware detail and cancellation. A distant visual tile may be provisional, but any dependent Scatter placement must use true ground and canonical exclusion masks (the existing “no trees in boulders” user story). (Since 2026-11-26 "true ground" is the canonical TIN of the Scatter's placement level, and far ground is canonical too; see [terrain_lod.md](terrain_lod.md).) If that information is unavailable, defer the affected placement rather than inventing different placements.
 
 ### Feature tiers (decided 2026-11-24, user)
+
+> **Superseded 2026-11-26 (the user):** every chunk level is a canonical
+> TIN level, and each feature type has a highest level where its lines
+> are kept and its carving sampled. Tiers give way to those cut-off
+> levels; see [terrain_lod.md](terrain_lod.md).
 
 A region's features are planned in **tiers**, in order: the relief and
 border offers first, then each tier of features from the roughest to

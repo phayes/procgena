@@ -870,7 +870,9 @@ exactly, by construction, not by filtering:
 - **Carving is not band-limited.**
   - A riverbed or road cut has sharp banks, so "exact low-pass" can't
     hold for features.
-  - Features keep today's rule instead (features_plan, "Feature tiers"):
+  - Features keep today's rule instead (features_plan, "Feature tiers";
+    tiers superseded 2026-11-26 by a highest chunk level per feature
+    type, [terrain_lod.md](terrain_lod.md)):
     each declares the largest height difference between its coarse and
     fine forms, and skirts are sized by it.
   - The relief bands are exact. The carving is bounded. This is a

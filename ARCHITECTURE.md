@@ -485,7 +485,8 @@ is planned. Negotiating them per feature tier (far regions settling only
 a rough border) is a parked performance improvement, built only if it
 turns out to be needed; its design is in
 [terrain/edit_cache_plan.md](terrain/edit_cache_plan.md), "Border
-negotiation per tier" (ROADMAP TE4a and TE4b).
+negotiation per tier" (ROADMAP TE4a and TE4b). Since feature tiers give
+way to chunk levels (2026-11-26), a "tier" there would be a chunk level.
 
 **Canonical ground and roads** (proposed 2026-11-25; adopted as the
 direction by the user, details gated by D6). Two design documents set

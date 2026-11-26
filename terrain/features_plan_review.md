@@ -85,7 +85,9 @@ documents link to it.
 - **Conflict 4, macro cells:** planning stays per region. 1 km macro cells
   are added only if step 2's benchmarks show they are needed.
 - Conflicts 5 and 6 are still open; they wait for later milestones.
-- **Feature tiers (2026-11-24):** each feature type declares which load
+- **Feature tiers (2026-11-24; superseded 2026-11-26 by a highest chunk
+  level per feature type, [terrain_lod.md](terrain_lod.md)):** each
+  feature type declares which load
   tiers it is drawn at (rough, …, fine), and builds each as it sees fit:
   one algorithm at every tier if cheap, fine only, or a different method
   per tier. Only fine is canonical. See features_plan.md §9, "Feature

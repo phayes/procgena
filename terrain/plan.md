@@ -768,7 +768,10 @@ patches).
   chunk level `i`, its cull distance the view distance), split by distance
   with each level's hysteresis against the last selection, and balanced so
   neighbours across a side or a corner are at most one level apart.
-- **Feature tiers** (features_plan.md §9, "Feature tiers"). Chunks are
+- **Feature tiers** (features_plan.md §9, "Feature tiers"; superseded as
+  the direction on 2026-11-26 by canonical TIN at every chunk level with
+  a highest level per feature type, [terrain_lod.md](terrain_lod.md);
+  this describes what is built today). Chunks are
   read at a `FeatureTier` (`Rough`, `Fine`); only fine is canonical. Each
   `FeatureKind` declares its tiers (`tiers`, `first_tier`) and what it
   reads (`reads`; a unit test checks none is drawn before what it reads):
