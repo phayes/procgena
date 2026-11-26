@@ -71,7 +71,7 @@ shares below remove carving, gullies and the river trace by hand (see
 
 | # | Step | Where | Expected saving, one thread (estimates; see below) | ROADMAP |
 |---|---|---|---|---|
-| 1a | **Stop reading curvature that nothing paints.** A detail between `Gradient` and `Measures` gives nearby water without the four curvature heights. `HeightAboveWater` and the distance conditions ask for it; only `Curvature` asks for `Measures`. | CPU, small | Up to about half of each site's cost, if a curvature height costs what a site's own height does: **about 15–35% of terrain CPU**. Paint is bit-identical. | New, beside GPU2 (proposed **GPU2a**) |
+| 1a | **Stop reading curvature that nothing paints.** A detail between `Gradient` and `Measures` gives nearby water without the four curvature heights. `HeightAboveWater` and the distance conditions ask for it; only `Curvature` asks for `Measures`. | CPU, small | `ground_cost` puts a `Measures` site grid at 1.8–5.7× a `Gradient` one, so curvature is 44–82% of a site's cost: **about 35–70% of terrain CPU**. Paint is bit-identical. | New, beside GPU2 (proposed **GPU2a**) |
 | 1b | **Heights-only sites, slope on the GPU.** One CPU height grid per chunk (131², a one-texel apron). The mesh takes every other point, and the paint pass takes slope by central differences. | CPU and the existing GPU paint | With 1a, a site costs about one height: **about 55–75% in all**, leaving about 0.45–0.85 T of about 1.9 T | GPU2's site part (proposed **GPU2b**) |
 | 2 | **Cheaper `H*` per point on the CPU:** analytic pull gradients, cheaper far integrals, a neighbour's relief only where its blend share is above zero | CPU | Not measured. Halving the pulls and fade would cut the canonical remainder by roughly 30–40%, and the first picture with it. | [Border-pull cost (unscheduled)](../ROADMAP.md#border-pull-cost-unscheduled): propose scheduling it |
 | 3 | **`H*` on the GPU for drawn non-canonical ground:** relief, E, owner lookup, pulls and fade; heights and paint inputs kept on the GPU, with no readback | GPU, large | Most of the sampling step 1 leaves: **about 10–20% of today's terrain CPU**, leaving about 0.2 T (about 20 s) on the mixed view | **GPU3** (no block yet; defined in `edit_cache_plan.md`). Proposed GPU3a–c; GPU1 becomes GPU3a. |
@@ -115,9 +115,21 @@ them:**
   - A site costs about 410 k instructions, and a mesh height about 52 k.
   - About 8× a height matches a site at `Measures`: one height, the
     gradient (several heights near borders) and four curvature heights.
-  - The profile's "gradient-only frames" (41–43%) put the gradient at
-    about 230 k a site. The curvature part has not been measured, so 1a
-    is a range.
+  - The profile's "gradient-only frames" (41–43% of all CPU, 52–54% of
+    site time) put the gradient at about 230 k a site.
+- **Measured by the profiler with `ground_cost`** (warm, with Rayon, load
+  120–165):
+  - A 129² grid at `Measures` costs 1.8–5.7× one at `Gradient`. On hills
+    at level 0 that is 317 ms against 176 ms, and 31 ms for the 65² mesh
+    samples.
+  - Per point that is about 19 µs a `Measures` site, 10.6 µs a
+    `Gradient` site and 7.3 µs a mesh height.
+  - So curvature is 44–82% of a site (1a). A heights-only site at about
+    mesh-point cost is 62–90% cheaper than today's (1a with 1b).
+  - Sites are about 87% of terrain CPU once Bevy's frames are left out.
+    That gives 1a about 38–71%, and 1a with 1b about 54–78%.
+  - The split between inside the border margin and outside it is still
+    not measured.
 
 **After step 1:**
 
