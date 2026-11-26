@@ -365,7 +365,7 @@ material and lists what to ask of the engine crates.
 
 Each milestone ends in something to look at, a headless screenshot or a
 short recording, and a "Done when". Numbers are on the reference machine
-(still to be named; see "Decisions").
+(the M1 Max in "Performance targets").
 
 ### L0: Crate and dependencies
 
@@ -680,15 +680,14 @@ atmosphere alone, not a new stylised shading model.
 
 ## Performance targets
 
-Proposed, to be confirmed against "Test machines and performance budgets"
-(ROADMAP, "For the user", item 18), which is still open:
-
-- **Reference machine**: an M1 Max at 1440p (the machine the D2 spike
-  used). Target 60 fps walking, 60 fps gliding at 300 m above ground, no
+- **Reference machine** (the user, 2026-11-25: "the mac we're on right
+  now"): Apple M1 Max, 10 cores, 64 GB, macOS 26.5.2, Metal. Targets on
+  it at 1440p: 60 fps walking, 60 fps gliding at 300 m above ground, no
   frame over 33 ms after loading.
 - **Platform**: macOS only for now (decided).
-- **Low machine** (if one is named): 30 fps at 1080p on the lowest quality
-  level, with volumetric fog at half resolution or off.
+- **No lower-end Mac for now.** The quality levels still scale the
+  atmospherics down (volumetric fog at half resolution or off), but no
+  low-end target is set or tested until such a machine is named.
 - **Loading**: under 30 s to play in release; whistle-to-wind under 2 s.
 - **Budgets to measure in L2 and L5**: volumetric fog (expected the most
   expensive effect: a few ms), shadow cascades with foliage, particle
@@ -742,11 +741,11 @@ Decided by the user, 2026-11-25:
   for later; R3 deferred (the wind need not be consistent between trees
   and grass at first).
 
+- **Hardware:** the reference machine is the M1 Max in use (see
+  "Performance targets"); no lower-end Mac for now.
+
 Still open:
 
-- **The reference machine** and whether a low-end Mac is available (for
-  "Performance targets"; ROADMAP's "Test machines and performance
-  budgets").
 - **Paid or signed-in assets** (Quaternius Pro or Source sets, Mixamo):
   only if the free sets fall short.
 
