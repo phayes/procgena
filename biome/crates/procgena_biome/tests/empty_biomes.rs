@@ -39,6 +39,23 @@ fn square(origin: DVec2) -> Vec<DVec2> {
     ]
 }
 
+/// The river sources per km² each shipped Terrain preset was tuned for.
+/// The presets ship with rivers and roads switched off.
+const RIVER_DENSITIES: [(&str, f32); 3] =
+    [("plains", 0.6), ("rolling_hills", 1.0), ("mountains", 1.2)];
+
+/// `terrain`'s settings with its rivers and roads switched back on.
+fn with_features(terrain: &TerrainPreset) -> TerrainOptions {
+    let (_, density) = RIVER_DENSITIES
+        .iter()
+        .find(|(key, _)| *key == terrain.key)
+        .expect("every shipped preset has a river density");
+    let mut options = terrain.terrain.clone();
+    options.features.rivers.density = *density;
+    options.features.roads.enabled = true;
+    options
+}
+
 /// The Terrain built straight from the terrain crate, with `options` and
 /// the World seed `world_seed`, which every Terrain in a World takes.
 fn reference(options: TerrainOptions, world_seed: u32) -> Terrain {
@@ -129,6 +146,15 @@ fn empty_biome_builds_the_same_land_as_its_terrain() {
                 .build(seed, region(), &[])
                 .expect("Biome builds");
             let alone = reference(terrain.terrain.clone(), seed);
+            assert_same_land(&built, &alone, DVec2::ZERO, &label);
+
+            // The same with the preset's rivers and roads switched on.
+            let options = with_features(terrain);
+            let built = Biome::empty(BiomeTerrain::Inline(options.clone()))
+                .build(seed, region(), &[])
+                .expect("Biome builds");
+            let alone = reference(options, seed);
+            let label = format!("{label} with rivers and roads");
             let covered = assert_same_land(&built, &alone, DVec2::ZERO, &label);
             features += covered.features;
             wet_points += covered.wet_points;
@@ -277,17 +303,24 @@ fn an_empty_biomes_base_ground_replaces_the_bare_look() {
         assert_eq!(keys.len(), standard_base_layers().len());
     }
 
-    // Adjacent plains and rolling hills provide rivers and connecting roads.
-    // Compared with bare terrain, the Biome base should add mud near rivers
-    // and increase gravel coverage around roads.
+    // Adjacent plains and rolling hills, with their rivers and roads switched
+    // on, provide rivers and connecting roads. Compared with bare terrain,
+    // the Biome base should add mud near rivers and increase gravel
+    // coverage around roads.
     let pairs = [
         (RegionId(1), DVec2::new(-SIDE, 0.0), BiomePreset::PLAINS),
         (RegionId(2), DVec2::ZERO, BiomePreset::ROLLING_HILLS),
     ];
-    let specs = pairs.clone().map(|(id, origin, preset)| RegionSpec {
-        id,
-        polygon: square(origin),
-        options: preset.biome.terrain_options(0).unwrap(),
+    let specs = pairs.clone().map(|(id, origin, preset)| {
+        let BiomeTerrain::Preset(key) = &preset.biome.terrain else {
+            panic!("{} names a Terrain preset", preset.key);
+        };
+        let terrain = TerrainPreset::named(key).expect("a shipped Terrain preset");
+        RegionSpec {
+            id,
+            polygon: square(origin),
+            options: with_features(terrain),
+        }
     });
     let world = StitchedWorld::build(specs.to_vec(), &Convergence::default(), &Elevation::flat())
         .expect("world builds");
