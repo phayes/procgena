@@ -46,7 +46,16 @@ with the advisor where needed, for the user to review.
      because both edit `relief.rs`.
    - **The GPU plan's 6 open questions** wait for the user. Nothing that
      depends on them has started.
-5. **Cheap borders (TB):**
+5. **Paint slope from height differences (GPU plan open questions 1 and
+   2): yes, for paint only.** The load profile found paint sites are 92% of
+   the terrain worker's CPU. Step 1b gives paint sites heights only, takes
+   slope from differences on the CPU and GPU alike, and shares one height
+   grid between mesh and paint. Acceptance: slope error p95 under 1°, and
+   material edges within one texel. Scatters and queries keep exact slopes.
+   The GPU plan's open questions 3–6 still wait for the user.
+6. **The double chunk read** (Rough, then the wanted tier, for identical
+   ground) goes to the world worker after TS. It must be bitwise identical.
+7. **Cheap borders (TB):**
    - Its "before" numbers are taken after the Rayon removal (TS), so the
      comparison is like for like.
    - `Convergence::blend` and `EdgeOptions::roughness` stay as settings
