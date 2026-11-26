@@ -2576,9 +2576,9 @@ largest place range).
      (since `34e10a7` interior vertices already use the TIN's own faces).
      **Status:** built (`9f3f9d4`): `shading_normals_with` reads no
      ground at shading time (the contracts read 4 heights per contract
-     vertex, once per edge). Not yet used by the stream:
-     `TinRead::build` still calls `shading_normals`, which rebuilds the
-     contracts, until the stream worker switches it.
+     vertex, once per edge), and the stream uses it (`14a10d1`). A cold
+     default view reads 601 k heights from `H*` with features off (776 k
+     before), 662 k with roads and rivers on (837 k).
   6. **Only if TIN building is still too slow:** move `H*` sampling and
      TIN building to the GPU. That requires an integer, fixed-point `H*`
      that gives bit-identical results on the CPU and the GPU, designed
