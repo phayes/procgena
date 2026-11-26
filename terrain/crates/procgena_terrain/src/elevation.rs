@@ -8,7 +8,7 @@ use glam::DVec2;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::hash::{ELEVATION_CONTINENTS, ELEVATION_UPLIFT, seed_for};
-use crate::noise::{MAX_OCTAVES, Octaves, fbm_gradient, fbm_slope_bound};
+use crate::noise::{MAX_OCTAVES, Octaves, fbm_gradient_precise, fbm_slope_bound};
 use crate::options::NoiseLayer;
 
 /// Reads and writes a `DVec2` as `[x, z]` in settings files.
@@ -297,9 +297,11 @@ impl Elevation {
                 continue;
             }
             let wavelength = f64::from(layer.wavelength);
-            let (value, slope) = fbm_gradient(p / wavelength, seed, octaves(layer));
+            // In f64: at wavelengths of kilometres an f32 noise would step
+            // every few millimetres.
+            let (value, slope) = fbm_gradient_precise(p / wavelength, seed, octaves(layer));
             let scale = 0.5 * f64::from(layer.height);
-            height += scale * f64::from(value);
+            height += scale * value;
             gradient += slope * (scale / wavelength);
         }
 
@@ -503,5 +505,34 @@ mod tests {
         let p = DVec2::new(12_345.6, -7_890.1);
         assert_eq!(a.height(p), b.height(p));
         assert_ne!(a.height(p), c.height(p));
+    }
+
+    /// E is smooth down to a millimetre: along a 200 m line sampled every
+    /// millimetre, each step matches E's own gradient to within a
+    /// micrometre. Long wavelengths once made it step by up to a millimetre
+    /// every few millimetres.
+    #[test]
+    fn elevation_is_smooth_at_millimetre_steps() {
+        let options = ElevationOptions {
+            max_slope: 0.1,
+            bumps: vec![HeightBump {
+                centre: DVec2::ZERO,
+                radius: 3000.0,
+                height: 40.0,
+            }],
+            ..crate::fixtures::elevation_medium()
+        };
+        let elevation = Elevation::new(options, 7).unwrap();
+        let step = DVec2::new(1e-3, 1.3e-4);
+        let start = DVec2::new(-300.0, 1.0);
+        let mut worst = 0.0f64;
+        let (mut last, mut last_slope) = elevation.sample(start);
+        for k in 1..=200_000 {
+            let (height, slope) = elevation.sample(start + step * f64::from(k));
+            let expected = 0.5 * (slope + last_slope).dot(step);
+            worst = worst.max((height - last - expected).abs());
+            (last, last_slope) = (height, slope);
+        }
+        assert!(worst < 1e-6, "E steps by {worst} m beyond its slope");
     }
 }

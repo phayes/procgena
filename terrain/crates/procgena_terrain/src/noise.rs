@@ -183,6 +183,60 @@ pub(crate) fn fbm(p: DVec2, seed: u32, octaves: Octaves, erosion: f32) -> f32 {
     sum / (NOISE_STD * octaves.rms_amplitude())
 }
 
+/// [`gradient_noise`] worked out in `f64` throughout, as `(value,
+/// gradient)`. The `f32` version places `p` within its lattice cell to
+/// about 1e-7 of the cell, which for a field with a wavelength of
+/// kilometres is millimetres of world position, so its heights step at
+/// that spacing; this one stays continuous at any wavelength in use.
+fn gradient_noise_precise(p: DVec2, seed: u32) -> (f64, DVec2) {
+    // Split into lattice cell and fraction.
+    let floor = p.floor();
+    let cell = floor.as_i64vec2();
+    let f = p - floor;
+    let g = |dx: i64, dz: i64| lattice_gradient(cell + I64Vec2::new(dx, dz), seed).as_dvec2();
+    let (ga, gb, gc, gd) = (g(0, 0), g(1, 0), g(0, 1), g(1, 1));
+
+    // Each corner's ramp, blended as in `blend_corners`.
+    let va = ga.dot(f);
+    let vb = gb.dot(f - DVec2::X);
+    let vc = gc.dot(f - DVec2::Y);
+    let vd = gd.dot(f - DVec2::ONE);
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+    let k = va - vb - vc + vd;
+    let value = va + u.x * (vb - va) + u.y * (vc - va) + u.x * u.y * k;
+    let gradient = ga
+        + u.x * (gb - ga)
+        + u.y * (gc - ga)
+        + u.x * u.y * (ga - gb - gc + gd)
+        + du * (DVec2::new(u.y, u.x) * k + DVec2::new(vb - va, vc - va));
+    (value, gradient)
+}
+
+/// [`fbm_gradient`] worked out in `f64` throughout (see
+/// [`gradient_noise_precise`]): for fields with wavelengths of kilometres,
+/// such as the world elevation, whose heights would otherwise step every
+/// few millimetres.
+pub(crate) fn fbm_gradient_precise(p: DVec2, seed: u32, octaves: Octaves) -> (f64, DVec2) {
+    let mut sum = 0.0;
+    let mut gradient = DVec2::ZERO;
+    let mut amplitude = 1.0_f64;
+    let mut frequency = 1.0;
+    for i in 0..octaves.count {
+        let rotation = octave_rotation(i);
+        let q = rotation.rotate(p) * frequency;
+        let (value, slope) = gradient_noise_precise(q, derive_seed(seed, i));
+        sum += amplitude * value;
+        // Back from the octave's rotated, scaled input to `p`.
+        let back = DVec2::new(rotation.x, -rotation.y).rotate(slope);
+        gradient += back * amplitude * frequency;
+        amplitude *= f64::from(octaves.gain);
+        frequency *= LACUNARITY;
+    }
+    let norm = f64::from(NOISE_STD * octaves.rms_amplitude());
+    (sum / norm, gradient / norm)
+}
+
 /// [`fbm`] without erosion, with its gradient (the rate of change along x
 /// and z, per unit of `p`).
 pub(crate) fn fbm_gradient(p: DVec2, seed: u32, octaves: Octaves) -> (f32, DVec2) {
