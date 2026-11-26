@@ -24,5 +24,12 @@ with the advisor where needed, for the user to review.
      - a parallel `with_heights` pass.
    - The real cost per point is the border fade and pulls, about 88% of
      the chunk reads along a river.
-3. **CT4 (roads in the TIN) is held** while the focus is loading speed.
+3. **Adaptive TIN sampling's default tolerance (CT-A)** is chosen by the
+   coordinator from the worker's trade-off curve. The user allowed "a
+   slightly looser mesh if we get major speedups" and asked the coordinator
+   to choose. The rule: take the knee of the curve, with the max error
+   within about 2× today's. The river band, determinism and identical chunk
+   edges are not loosened. The curve and the choice are in ROADMAP's CT-A
+   block, for review.
+4. **CT4 (roads in the TIN) is held** while the focus is loading speed.
    CT3 and RB5 have unblocked it.
