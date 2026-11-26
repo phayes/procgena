@@ -8,11 +8,12 @@ use glam::DVec2;
 use procgena_biome::{BiomeError, BiomePreset, biome_seed};
 use procgena_core::hash::seed_for;
 use procgena_terrain::{
-    DEFAULT_CACHE, Elevation, NoiseLayer, RegionGraph, RegionId, TerrainOptions, WorldTerrain,
+    DEFAULT_CACHE, Elevation, RegionGraph, RegionId, RegionKey, TerrainOptions, WorldTerrain,
     WorldTerrainOptions, region_local_seed,
 };
 
 use crate::options::{BiomeRule, WorldOptions, WorldOptionsError};
+use crate::selection::{BiomeSelector, FieldSampler, Selected, lattice};
 
 // Seed keys, named `<crate>.<area>.<role>`. They are frozen: renaming one
 // changes every World built from it. Add a new key for a new role, and list
@@ -25,7 +26,11 @@ const FIELD_MOISTURE: &str = "world.field.moisture";
 
 /// Every seed key in this crate, for the test that they are all different.
 #[cfg(test)]
-pub(crate) const KEYS: &[&str] = &[FIELD_RUGGEDNESS, FIELD_MOISTURE];
+pub(crate) const KEYS: &[&str] = &[
+    FIELD_RUGGEDNESS,
+    FIELD_MOISTURE,
+    crate::selection::SELECTION,
+];
 
 /// The values of the World's fields at one point, as Biome rules read
 /// them.
@@ -95,9 +100,12 @@ pub struct RegionBiome<'a> {
     /// This region's own seed for its Biome (see [`World::biome_seed`]):
     /// two regions on the same preset differ through it.
     pub seed: u32,
-    /// Whether a pin chose the Biome, rather than the rules.
+    /// Whether a pin chose the Biome, rather than the rules or weighted
+    /// selection.
     pub pinned: bool,
-    /// The field values at the region's site, which the rules read.
+    /// The field values the choice read for the region: at the region's
+    /// site with the rules, and at its point of the unjittered hexagonal
+    /// lattice with weighted selection.
     pub fields: FieldValues,
 }
 
@@ -105,9 +113,11 @@ pub struct RegionBiome<'a> {
 /// land built when it is first asked for.
 ///
 /// The plane is split into regions by the region graph. Each region's
-/// Biome comes from a pin, or else from the first rule that matches the
-/// field values at the region's site (E, ruggedness and moisture), or else
-/// from the fallback. Neighbouring regions may use the same Biome; each
+/// Biome comes from a pin, or else from weighted selection when the
+/// settings have [`biome_selection`](WorldOptions::biome_selection), or
+/// else from the first rule that matches the field values at the region's
+/// site (E, ruggedness and moisture), or else from the fallback.
+/// Neighbouring regions may use the same Biome; each
 /// region still has its own instance with its own seed. The land is the
 /// [`WorldTerrain`] the World makes, whose regions take their Terrain from
 /// their Biome.
@@ -143,56 +153,83 @@ impl fmt::Debug for World {
 }
 
 /// Everything the Biome choice needs, shared by the World and the terrain
-/// source it hands its [`WorldTerrain`].
+/// source it hands its [`WorldTerrain`]. It holds its own copies of the
+/// region graph and E, built from the same settings as the land's, so it
+/// never reads the [`WorldTerrain`] and never builds land.
 struct Choice {
     /// The Biomes the World may use, with their Terrain settings resolved
     /// for the World seed.
     biomes: Vec<(BiomePreset, TerrainOptions)>,
-    /// Each rule, with the index of its Biome.
-    rules: Vec<(BiomeRule, usize)>,
-    /// The index of the fallback Biome.
-    fallback: usize,
-    /// The index of each pinned region's Biome.
-    pins: HashMap<RegionId, usize>,
-    /// The scale's vertical stretch, which multiplies the rules' elevation
-    /// bounds.
-    vertical: f64,
-    ruggedness: (NoiseLayer, u32),
-    moisture: (NoiseLayer, u32),
+    /// E and the selector fields.
+    fields: FieldSampler,
+    /// How unpinned regions get their Biome.
+    mode: Mode,
+}
+
+/// How a [`Choice`] picks the Biome of an unpinned region.
+enum Mode {
+    /// The first rule whose bounds hold at the region's site, else the
+    /// fallback.
+    Rules {
+        /// The region graph, for each region's site.
+        graph: RegionGraph,
+        /// Each rule, with the index of its Biome.
+        rules: Vec<(BiomeRule, usize)>,
+        /// The index of the fallback Biome.
+        fallback: usize,
+        /// The index of each pinned region's Biome.
+        pins: HashMap<RegionId, usize>,
+        /// The scale's vertical stretch, which multiplies the rules'
+        /// elevation bounds.
+        vertical: f64,
+    },
+    /// Weighted selection over the lattice of regions.
+    Weighted(BiomeSelector),
 }
 
 impl Choice {
-    /// The field values at `p`.
-    fn fields(&self, p: DVec2, elevation: &Elevation) -> FieldValues {
-        FieldValues {
-            elevation: elevation.height(p),
-            ruggedness: self.ruggedness.0.sample(p, self.ruggedness.1),
-            moisture: self.moisture.0.sample(p, self.moisture.1),
+    /// The Biome for `region`.
+    fn choose(&self, region: RegionId) -> Selected {
+        match &self.mode {
+            Mode::Rules {
+                graph,
+                rules,
+                fallback,
+                pins,
+                vertical,
+            } => {
+                let fields = self.fields.at(graph.site(RegionKey::from_id(region)));
+                if let Some(&biome) = pins.get(&region) {
+                    return Selected {
+                        biome,
+                        pinned: true,
+                        fields,
+                    };
+                }
+                let biome = rules
+                    .iter()
+                    .find(|(rule, _)| {
+                        rule.elevation.holds(fields.elevation, *vertical)
+                            && rule.ruggedness.holds(fields.ruggedness, 1.0)
+                            && rule.moisture.holds(fields.moisture, 1.0)
+                    })
+                    .map_or(*fallback, |&(_, biome)| biome);
+                Selected {
+                    biome,
+                    pinned: false,
+                    fields,
+                }
+            }
+            Mode::Weighted(selector) => selector.select(region, &self.fields),
         }
     }
 
-    /// The index of the Biome for `region`, whose site is `site`, whether
-    /// a pin chose it, and the field values at the site.
-    fn choose(
-        &self,
-        region: RegionId,
-        site: DVec2,
-        elevation: &Elevation,
-    ) -> (usize, bool, FieldValues) {
-        let fields = self.fields(site, elevation);
-        if let Some(&biome) = self.pins.get(&region) {
-            return (biome, true, fields);
+    /// The Biome for each of `regions`, in order.
+    fn choose_many(&self, regions: &[RegionId]) -> Vec<Selected> {
+        match &self.mode {
+            Mode::Rules { .. } => regions.iter().map(|&r| self.choose(r)).collect(),
+            Mode::Weighted(selector) => selector.select_many(regions, &self.fields),
         }
-        let biome = self
-            .rules
-            .iter()
-            .find(|(rule, _)| {
-                rule.elevation.holds(fields.elevation, self.vertical)
-                    && rule.ruggedness.holds(fields.ruggedness, 1.0)
-                    && rule.moisture.holds(fields.moisture, 1.0)
-            })
-            .map_or(self.fallback, |&(_, biome)| biome);
-        (biome, false, fields)
     }
 }
 
@@ -271,13 +308,11 @@ impl World {
             }
         }
 
+        // The fields, with E built exactly as the land builds it.
         let horizontal = options.scale.horizontal;
-        let choice = Arc::new(Choice {
-            biomes: resolved,
-            rules,
-            fallback,
-            pins,
-            vertical: options.scale.vertical,
+        let fields = FieldSampler {
+            elevation: Elevation::new(options.scaled_elevation(), options.seed)
+                .map_err(|e| WorldError::Options(WorldOptionsError::Elevation(e)))?,
             ruggedness: (
                 options.fields.ruggedness.layer(horizontal),
                 seed_for(options.seed, FIELD_RUGGEDNESS),
@@ -286,14 +321,41 @@ impl World {
                 options.fields.moisture.layer(horizontal),
                 seed_for(options.seed, FIELD_MOISTURE),
             ),
+        };
+
+        // Weighted selection if asked for, else the rules.
+        let vertical = options.scale.vertical;
+        let mode = match &options.biome_selection {
+            Some(selection) => Mode::Weighted(BiomeSelector::new(
+                selection,
+                options.seed,
+                lattice(options.regions, options.seed)
+                    .map_err(|e| WorldError::Options(WorldOptionsError::Regions(e)))?,
+                vertical,
+                resolved.len(),
+                pins,
+                |key: &str| -> Result<usize, WorldError> { index(key) },
+            )?),
+            None => Mode::Rules {
+                graph,
+                rules,
+                fallback,
+                pins,
+                vertical,
+            },
+        };
+        let choice = Arc::new(Choice {
+            biomes: resolved,
+            fields,
+            mode,
         });
 
         // The land: each region takes the Terrain of the Biome chosen for
-        // it.
+        // it. The choice reads its own E, the same as the one passed here.
         let source = {
             let choice = Arc::clone(&choice);
-            move |region: RegionId, site: DVec2, elevation: &Elevation| {
-                let (biome, _, _) = choice.choose(region, site, elevation);
+            move |region: RegionId, _site: DVec2, _elevation: &Elevation| {
+                let biome = choice.choose(region).biome;
                 choice.biomes[biome].1.clone()
             }
         };
@@ -335,15 +397,21 @@ impl World {
 
     /// The Biome instance filling `region`.
     pub fn biome(&self, region: RegionId) -> RegionBiome<'_> {
-        let site = self.terrain.site(region);
-        let (biome, pinned, fields) = self.choice.choose(region, site, self.terrain.elevation());
-        RegionBiome {
-            region,
-            preset: &self.choice.biomes[biome].0,
-            seed: self.biome_seed(region),
-            pinned,
-            fields,
-        }
+        self.region_biome(region, self.choice.choose(region))
+    }
+
+    /// The Biome instance filling each of `regions`, in the same order,
+    /// repeats included. Each is the same as [`biome`](Self::biome) of that
+    /// region; asking for many neighbouring regions at once, such as every
+    /// region in view on a map, is much cheaper with weighted selection.
+    /// Builds no land.
+    pub fn biomes(&self, regions: &[RegionId]) -> Vec<RegionBiome<'_>> {
+        let selected = self.choice.choose_many(regions);
+        regions
+            .iter()
+            .zip(selected)
+            .map(|(&region, selected)| self.region_biome(region, selected))
+            .collect()
     }
 
     /// The Biome instance filling the region that holds `p`.
@@ -353,7 +421,18 @@ impl World {
 
     /// The values of the World's fields at `p`.
     pub fn fields(&self, p: DVec2) -> FieldValues {
-        self.choice.fields(p, self.terrain.elevation())
+        self.choice.fields.at(p)
+    }
+
+    /// `selected` as `region`'s Biome instance.
+    fn region_biome(&self, region: RegionId, selected: Selected) -> RegionBiome<'_> {
+        RegionBiome {
+            region,
+            preset: &self.choice.biomes[selected.biome].0,
+            seed: self.biome_seed(region),
+            pinned: selected.pinned,
+            fields: selected.fields,
+        }
     }
 
     /// The seed of `region`'s Biome instance (see

@@ -1,5 +1,6 @@
 //! Settings for one World.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use glam::DVec2;
@@ -47,6 +48,11 @@ pub struct WorldOptions {
     /// Regions whose Biome is set by hand, whatever the rules say, by a
     /// point in the region or by its id. At most one pin per region.
     pub pins: Vec<BiomePin>,
+    /// Weighted Biome selection. When given, it chooses every unpinned
+    /// region's Biome and [`biomes`](Self::biomes) is kept but not read.
+    /// When absent, the first matching rule chooses, as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub biome_selection: Option<BiomeSelectionOptions>,
 }
 
 impl Default for WorldOptions {
@@ -62,6 +68,7 @@ impl Default for WorldOptions {
             fields: SelectorFields::default(),
             biomes: BiomeRules::default(),
             pins: Vec::new(),
+            biome_selection: None,
         }
     }
 }
@@ -343,6 +350,348 @@ impl BiomePin {
     }
 }
 
+/// The only [`BiomeSelectionOptions::version`] this crate reads.
+pub const BIOME_SELECTION_VERSION: u32 = 1;
+
+/// The most [`BiomeSelectionOptions::iterations`] allowed.
+pub const MAX_ITERATIONS: u32 = 8;
+
+/// Weighted Biome selection: each region's Biome is drawn at random,
+/// favouring Biomes that suit the field values at the region and that sit
+/// well beside the Biomes drawn for its neighbours.
+///
+/// Every region first draws a Biome from its [`suitability`](Self::suitability)
+/// alone. Then, [`iterations`](Self::iterations) times over, every region
+/// draws again, now also weighing how well each Biome sits beside its six
+/// neighbours' previous draws ([`compatibility`](Self::compatibility)). The
+/// result is random but repeatable: the same seed and settings always give
+/// the same Biome in every region, whichever regions are asked for first.
+///
+/// A region's Biome depends only on regions at most
+/// [`iterations`](Self::iterations) steps away, so asking for one region
+/// costs the same anywhere in the World. A pinned region keeps its pinned
+/// Biome on every draw and still sways its neighbours.
+///
+/// ```yaml
+/// biome_selection:
+///   version: 1
+///   iterations: 3
+///   temperature: 0.8
+///   neighbour_strength: 1.5
+///   suitability:
+///     plains: { prevalence: 1.0, ruggedness: { centre: -0.5, spread: 0.6 } }
+///     mountains:
+///       prevalence: 0.7
+///       elevation: { centre: 150.0, spread: 80.0 }
+///   compatibility:
+///     default: 0.5
+///     pairs:
+///       - { a: plains, b: plains, weight: 1.0 }
+///       - { a: mountains, b: mountains, weight: 1.0 }
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BiomeSelectionOptions {
+    /// The version of the selection rules, so a World keeps its Biomes when
+    /// the rules change. Must be [`BIOME_SELECTION_VERSION`].
+    pub version: u32,
+    /// How many times every region draws again after its first draw, from 0
+    /// (fields only, no neighbour influence) to [`MAX_ITERATIONS`]. It is
+    /// how far, in regions, a Biome's influence reaches, not a quality
+    /// setting: more is not always better, and each step costs more.
+    pub iterations: u32,
+    /// How random the draws are: finite and above 0. Low values nearly
+    /// always pick the best-scoring Biome; high values pick more evenly.
+    pub temperature: f64,
+    /// How much the neighbours count against the fields, finite and 0 or
+    /// more. At 0, neighbours have no say.
+    pub neighbour_strength: f64,
+    /// The Biomes free to be drawn, by key, with how much each likes the
+    /// field values. At least one. A pin may also name a Biome left out of
+    /// this list.
+    pub suitability: BTreeMap<String, BiomeSuitability>,
+    /// How well Biomes sit beside each other.
+    pub compatibility: BiomeCompatibility,
+}
+
+impl Default for BiomeSelectionOptions {
+    /// First-draft settings for the built-in bare-land Biomes: plains on
+    /// smooth land, rolling hills on rougher land, mountains where the land
+    /// is high and rugged, with mountains seldom beside plains. Not tuned.
+    fn default() -> Self {
+        let prefer = |centre, spread| Some(FieldPreference { centre, spread });
+        let pair = |a: &str, b: &str, weight| CompatibilityPair {
+            a: a.to_owned(),
+            b: b.to_owned(),
+            weight,
+        };
+        Self {
+            version: BIOME_SELECTION_VERSION,
+            iterations: 3,
+            temperature: 0.8,
+            neighbour_strength: 1.5,
+            suitability: BTreeMap::from([
+                (
+                    "plains".to_owned(),
+                    BiomeSuitability {
+                        prevalence: 1.0,
+                        ruggedness: prefer(-0.5, 0.6),
+                        ..BiomeSuitability::default()
+                    },
+                ),
+                (
+                    "rolling_hills".to_owned(),
+                    BiomeSuitability {
+                        prevalence: 1.0,
+                        ruggedness: prefer(0.3, 0.6),
+                        ..BiomeSuitability::default()
+                    },
+                ),
+                (
+                    "mountains".to_owned(),
+                    BiomeSuitability {
+                        prevalence: 0.7,
+                        elevation: prefer(150.0, 80.0),
+                        ruggedness: prefer(0.8, 0.5),
+                        ..BiomeSuitability::default()
+                    },
+                ),
+            ]),
+            compatibility: BiomeCompatibility {
+                default: 0.5,
+                pairs: vec![
+                    pair("plains", "plains", 1.0),
+                    pair("plains", "rolling_hills", 0.9),
+                    pair("plains", "mountains", 0.25),
+                    pair("rolling_hills", "rolling_hills", 1.0),
+                    pair("rolling_hills", "mountains", 0.9),
+                    pair("mountains", "mountains", 1.0),
+                ],
+            },
+        }
+    }
+}
+
+/// How much one Biome likes the field values at a region.
+///
+/// Each field given adds a bell-shaped preference: the Biome is liked most
+/// where the field equals `centre`, and less the further away it is, in
+/// steps of `spread`. A field left out doesn't matter to the Biome.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BiomeSuitability {
+    /// How common the Biome is, relative to the others, all else being
+    /// equal: finite and above 0. A Biome with twice the prevalence is
+    /// drawn about twice as often where the fields suit both equally. It is
+    /// not the share of the map the Biome will end up covering.
+    pub prevalence: f64,
+    /// Preferred world elevation E, in metres at reference scale (at
+    /// another scale E is divided by [`WorldScale::vertical`] first).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elevation: Option<FieldPreference>,
+    /// Preferred ruggedness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ruggedness: Option<FieldPreference>,
+    /// Preferred moisture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moisture: Option<FieldPreference>,
+}
+
+impl Default for BiomeSuitability {
+    /// Prevalence 1, no field preferences.
+    fn default() -> Self {
+        Self {
+            prevalence: 1.0,
+            elevation: None,
+            ruggedness: None,
+            moisture: None,
+        }
+    }
+}
+
+/// A preferred value of one field, and how far from it the liking falls
+/// off.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FieldPreference {
+    /// The value liked most. Finite.
+    pub centre: f64,
+    /// How far from `centre` the liking has fallen noticeably: one spread
+    /// away, a Biome is about 60 % as likely, two spreads away about 14 %.
+    /// Finite and above 0.
+    pub spread: f64,
+}
+
+impl FieldPreference {
+    fn is_valid(&self) -> bool {
+        self.centre.is_finite() && self.spread.is_finite() && self.spread > 0.0
+    }
+}
+
+/// How well Biomes sit beside each other: one weight for each pair of
+/// Biome keys, the same either way round.
+///
+/// Weights are relative: a pair with twice the weight is favoured more, and
+/// multiplying every weight by the same number changes nothing. A pair of
+/// a Biome with itself sets how strongly it clumps into larger areas. Every
+/// weight is above 0, so no pair is ever ruled out, only made rarer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BiomeCompatibility {
+    /// The weight of every pair not listed in [`pairs`](Self::pairs).
+    /// Finite and above 0.
+    pub default: f64,
+    /// Weights for particular pairs. Each pair at most once, in either
+    /// order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pairs: Vec<CompatibilityPair>,
+}
+
+/// The weight of one pair of Biomes side by side, the same either way
+/// round.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompatibilityPair {
+    /// One Biome, by key.
+    pub a: String,
+    /// The other Biome, by key. The same as `a` for how well a Biome sits
+    /// beside itself.
+    pub b: String,
+    /// The weight: finite and above 0.
+    pub weight: f64,
+}
+
+/// Why weighted Biome selection settings were refused.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum SelectionError {
+    /// The version isn't [`BIOME_SELECTION_VERSION`].
+    Version(u32),
+    /// The iterations are above [`MAX_ITERATIONS`].
+    Iterations(u32),
+    /// The temperature isn't finite and above 0.
+    Temperature(f64),
+    /// The neighbour strength isn't finite and 0 or more.
+    NeighbourStrength(f64),
+    /// No Biome is free to be drawn.
+    NoCandidates,
+    /// The Biome with this key has a prevalence that isn't finite and above
+    /// 0.
+    Prevalence(String),
+    /// The Biome with this key has a preference for this field whose centre
+    /// isn't finite or whose spread isn't finite and above 0.
+    Preference(String, &'static str),
+    /// The default compatibility weight isn't finite and above 0.
+    DefaultWeight(f64),
+    /// The compatibility pair at this index has a weight that isn't finite
+    /// and above 0.
+    PairWeight(usize),
+    /// The compatibility pair at this index repeats an earlier pair, in
+    /// either order.
+    DuplicatePair(usize),
+}
+
+impl fmt::Display for SelectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Version(v) => write!(
+                f,
+                "version {v} isn't known; the only version is {BIOME_SELECTION_VERSION}"
+            ),
+            Self::Iterations(k) => {
+                write!(f, "{k} iterations is more than the most, {MAX_ITERATIONS}")
+            }
+            Self::Temperature(t) => write!(f, "the temperature {t} must be finite and above 0"),
+            Self::NeighbourStrength(s) => {
+                write!(f, "the neighbour strength {s} must be finite and 0 or more")
+            }
+            Self::NoCandidates => f.write_str("at least one Biome must be free to be drawn"),
+            Self::Prevalence(key) => write!(
+                f,
+                "Biome {key:?} has a prevalence that isn't finite and above 0"
+            ),
+            Self::Preference(key, field) => write!(
+                f,
+                "Biome {key:?}'s {field} preference needs a finite centre and a finite spread above 0"
+            ),
+            Self::DefaultWeight(w) => write!(
+                f,
+                "the default compatibility weight {w} must be finite and above 0"
+            ),
+            Self::PairWeight(i) => write!(
+                f,
+                "compatibility pair {i} has a weight that isn't finite and above 0"
+            ),
+            Self::DuplicatePair(i) => {
+                write!(f, "compatibility pair {i} repeats an earlier pair")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SelectionError {}
+
+impl BiomeSelectionOptions {
+    /// Checks every setting and returns the first one out of range. Biome
+    /// keys are not checked here: a [`World`](crate::World) checks them
+    /// against the Biomes it is given.
+    pub fn validate(&self) -> Result<(), SelectionError> {
+        // The selection as a whole.
+        if self.version != BIOME_SELECTION_VERSION {
+            return Err(SelectionError::Version(self.version));
+        }
+        if self.iterations > MAX_ITERATIONS {
+            return Err(SelectionError::Iterations(self.iterations));
+        }
+        if !(self.temperature.is_finite() && self.temperature > 0.0) {
+            return Err(SelectionError::Temperature(self.temperature));
+        }
+        if !(self.neighbour_strength.is_finite() && self.neighbour_strength >= 0.0) {
+            return Err(SelectionError::NeighbourStrength(self.neighbour_strength));
+        }
+
+        // Each Biome free to be drawn.
+        if self.suitability.is_empty() {
+            return Err(SelectionError::NoCandidates);
+        }
+        for (key, suits) in &self.suitability {
+            if !(suits.prevalence.is_finite() && suits.prevalence > 0.0) {
+                return Err(SelectionError::Prevalence(key.clone()));
+            }
+            for (field, preference) in [
+                ("elevation", suits.elevation),
+                ("ruggedness", suits.ruggedness),
+                ("moisture", suits.moisture),
+            ] {
+                if preference.is_some_and(|p| !p.is_valid()) {
+                    return Err(SelectionError::Preference(key.clone(), field));
+                }
+            }
+        }
+
+        // The compatibility weights, each pair once in either order.
+        let compatibility = &self.compatibility;
+        if !(compatibility.default.is_finite() && compatibility.default > 0.0) {
+            return Err(SelectionError::DefaultWeight(compatibility.default));
+        }
+        let mut seen = BTreeSet::new();
+        for (i, pair) in compatibility.pairs.iter().enumerate() {
+            if !(pair.weight.is_finite() && pair.weight > 0.0) {
+                return Err(SelectionError::PairWeight(i));
+            }
+            let key = if pair.a <= pair.b {
+                (pair.a.as_str(), pair.b.as_str())
+            } else {
+                (pair.b.as_str(), pair.a.as_str())
+            };
+            if !seen.insert(key) {
+                return Err(SelectionError::DuplicatePair(i));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Why World settings were refused.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -366,6 +715,8 @@ pub enum WorldOptionsError {
     /// The pin at this index gives both a point and a region id, or
     /// neither, or a point that isn't finite.
     Pin(usize),
+    /// The weighted Biome selection settings aren't valid.
+    Selection(SelectionError),
 }
 
 impl fmt::Display for WorldOptionsError {
@@ -389,11 +740,19 @@ impl fmt::Display for WorldOptionsError {
                 f,
                 "pin {i} must give either a finite point `at` or a `region` id"
             ),
+            Self::Selection(e) => write!(f, "Biome selection: {e}"),
         }
     }
 }
 
-impl std::error::Error for WorldOptionsError {}
+impl std::error::Error for WorldOptionsError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Selection(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl WorldOptions {
     /// Checks every setting and returns the first one out of range. Biome
@@ -432,6 +791,9 @@ impl WorldOptions {
         }
         if let Some(i) = self.pins.iter().position(|pin| !pin.is_valid()) {
             return Err(WorldOptionsError::Pin(i));
+        }
+        if let Some(selection) = &self.biome_selection {
+            selection.validate().map_err(WorldOptionsError::Selection)?;
         }
         Ok(())
     }

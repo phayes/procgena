@@ -28,11 +28,14 @@
 
 mod options;
 mod presets;
+mod selection;
 mod world;
 
 pub use options::{
-    BiomePin, BiomeRule, BiomeRules, FieldRange, SelectorField, SelectorFields, WorldOptions,
-    WorldOptionsError, WorldScale,
+    BIOME_SELECTION_VERSION, BiomeCompatibility, BiomePin, BiomeRule, BiomeRules,
+    BiomeSelectionOptions, BiomeSuitability, CompatibilityPair, FieldPreference, FieldRange,
+    MAX_ITERATIONS, SelectionError, SelectorField, SelectorFields, WorldOptions, WorldOptionsError,
+    WorldScale,
 };
 pub use presets::WorldPreset;
 
