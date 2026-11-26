@@ -14,7 +14,8 @@ built in [ROADMAP.md](../../ROADMAP.md).
 - **Milestone plans** (named after the milestone they planned): [C1](C1.md)
   the same inputs for every Scatter; [C2-plan](C2-plan.md) the `Scatter`
   trait; [IX-plan](IX-plan.md) the impostor experiment.
-- **Design records** for a track: [ecotope-gpu](ecotope-gpu.md) the order
-  of the GPU work; [ground-materials](ground-materials.md) ground layers
+- **Design records** for a track: [ecotope-layers](ecotope-layers.md)
+  Scatters as Ecotope layers and keys at every level (EL);
+  [ecotope-gpu](ecotope-gpu.md) the order of the GPU work; [ground-materials](ground-materials.md) ground layers
   (GM0–GM5; superseded 2026-11-26, paint removed); [saved-file-format](saved-file-format.md) preset bundles
   (PB1–PB4).

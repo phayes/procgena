@@ -93,6 +93,7 @@ flowchart TD
     C1["C1 Aligned Scatter inputs, new Scatters"]
     C2["C2 Scatter trait, masks out, world ids"]
     C3a["C3a Early Ecotope, in procgena_biome"]
+    EL["EL Ecotope layers and keys"]
     C3["C3 Ecotope"]
 
     R1["R1 Shared LOD, dither, quality"]
@@ -188,7 +189,9 @@ flowchart TD
     C1 --> C3a
     F3 --> C3a
     B0 --> C3a
-    C3a --> C3
+    C3a --> EL
+    C2 --> EL
+    EL --> C3
     C2 --> C3
     F3 --> C3
     D2 --> D3
@@ -861,7 +864,7 @@ Scatter's logs, stumps and slope limit are built.
 - **Not yet:** the `Scatter` trait, masks out and exact exclusion (C2),
   world-anchored chunked placement, Terrain labels and Ecotope rules (B1).
   Lower-priority Scatters avoid higher ones only as far as today's masks
-  in allow it. C3 replaces the adapters with C2's `Scatter` trait.
+  in allow it. EL replaces the adapters with layers and their algorithms.
 - **Needs:** C1, F3, B0 (the crate). Not C2, not the terrain.
 - **Status (2026-11-24):** built. `Ecotope`, `EcotopePreset`
   (`pine_forest_floor.ecotope.yml`) and `Ecotope::place` in
@@ -884,15 +887,35 @@ Scatter's logs, stumps and slope limit are built.
   `HeightGrid` in a viewer or the studio, with each Scatter keyed and
   seeded from the Ecotope's seed.
 
+#### EL: Ecotope layers
+
+- **Covers:** Scatters become layers of the Ecotope preset, each with one
+  of a closed set of algorithms (`points`, `cover`) and keyed entries;
+  one identity rule at every level (a frozen map key names each child,
+  and what it points at is never identity); asset crates take options
+  and a seed, never a key or a preset; `TreeStand` moves from the tree
+  preset into entries; one `points` layer may mix asset kinds; your own
+  assets come in as entries. Design:
+  [docs/decisions/ecotope-layers.md](docs/decisions/ecotope-layers.md).
+- **Needs:** C3a, C2.
+- **Not decided yet:** what becomes of the built-in `.tree_scatter.yml`
+  files and the asset crates' own Scatter APIs (the user, 2026-11-26:
+  "not yet").
+- **Status:** planned (decided 2026-11-26), not started.
+- **Done when:** the shipped `.ecotope.yml` files use `layers:` and
+  `entries:` maps, `ScatterKind` and the per-asset adapters are gone,
+  renaming a tree preset leaves every tree where it stood, and the
+  studio's Ecotope document edits layers and entries by key.
+
 #### C3: Ecotope
 
-- **Covers:** the full Ecotope, grown from C3a in `procgena_biome`: the
-  adapters replaced by the `Scatter` trait, `priority` on one World-wide
+- **Covers:** the full Ecotope, grown from EL in `procgena_biome`:
+  `priority` on one World-wide
   scale (D3) with its documented bands, mask chaining with exact
   exclusion. Open question 2 (overlap) is decided here.
   The Ecotope warning about a dense Scatter above a long-range one (TODO
   "Per-Scatter ranges") lands here too.
-- **Needs:** C3a, C2. Not the terrain: it runs on a `HeightGrid` or
+- **Needs:** EL, C2. Not the terrain: it runs on a `HeightGrid` or
   `FlatGround`.
 - **Plant can join late.** Plants sit at the bottom of most Ecotopes and
   already take a density function, so a first Ecotope can draw grass
@@ -1526,7 +1549,8 @@ R3.
 - **Covers:** TODOs "Edits", "Shared edits and interaction" (plant's
   brushes and trampling grow into the shared edits and an interactor
   contract; tree reads interactors), "Core queries", "Hook traits per
-  level" and "`MeshScatter`". Open question 10 is decided here. From D3:
+  level" and "`MeshScatter`" (a `mesh:` entry of an Ecotope layer since
+  EL). Open question 10 is decided here. From D3:
   edits stored as integer addresses with `kind` and cell-size checks,
   orphans kept and reported by salt; part paths pinned to `SpecimenId`s,
   with each asset that has parts offering `part()` (tree first, then
@@ -3042,10 +3066,8 @@ where the details are.
    ask for per-class lattices back (which needs a different address
    scheme). Details: [docs/decisions/C2-plan.md](docs/decisions/C2-plan.md).
 9. ~~**Tree species keys in files (C2).**~~ Decided by the user
-   2026-11-26: every species names its own `key`, with no fallback to
-   the preset's key, so renaming a preset never reseeds its trees (D3's
-   identity and preset keys stay apart). The code change is a follow-up
-   below.
+   2026-11-26: species become keyed entries of an Ecotope layer, with no
+   fallback to the preset's key (milestone EL).
 10. ~~**Shared renderer (R2).**~~ Decided by the user 2026-11-24:
     - *Shadows:* keep one undithered level per copy in shadow maps.
       Shadows are expensive, and the switch is unlikely to be noticed.
@@ -3166,13 +3188,6 @@ Done (2026-11-24): items 10, 15 and 16 above.
 
 ### Follow-ups noted, no decision needed
 
-- **Tree species keys are required** (item 9, the user 2026-11-26). A
-  tree Scatter species, in files and in code (`ScatterTree::new(preset)`
-  today takes the preset's key), must name its own `key`; a missing key
-  is a load error. Update the shipped files (`pine_forest_floor.ecotope.yml`
-  and any `.tree_scatter.yml`), `tree/docs/scatters.md`, and
-  saved-file-format's "Keep seeds" step, which then no longer needs to
-  write keys out on rename.
 - **High priority: documentation clean-up (milestone DS).** Work through
   [docs/coordination/doc-sweep-2026-11-25.md](docs/coordination/doc-sweep-2026-11-25.md),
   starting with its decision items.

@@ -357,8 +357,9 @@ blades of the whole.
     the tuft pull, F = 0), `draw_range` (the plant radius), mask source
     `Density`, a density query at a point, and the address scheme.
   - Plant implements it in `procgena_plant`.
-  - The C3 Ecotope holds `dyn Scatter` or the new kind, and runs both in
-    one priority order.
+  - The trait is the inside of the Ecotope's `cover` layer algorithm
+    ([ecotope-layers](../docs/decisions/ecotope-layers.md), milestone EL),
+    which runs in one priority order with `points` layers.
 - **Needs:** P3, C2, C3, and the coordinator's agreement, since a
   `procgena_core` change rebuilds the workspace.
 - **Ecotope after it:** plant is a Scatter like the others in the full

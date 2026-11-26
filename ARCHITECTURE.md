@@ -249,6 +249,19 @@ mesh and impostor, until the tree's own impostor takes over.
 ground, and how they cluster: density per area, spacing, stands and gaps,
 the mix of species or variants, and how copies vary in size, lean and footing.
 
+**A layer of its Ecotope, not a preset of its own** (decided 2026-11-26,
+milestone [EL](ROADMAP.md#el-ecotope-layers),
+[docs/decisions/ecotope-layers.md](docs/decisions/ecotope-layers.md)). A
+Scatter is written inside its Ecotope's preset as a **layer**, keyed by
+its map key. It picks one algorithm from a closed set: `points` (copies
+on the World lattice: today's tree, stone, dead wood and mushroom
+Scatters) or `cover` (plants, a density field drawn where it is placed).
+Its mix is a map of **entries**, each keyed and pointing at an asset
+preset or inline options. One `points` layer may mix asset kinds. An
+entry owns how its asset is placed (density, spacing, slope limit), so a
+tree preset no longer carries a stand. The sections below still say
+"Scatter" for a layer.
+
 **What it owns.**
 
 - The mix: which assets, and each one's share of the density.
@@ -288,9 +301,9 @@ time, and gives its mask over a chunk without drawing anything. See
 ### 3. Ecotope
 
 **What it is.** One kind of ground cover with a single character, such as
-"pine forest floor", "wet meadow" or "scree slope". It is a set of Scatters,
-each named by a frozen key and given a priority, all laid over the same
-ground.
+"pine forest floor", "wet meadow" or "scree slope". It is a set of Scatters
+(its layers, see "2. Scatter"), each named by a frozen key and given a
+priority, all laid over the same ground.
 
 **What it owns.**
 
@@ -336,8 +349,8 @@ leaves footprints (a disc for trees, stones and mushrooms, a capsule for
 dead wood, widened by a per-Scatter `clearance`), and every lower Scatter's
 mask is 0 inside them, checked only at each candidate's centre. The
 calls into each Scatter are one adapter per kind in
-`procgena_biome/src/ecotope/scatters.rs`, to be replaced by the `Scatter`
-trait in C3. A plant Scatter (plant's P2) is placed where it is drawn:
+`procgena_biome/src/ecotope/scatters.rs`, to be replaced by layers and
+their algorithms in EL. A plant Scatter (plant's P2) is placed where it is drawn:
 its adapter bakes the ground and density over the area at 0.5 m, clears
 every texel a footprint above touches, and leaves no footprints of its
 own. `procgena_biome_bevy`'s
@@ -773,10 +786,16 @@ preset or options. One World seed fixes everything below it.
   level, its `default_seed` is ignored.
 - **A child's seed is a hash of its parent's seed and the child's stable
   id**: its region for a Biome, and its frozen **key** for an Ecotope in a
-  Biome, a Scatter in an Ecotope and an asset in a Scatter's mix (decided
-  in [D3](docs/decisions/D3.md)). The chain is World → region's Biome →
-  Ecotope → Scatter, so each region places its own cover, and a region
-  border is a seam that the Ecotope border protocol blends.
+  Biome, a Scatter (layer) in an Ecotope and an entry in a layer (decided
+  in [D3](docs/decisions/D3.md) and
+  [ecotope-layers](docs/decisions/ecotope-layers.md)). The chain is World
+  → region's Biome → Ecotope → layer → entry, so each region places its
+  own cover, and a region border is a seam that the Ecotope border
+  protocol blends.
+  - **What a child points at is never its identity.** An entry's asset
+    preset is a value: swapping or renaming the preset reseeds nothing,
+    and a missing key never falls back to the preset's key. Asset crates
+    take options and a seed, never a key.
   - **Keys** (`ChildKey`, such as `pines` or `pine_floor`) are short
     lower-case names, unique within their parent, given in the preset file
     or by the hook that inserts the child. A key is frozen, with no
@@ -1288,7 +1307,7 @@ Every level offers the same three kinds of hook:
 
 | Kind | What it does | Example |
 |------|--------------|---------|
-| **Replace** | A trait object stands in for a built-in part. | Your own Scatter in an Ecotope; your own Ecotope rule in a Biome. |
+| **Replace** | A trait object stands in for a built-in part. | Your own asset in a layer entry; your own Ecotope rule in a Biome. |
 | **Inputs** | Adds to what a level reads before it runs: masks, stamps, extra coverage. | Flatten ground for a village; keep every Scatter out of a reserved clearing. |
 | **Outputs** | Filters or changes what a level made, item by item. | Drop trees near a path; tint stones by height. |
 
@@ -1318,8 +1337,8 @@ What each level lets you hook:
 | WorldTerrain | | Extra seam constraints, such as a road that must cross a given border | |
 | Terrain | | Height stamps (flatten, raise, carve) outside the margin | Extra labels |
 | Biome | Ecotope rules: your own code over terrain labels | Coverage masks, such as "no forest here" | Ecotope weights per point |
-| Ecotope | Your own Scatter at any priority | Masks for all its Scatters | |
-| Scatter | Your own asset (see below) | Masks | Per-copy filter and change |
+| Ecotope | | Masks for all its Scatters | |
+| Scatter (layer) | Your own asset in an entry (see below) | Masks | Per-copy filter and change |
 | Asset | | | |
 
 An asset has no hooks of its own: its options are its interface, and
@@ -1332,15 +1351,14 @@ dead wood and mushrooms draw through the shared instanced renderer, and
 plants are built in a shader. So your own
 assets come in at two places:
 
-- **Your own meshes** (glTF or a `Specimen`) go into a
-  **`MeshScatter`**: a general Scatter that places and draws any meshes
-  with levels of detail, masks, promotion and queries, like the built-in
-  ones.
-- **Your own generator** implements the **`Scatter` trait**: given an area,
-  ground, mask and seed, it returns copies with stable ids and the mask it
-  leaves for the Scatters below. It states its draw range, reach and mask
-  source, as every Scatter does (see "Loading by chunk"), and sits in an
-  Ecotope like any built-in Scatter.
+- **Your own meshes** (glTF or a `Specimen`) go into a `mesh:` entry of
+  a `points` layer (the `MeshScatter` TODO): placed and drawn with levels
+  of detail, masks, promotion and queries, like the built-in assets.
+- **Your own generator** implements an asset trait: given options and a
+  seed, it returns a specimen. It sits in a layer entry like any built-in
+  asset; placement stays the layer's algorithm (see
+  [ecotope-layers](docs/decisions/ecotope-layers.md)). There is no hook
+  for your own placement algorithm.
 
 ### Edits: what happens in a game
 
@@ -1613,8 +1631,9 @@ Each rule says what every asset does, and which crates have to change.
 10. **One preset and file pattern.** Presets are structs in plant's style:
     a key, name, description, group and the options, gathered in a
     catalogue with groups, a list of all presets and lookup by key. Every
-    level uses the same shape, so a Scatter, Ecotope or Biome preset reads
-    like an asset preset. Every file is YAML, named
+    level uses the same shape, so an Ecotope or Biome preset reads
+    like an asset preset. A Scatter has no preset of its own: it is a
+    layer inside its Ecotope's preset (EL). Every file is YAML, named
     `.<kind>.yml` (`.tree.yml`, `.stone.yml`, `.mushroom.yml` and so on), so
     people can read and hand-edit their presets. Files hold a `base` preset plus only
     what differs. Serde on every public options type, Scatter options
@@ -1623,8 +1642,9 @@ Each rule says what every asset does, and which crates have to change.
       `catalogue!` macro that declares a crate's presets, and reading and
       writing files. A file is the preset written out: optional `base`,
       `name`, `description` and `group`, then the options under the kind's
-      key (`tree:`, `tree_scatter:`). Its settings merge into the base's:
-      groups key by key, lists and plain values replaced whole, and a group
+      key (`tree:`, `ecotope:`). Its settings merge into the base's:
+      groups key by key (so an Ecotope file overrides one layer or entry
+      by its key), lists and plain values replaced whole, and a group
       whose `kind` changes replaced whole (`kind` is kept for that; a plain
       setting named `kind` is written under another name). Unknown and
       wrongly typed settings are errors that name their path.
@@ -1753,11 +1773,10 @@ crates take whatever changes often.
   `procgena_core` and `procgena_core_bevy` (see "Where shared code lives").
 - ~~**Slot choice.**~~ Decided 2026-11-23 (D3): rendezvous hashing, with
   `N` ≤ 256 per pool and no excluded slots (see "Specimen budget").
-- ~~**Scatter file kind.**~~ Decided 2026-11-23: a Scatter's files are
-  named `.<asset>_scatter.yml`, matching its type: `.tree_scatter.yml`,
-  `.plant_scatter.yml`, `.stick_scatter.yml`, `.mushroom_scatter.yml` and
-  so on. Built in F3 for the tree and plant Scatters, the two that have
-  presets.
+- ~~**Scatter file kind.**~~ Superseded 2026-11-26 (EL): a Scatter is a
+  layer inside its Ecotope's file, with no file kind of its own. Today's
+  `.tree_scatter.yml` and `.plant_scatter.yml` files (F3) stay until EL
+  decides their fate.
 
 ## Naming
 
@@ -1859,9 +1878,9 @@ it starts.
   `Ground`, knows nothing of Terrain, and calls today's Scatters through
   their `ScatterInput`. The early version is built (keys, priorities,
   seeds, presets, centre-only mask chaining, the Bevy view, plants through
-  an adapter, and the studio's Ecotope document); still to do are the
-  `Scatter` trait in place of its adapters, the documented priority bands
-  and exact exclusion (C3).
+  an adapter, and the studio's Ecotope document); still to do are layers
+  and their algorithms in place of its adapters (EL), the documented
+  priority bands and exact exclusion (C3).
 - [ ] **Ecotope border protocol**: offers, a symmetric agreement and
   conforming, for Ecotopes meeting inside a Biome and across Biome
   borders, including one merged priority order (a sort by `priority`,
@@ -1910,9 +1929,10 @@ it starts.
   (`procgena_core::scatter::Scatter`, object-safe, with `ChunkCache` for
   batched `resolve_all` and `scatter::conformance` checks for any
   Scatter's tests) for tree, stone, deadwood and mushroom; plant joins in
-  R3. `DrawHandle` waits for a chunk-streaming renderer.
+  R3. `DrawHandle` waits for a chunk-streaming renderer. Since EL the
+  trait is the inside of the `points` algorithm, not a user hook.
 - [ ] **`MeshScatter`**: places and draws any user mesh, with levels of
-  detail, masks, promotion and queries.
+  detail, masks, promotion and queries, as a `mesh:` entry of a layer.
 - [ ] **Hook traits per level**, with keys that feed the cache hash.
 - [ ] **World-stable ids**: the integer `CopyAddress` (region, Ecotope and
   Scatter key salts, `CellId`, index) from a world-anchored lattice, as
@@ -2152,7 +2172,7 @@ scheduled as the CT and RB milestones in ROADMAP.md, behind gate D6.
      lies it along the ground, values in between tilt it partway),
      `rest` (`Lowest` so nothing floats, or `Plane`), `embed` (how deep
      it sinks, as a share of its size) and `max_bend` (how much the ground
-     may bend under it). A Scatter may override it per class or species.
+     may bend under it). A layer entry may override it.
      One executor, `procgena_core::scatter::place`, puts every piece down
      from the points where it touches flat ground. Placement is not part
      of any options hash or specimen id. Typical values: logs conform 1,
@@ -2167,7 +2187,9 @@ scheduled as the CT and RB milestones in ROADMAP.md, behind gate D6.
    See [docs/decisions/C1.md](docs/decisions/C1.md) and "Queries".
 4. ~~**Ids from list positions.**~~ Decided 2026-11-23 (D3): Scatters,
    Ecotopes and mix entries have frozen `ChildKey`s, and priority is a
-   number on one World-wide scale. See "Seeds" and "3. Ecotope".
+   number on one World-wide scale. See "Seeds" and "3. Ecotope". Since EL
+   every mix entry's key is a map key, with no fallback to its preset's
+   key.
 5. ~~**Biome and Terrain share an id.**~~ Decided 2026-11-23 (D3): the
    Terrain's noise uses the World seed, and the Terrain and the Biome each
    take a sibling region seed (`"terrain.region.local"`,
