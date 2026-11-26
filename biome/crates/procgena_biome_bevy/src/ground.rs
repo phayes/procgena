@@ -1,52 +1,31 @@
 //! Ground for previewing an Ecotope: a mesh of any [`Ground`], a gently
 //! rolling height function to build a [`HeightGrid`](procgena_core::HeightGrid)
-//! from, and the Ecotope's ground layers drawn over a patch.
-
-use std::sync::Arc;
+//! from, and a plain grey patch of it under the Ecotope.
 
 use bevy::asset::RenderAssetUsages;
-use bevy::math::{DVec2, UVec2};
+use bevy::math::DVec2;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
-use procgena_biome::{Ecotope, EcotopePlacement};
 use procgena_core::Ground;
 use procgena_core::scatter::ScatterArea;
-use procgena_terrain::FeatureTier;
-use procgena_terrain::ground::{GroundStack, GroundWeights, MaterialCatalogue, OnGround};
 
 /// How [`EcotopeParams`](crate::EcotopeParams) draws the ground under its
-/// Ecotope: a mesh of the ground over the area and a margin around it,
-/// coloured by the Ecotope's ground layers over `base`, with
-/// `procgena_terrain_bevy`'s
-/// [`TerrainMaterial`](procgena_terrain_bevy::TerrainMaterial).
-#[derive(Clone)]
+/// Ecotope: a plain grey mesh of the ground over the area and a margin
+/// around it.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GroundPatch {
-    /// The ground the Ecotope's layers lie over, such as bare terrain's
-    /// look ([`GroundStack::bare`]).
-    pub base: Arc<GroundStack>,
     /// Ground drawn beyond the area on each side, in metres.
     pub margin: f64,
-    /// The largest spacing of the mesh's vertices, in metres; the ground's
-    /// layers are painted at every vertex.
+    /// The largest spacing of the mesh's vertices, in metres.
     pub cell: f64,
 }
 
 impl GroundPatch {
-    /// Whether `other` draws the same: the same base (`Arc`), margin and
-    /// cell.
-    pub(crate) fn same_as(&self, other: &GroundPatch) -> bool {
-        Arc::ptr_eq(&self.base, &other.base)
-            && self.margin == other.margin
-            && self.cell == other.cell
-    }
-
-    /// The rectangle drawn around `area` (smallest and largest world x and
-    /// z), and the vertices along each side.
-    pub(crate) fn rectangle(&self, area: ScatterArea) -> (DVec2, DVec2, UVec2) {
+    /// The rectangle drawn around `area`: its smallest and largest World x
+    /// and z.
+    pub(crate) fn rectangle(&self, area: ScatterArea) -> (DVec2, DVec2) {
         let half = area.size.as_dvec2() * 0.5 + DVec2::splat(self.margin);
-        let (min, max) = (area.centre - half, area.centre + half);
-        let cells = ((max - min) / self.cell).ceil().max(DVec2::ONE);
-        (min, max, cells.as_uvec2() + 1)
+        (area.centre - half, area.centre + half)
     }
 }
 
@@ -56,47 +35,6 @@ impl GroundPatch {
 #[derive(Component, Debug, Clone, Copy, Default)]
 #[require(Transform, Visibility)]
 pub struct EcotopeGroundPatch;
-
-/// The ground weights an [`EcotopeGroundPatch`] is drawn from, on the
-/// patch's entity: for tools that show or read what the ground is made of,
-/// such as a debug overlay. Replaced each time the patch is painted again.
-#[derive(Component, Debug, Clone)]
-pub struct EcotopeGroundWeights {
-    /// The weights, one texel on each vertex of the patch's mesh, its first
-    /// texel on `min` and its last on `max`.
-    pub weights: Arc<GroundWeights>,
-    /// The patch's smallest corner (World x and z, metres).
-    pub min: DVec2,
-    /// The patch's largest corner (World x and z, metres).
-    pub max: DVec2,
-    /// The catalogue the weights' material ids are from.
-    pub catalogue: Arc<MaterialCatalogue>,
-}
-
-/// The weights of `ecotope`'s ground over `patch` around `area` of
-/// `ground`, following the copies of `placement`, one texel on each vertex
-/// of the patch's mesh.
-pub(crate) fn patch_weights(
-    ecotope: &Ecotope,
-    placement: &EcotopePlacement,
-    ground: &dyn Ground,
-    area: ScatterArea,
-    patch: &GroundPatch,
-) -> Result<GroundWeights, String> {
-    let painter = ecotope
-        .ground(&patch.base, placement)
-        .map_err(|e| e.to_string())?;
-    let (min, max, size) = patch.rectangle(area);
-    GroundWeights::grid(
-        &painter,
-        &OnGround(ground),
-        min,
-        max,
-        size,
-        FeatureTier::Fine,
-    )
-    .map_err(|e| e.to_string())
-}
 
 /// Rolling ground for previews: long swells about 2 m high with a shallower
 /// ripple across them. Returns the height in metres at World position `p`.

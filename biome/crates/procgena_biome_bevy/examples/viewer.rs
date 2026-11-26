@@ -27,14 +27,7 @@
 //!   them first with `uv run --project tools textures download <project>`
 //!   for `tree`, `stone`, `deadwood` and `mushroom`: an asset whose images
 //!   are missing is not drawn. Without it, trees and stones get plain
-//!   colours. The ground is textured from `terrain/assets/textures`
-//!   (`textures download terrain --sizes 128,512,1k`); without those
-//!   files it keeps its flat colours.
-//! - `--texture-level <n>`: the ground's texture detail: 0 for the largest
-//!   size, 1 (the default) for the next, 2 for the smallest;
-//! - `--ground-texture <material>=<set>`: draw ground material
-//!   `<material>` with texture set `<set>` from `terrain/textures.yml`
-//!   instead, in that set's average colour. May be given more than once.
+//!   colours. The ground is always plain grey.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,10 +51,6 @@ use procgena_deadwood_bevy::{DeadwoodGenerating, DeadwoodPart, DeadwoodPlugin};
 use procgena_mushroom_bevy::{MushroomGenerating, MushroomPart, MushroomPlugin};
 use procgena_plant_bevy::PlantPlugins;
 use procgena_stone_bevy::{StoneGenerating, StonePart, StonePlugin};
-use procgena_terrain::ground::{
-    BARE_SEED_KIND, GroundStack, MaterialCatalogue, bare_layers, ground_textures,
-};
-use procgena_terrain_bevy::GroundTextureSettings;
 use procgena_tree_bevy::{TreeGenerating, TreePart, TreePlugin};
 
 /// Frames to wait after generation finishes before a screenshot, so meshes
@@ -90,8 +79,6 @@ struct Offscreen(Handle<Image>);
 #[derive(Resource)]
 struct Scene {
     ecotope: Ecotope,
-    /// The ground's materials.
-    catalogue: Arc<MaterialCatalogue>,
     seed: u32,
     size: f32,
     eye: Option<Vec3>,
@@ -156,40 +143,6 @@ fn main() {
     if !textured {
         plain_colours(&mut ecotope);
     }
-    let texture_settings = GroundTextureSettings {
-        root: root("terrain"),
-        level: value("--texture-level")
-            .map(|s| s.parse().expect("--texture-level needs a whole number"))
-            .unwrap_or(1),
-        ..default()
-    };
-
-    // The ground's materials, with any texture swaps.
-    let mut catalogue = MaterialCatalogue::standard();
-    for (i, flag) in args.iter().enumerate() {
-        if flag != "--ground-texture" {
-            continue;
-        }
-        let swap = args
-            .get(i + 1)
-            .expect("--ground-texture needs <material>=<set>");
-        let (key, set) = swap
-            .split_once('=')
-            .expect("--ground-texture needs <material>=<set>");
-        let average = ground_textures()
-            .set(set)
-            .and_then(|s| s.average)
-            .unwrap_or_else(|| panic!("no ground texture set {set:?} with an average colour"));
-        let id = catalogue
-            .id(key)
-            .unwrap_or_else(|| panic!("no ground material {key:?}"));
-        let (key, material) = catalogue.get(id);
-        let mut material = material.clone();
-        let key = key.clone();
-        material.texture = Some(set.to_owned());
-        material.colour = average;
-        catalogue = catalogue.with(key, material);
-    }
     let defaults = DefaultPlugins.set(AssetPlugin {
         file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../..").to_owned(),
         ..default()
@@ -229,12 +182,10 @@ fn main() {
         PlantPlugins,
         EcotopePlugin,
     ))
-    .insert_resource(texture_settings)
     .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.8)))
     .insert_resource(ScreenshotPath(value("--screenshot")))
     .insert_resource(Scene {
         ecotope,
-        catalogue: Arc::new(catalogue),
         seed,
         size: value("--size")
             .map(|s| s.parse().expect("--size needs a number"))
@@ -280,8 +231,8 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, scene: Res<S
         rolling_hills,
     ));
 
-    // The Ecotope, placed in the background and drawn once placed, with
-    // its ground layers over bare terrain's look.
+    // The Ecotope, placed in the background and drawn once placed, over a
+    // grey patch of its ground.
     commands
         .spawn(EcotopeParams {
             ecotope: Arc::new(scene.ecotope.clone()),
@@ -290,16 +241,6 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, scene: Res<S
             area: ScatterArea::new(DVec2::ZERO, Vec2::splat(scene.size)),
             coverage: None,
             patch: Some(GroundPatch {
-                base: Arc::new(
-                    GroundStack::new(
-                        &bare_layers(),
-                        Arc::clone(&scene.catalogue),
-                        BARE_SEED_KIND,
-                        scene.seed,
-                        1.0,
-                    )
-                    .expect("the bare layers fit the standard materials"),
-                ),
                 margin: GROUND_MARGIN,
                 cell: GROUND_CELL,
             }),
@@ -344,10 +285,7 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>, scene: Res<S
 fn log_placement(finished: On<EcotopeFinished>, mut exit: MessageWriter<AppExit>) {
     match &finished.result {
         Ok(summary) => {
-            info!(
-                "placed in {:?}, ground painted in {:?}",
-                summary.place_time, summary.ground_time
-            );
+            info!("placed in {:?}", summary.place_time);
             for layer in &summary.layers {
                 info!(
                     "  {} (priority {}): {} copies",

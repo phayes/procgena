@@ -67,9 +67,7 @@ mod placing;
 #[cfg(feature = "gpu")]
 mod stones;
 
-pub use ground::{
-    EcotopeGroundPatch, EcotopeGroundWeights, GroundPatch, ground_mesh, rolling_hills,
-};
+pub use ground::{EcotopeGroundPatch, GroundPatch, ground_mesh, rolling_hills};
 pub use placing::{
     EcotopeCopies, EcotopeFinished, EcotopeParams, EcotopePlacing, EcotopePlugin, EcotopeSummary,
     LayerSummary,
