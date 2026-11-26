@@ -78,6 +78,13 @@ are the ones most worth a look.
   BP. The studio's ground-editing and texture infrastructure stays,
   disconnected, for Biome and Ecotope paint later, as do the texture
   lists and assets. The user: "keep the bones of this for later".
+- **Tentative (user, 2026-11-26): the TIN is the canonical ground, period.**
+  `H*` becomes only the generator the TIN samples, and everything reads
+  the TIN: D6b option (a), reversing D6b's split. A feasibility study,
+  `terrain/tin_canonical.md`, is under way: TIN build cost out to
+  placement range, memory, cost per metre of travel, and what reads the
+  TIN. ARCHITECTURE and D6b are not rewritten until the decision is
+  final.
 - **`H*` stays as is.** Most work moves to the GPU via the TIN, and `H*`
   may be revisited later. The GPU plan is being revised to be TIN-centred.
 
