@@ -90,7 +90,17 @@ with the advisor where needed, for the user to review.
    background. Porcini is halved in the demo's own Ecotope preset only.
    Placement takes about 68 s per tile on a loaded machine; it's the next
    bottleneck to measure, per Scatter.
-9. **Cheap borders (TB):**
+9. **Cheap borders (TB) results and test decisions:**
+   - **Speed:** 9.4× fewer instructions on the mixed world (Rough only, one
+     thread). First picture went from 453 s to 41 s; Rough per region from
+     about 165 ms to 7.7 ms.
+   - **Tests:** the river-crossing test whose scenario vanished gets a
+     hand-built world rather than being retired. The curvature border
+     limit loosens from 0.01 to 0.02, a consequence of the allowed slope
+     creases.
+   - **Known issue:** faint star-shaped slope creases appear near sharp
+     border bends, recorded as a follow-up.
+10. **Cheap borders (TB):**
    - Its "before" numbers are taken after the Rayon removal (TS), so the
      comparison is like for like.
    - `Convergence::blend` and `EdgeOptions::roughness` stay as settings
