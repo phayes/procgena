@@ -14,7 +14,7 @@ use bevy::{asset::embedded_asset, core_pipeline::schedule::camera_driver, prelud
 use procgena_terrain::ground::{
     Condition, GroundGrid, GroundStack, HeightRule, MaterialId, PALETTE_SIZE, Ramp,
 };
-use procgena_terrain::{ChunkKey, RoadTags};
+use procgena_terrain::{ChunkKey, Flags, Landform, RoadTags};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -54,6 +54,41 @@ fn tags(tags: RoadTags) -> u32 {
     })
 }
 
+/// The bit of `landform` in a landform mask: its place in [`Landform::ALL`].
+fn landform_bit(landform: Landform) -> u32 {
+    let index = Landform::ALL.iter().position(|&l| l == landform);
+    1 << index.expect("every landform is in Landform::ALL")
+}
+
+/// `flags` as a mask, one bit per flag in the order [`Flags::names`]
+/// lists them.
+fn flag_bits(flags: Flags) -> u32 {
+    [
+        Flags::UNDERWATER,
+        Flags::RIVER,
+        Flags::POND,
+        Flags::ROAD,
+        Flags::ROAD_BANK,
+        Flags::WET,
+    ]
+    .into_iter()
+    .enumerate()
+    .fold(0, |bits, (i, flag)| {
+        bits | if flags.contains(flag) { 1 << i } else { 0 }
+    })
+}
+
+/// Bits of a site's known-measures word (see `ground_weights.wgsl`).
+mod known {
+    pub(super) const RELIEF: u32 = 1;
+    pub(super) const HEIGHT_ABOVE_WATER: u32 = 2;
+    pub(super) const ROAD_TAGS: u32 = 4;
+    pub(super) const WATER_DISTANCE: u32 = 8;
+    pub(super) const ROAD_DISTANCE: u32 = 16;
+    pub(super) const CURVATURE: u32 = 32;
+    pub(super) const LABELS: u32 = 64;
+}
+
 impl Program {
     fn new(stack: &GroundStack) -> Option<Self> {
         let layers: Vec<_> = stack.layers().map(|(_, l)| l).collect();
@@ -81,12 +116,26 @@ impl Program {
                 .unwrap();
             words.push([slot as f32, layer.opacity, layer.when.len() as f32, 0.0]);
             for condition in &layer.when {
+                // Flag rules carry their `none` flags in the band word.
+                let mut none = 0;
                 let (kind, ramp, mask) = match condition {
                     Condition::Slope(r) => (0, *r, 0),
                     Condition::Height(HeightRule::Absolute(r)) => (1, *r, 0),
                     Condition::Height(HeightRule::Relief(r)) => (2, *r, 0),
                     Condition::HeightAboveWater(r) => (3, *r, 0),
                     Condition::RoadTags(t) => (4, Ramp::default(), tags(*t)),
+                    Condition::WaterDistance(r) => (5, *r, 0),
+                    Condition::RoadDistance(r) => (6, *r, 0),
+                    Condition::Curvature(r) => (7, *r, 0),
+                    Condition::Landform(set) => (
+                        8,
+                        Ramp::default(),
+                        set.iter().fold(0, |m, &l| m | landform_bit(l)),
+                    ),
+                    Condition::Flags(rule) => {
+                        none = flag_bits(rule.none);
+                        (9, Ramp::default(), flag_bits(rule.any))
+                    }
                 };
                 if ramp
                     .rise
@@ -105,7 +154,11 @@ impl Program {
                 ]);
                 let [a, b] = ramp.rise.unwrap_or([0.0, 1.0]);
                 let [c, d] = ramp.fall.unwrap_or([0.0, 1.0]);
-                words.push([a, b, c, d]);
+                words.push(if kind == 9 {
+                    [none as f32, 0.0, 0.0, 0.0]
+                } else {
+                    [a, b, c, d]
+                });
             }
         }
         Some(Self {
@@ -160,8 +213,17 @@ impl GpuGroundPaint {
             ],
             [offset.x, offset.y, scale, self.program.palette.len() as f32],
         ];
+        // Three words per site, as `ground_weights.wgsl` reads them.
         for site in self.grid.sites() {
             let water = site.height_above_water();
+            let bit = |is_known: bool, bit: u32| if is_known { bit } else { 0 };
+            let bits = bit(site.relief_height.is_some(), known::RELIEF)
+                | bit(water.is_some(), known::HEIGHT_ABOVE_WATER)
+                | bit(site.road_tags.is_some(), known::ROAD_TAGS)
+                | bit(site.water_distance.is_some(), known::WATER_DISTANCE)
+                | bit(site.road_distance.is_some(), known::ROAD_DISTANCE)
+                | bit(site.curvature.is_some(), known::CURVATURE)
+                | bit(site.labels.is_some(), known::LABELS);
             words.push([
                 site.height,
                 site.slope,
@@ -169,10 +231,16 @@ impl GpuGroundPaint {
                 water.unwrap_or(0.0).clamp(-f32::MAX, f32::MAX),
             ]);
             words.push([
-                site.relief_height.is_some() as u32 as f32,
-                water.is_some() as u32 as f32,
-                site.road_tags.is_some() as u32 as f32,
+                bits as f32,
                 tags(site.road_tags.unwrap_or(RoadTags::NONE)) as f32,
+                site.labels.map_or(0, |l| landform_bit(l.landform)) as f32,
+                site.labels.map_or(0, |l| flag_bits(l.flags)) as f32,
+            ]);
+            words.push([
+                site.water_distance.unwrap_or(0.0),
+                site.road_distance.unwrap_or(0.0),
+                site.curvature.unwrap_or(0.0),
+                0.0,
             ]);
         }
         words.extend_from_slice(&self.program.words);
@@ -391,8 +459,9 @@ mod tests {
     use bevy::window::ExitCondition;
     use bevy::winit::WinitPlugin;
     use glam::DVec2;
+    use procgena_core::ChildKey;
     use procgena_terrain::{
-        FeatureTier,
+        FeatureTier, Labels, SampleDetail,
         ground::{GroundSite, GroundSource, Water},
     };
 
@@ -413,8 +482,86 @@ mod tests {
             } else {
                 RoadTags::NONE
             });
+            // Measures are unknown in a strip along the west, and labels
+            // along the east, so unknown conditions are compared too.
+            if p.x >= 10.0 {
+                site.water_distance = Some(p.x as f32 / 4.0);
+                site.road_distance = Some((64.0 - p.y as f32) / 8.0);
+                site.curvature = Some((p.x as f32 - 32.0) / 1000.0);
+            } else {
+                site.water_distance = None;
+                site.road_distance = None;
+            }
+            if p.x <= 54.0 {
+                let landform = Landform::ALL[(p.x / 5.0) as usize % Landform::ALL.len()];
+                let bits = (p.y / 3.0) as usize;
+                let flags = [
+                    Flags::UNDERWATER,
+                    Flags::RIVER,
+                    Flags::POND,
+                    Flags::ROAD,
+                    Flags::ROAD_BANK,
+                    Flags::WET,
+                ]
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| bits & (1 << i) != 0)
+                .fold(Flags::NONE, |all, (_, flag)| all | flag);
+                site = site.with_labels(Labels { landform, flags });
+            }
             site
         }
+    }
+
+    /// Bare terrain's look with every measure and label condition: mud on
+    /// banks and wet ground, gravel shoulders, moss in hollows and rock on
+    /// cliffs, ridges and peaks. Eight materials, the most one chunk holds.
+    fn every_condition() -> GroundStack {
+        use procgena_terrain::ground::{BARE_SEED_KIND, Condition};
+        use procgena_terrain::ground::{FlagRule, GroundLayer, MaterialCatalogue, bare_layers};
+        let key = |k: &str| ChildKey::new(k).unwrap();
+        let mut layers = bare_layers();
+        layers.extend([
+            (
+                key("hollow_moss"),
+                GroundLayer::new(key("moss"), 300)
+                    .when(Condition::Curvature(Ramp::fall(-0.01, 0.005))),
+            ),
+            (
+                key("bank_mud"),
+                GroundLayer::new(key("mud"), 600)
+                    .with_opacity(0.8)
+                    .when(Condition::WaterDistance(Ramp::fall(3.0, 8.0))),
+            ),
+            (
+                key("wet_mud"),
+                GroundLayer::new(key("mud"), 605).when(Condition::Flags(FlagRule {
+                    any: Flags::WET | Flags::POND,
+                    none: Flags::ROAD,
+                })),
+            ),
+            (
+                key("road_shoulder"),
+                GroundLayer::new(key("gravel_road"), 630).when(Condition::RoadDistance(Ramp {
+                    rise: Some([0.5, 1.0]),
+                    fall: Some([2.0, 4.0]),
+                })),
+            ),
+            (
+                key("cliff"),
+                GroundLayer::new(key("cliff_rock"), 660).when(Condition::Landform(
+                    [Landform::Cliff, Landform::Ridge, Landform::Peak].into(),
+                )),
+            ),
+        ]);
+        GroundStack::new(
+            &layers,
+            Arc::new(MaterialCatalogue::standard()),
+            BARE_SEED_KIND,
+            3,
+            1.0,
+        )
+        .unwrap()
     }
 
     fn pixels(app: &App, image: AssetId<Image>) -> Vec<u8> {
@@ -475,15 +622,20 @@ mod tests {
         app.finish();
         app.cleanup();
         assert!(app.world().resource::<Enabled>().0);
-        let stack = GroundStack::bare(3, 1.0);
+        let stack = every_condition();
+        assert_eq!(stack.detail(), SampleDetail::Labels);
         let key = ChunkKey::new(0, 0, 0);
-        let grid = Arc::new(GroundGrid::chunk(&Sites, key, FeatureTier::Fine).unwrap());
+        let detail = stack.detail();
+        let grid = Arc::new(GroundGrid::chunk(&Sites, key, FeatureTier::Fine, detail).unwrap());
         let cpu = grid.paint(&stack);
+        // Every new layer lays some of its material somewhere.
+        assert_eq!(cpu.palette().len(), PALETTE_SIZE, "{:?}", cpu.palette());
         let (paint, surface) = GpuGroundPaint::prepare(&stack, grid, key).unwrap();
         let child = ChunkKey::new(1, 0, 0);
         // A separate parent at level 1 gives a real stand-in with half scale.
         let parent = ChunkKey::new(0, 0, 1);
-        let parent_grid = Arc::new(GroundGrid::chunk(&Sites, parent, FeatureTier::Fine).unwrap());
+        let parent_grid =
+            Arc::new(GroundGrid::chunk(&Sites, parent, FeatureTier::Fine, detail).unwrap());
         let parent_cpu = parent_grid.paint(&stack);
         let (parent_paint, parent_surface) =
             GpuGroundPaint::prepare(&stack, parent_grid, parent).unwrap();
@@ -613,7 +765,9 @@ mod tests {
         )
         .unwrap();
         let key = ChunkKey::new(0, 0, 0);
-        let grid = Arc::new(GroundGrid::chunk(&Sites, key, FeatureTier::Fine).unwrap());
+        let grid = Arc::new(
+            GroundGrid::chunk(&Sites, key, FeatureTier::Fine, SampleDetail::Gradient).unwrap(),
+        );
         assert!(GpuGroundPaint::prepare(&stack, grid, key).is_none());
     }
 }

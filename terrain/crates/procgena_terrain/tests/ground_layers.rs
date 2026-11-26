@@ -10,11 +10,14 @@ use common::{DEFAULT, RIVER_SEEDS, hills_into_plains};
 use glam::{DVec2, Vec2};
 use procgena_core::ChildKey;
 use procgena_terrain::ground::{
-    Condition, GROUND_TEXELS, GroundError, GroundLayer, GroundMaterial, GroundMix, GroundNoise,
-    GroundOverlay, GroundPainter, GroundSite, GroundSource, GroundStack, GroundWeights, HeightRule,
-    MaterialCatalogue, MaterialId, OnGround, PALETTE_SIZE, Ramp,
+    Condition, FlagRule, GROUND_TEXELS, GroundError, GroundLayer, GroundMaterial, GroundMix,
+    GroundNoise, GroundOverlay, GroundPainter, GroundSite, GroundSource, GroundStack,
+    GroundWeights, HeightRule, MaterialCatalogue, MaterialId, OnGround, PALETTE_SIZE, Ramp,
 };
-use procgena_terrain::{ChunkKey, FeatureTier, RoadTags, Terrain};
+use procgena_terrain::{
+    Boundary, ChunkKey, FeatureTier, Flags, Labels, Landform, Region, RegionId, RoadTags,
+    SampleDetail, Terrain, TerrainGenerator, fixtures,
+};
 
 fn key(k: &str) -> ChildKey {
     ChildKey::new(k).unwrap()
@@ -423,7 +426,8 @@ fn retained_sites_repaint_without_reading_ground() {
     }
     let source = Counted(AtomicUsize::new(0));
     let key = ChunkKey::new(-1, 2, 0);
-    let grid = GroundGrid::chunk(&source, key, FeatureTier::Fine).unwrap();
+    let grid = GroundGrid::chunk(&source, key, FeatureTier::Fine, SampleDetail::Measures).unwrap();
+    assert_eq!(grid.detail(), SampleDetail::Measures);
     let count = source.0.load(Ordering::Relaxed);
     for vertical in [0.5, 1.0, 2.0] {
         let painter = GroundStack::bare(7, vertical);
@@ -434,4 +438,329 @@ fn retained_sites_repaint_without_reading_ground() {
         source.0.store(count, Ordering::Relaxed);
     }
     assert_eq!(count, (GROUND_TEXELS * GROUND_TEXELS) as usize);
+}
+
+#[test]
+fn measure_and_label_conditions_read_the_site() {
+    let mut site = GroundSite::new(5.0, Vec2::ZERO);
+    site.water_distance = Some(2.0);
+    site.road_distance = Some(10.0);
+    site.curvature = Some(-0.05);
+    let site = site.with_labels(Labels {
+        landform: Landform::Riverbank,
+        flags: Flags::RIVER | Flags::WET,
+    });
+    let factor = |c: Condition| c.factor(&site, 1.0);
+
+    // Measures through their bands.
+    assert_eq!(
+        factor(Condition::WaterDistance(Ramp::fall(3.0, 8.0))),
+        Some(1.0)
+    );
+    assert_eq!(
+        factor(Condition::RoadDistance(Ramp::fall(3.0, 8.0))),
+        Some(0.0)
+    );
+    assert_eq!(
+        factor(Condition::Curvature(Ramp::fall(-0.02, 0.0))),
+        Some(1.0)
+    );
+    assert_eq!(
+        factor(Condition::Curvature(Ramp::rise(0.0, 0.02))),
+        Some(0.0)
+    );
+
+    // Landforms by set.
+    let landforms = |set: &[Landform]| Condition::Landform(set.iter().copied().collect());
+    assert_eq!(
+        factor(landforms(&[Landform::Riverbank, Landform::Shore])),
+        Some(1.0)
+    );
+    assert_eq!(factor(landforms(&[Landform::Cliff])), Some(0.0));
+    assert_eq!(factor(landforms(&[])), Some(0.0));
+
+    // Flags: any of one set, none of another.
+    let flags = |any, none| Condition::Flags(FlagRule { any, none });
+    assert_eq!(factor(flags(Flags::NONE, Flags::NONE)), Some(1.0));
+    assert_eq!(
+        factor(flags(Flags::WET | Flags::POND, Flags::NONE)),
+        Some(1.0)
+    );
+    assert_eq!(factor(flags(Flags::POND, Flags::NONE)), Some(0.0));
+    assert_eq!(factor(flags(Flags::WET, Flags::RIVER)), Some(0.0));
+    assert_eq!(factor(flags(Flags::NONE, Flags::ROAD)), Some(1.0));
+
+    // Plain ground reads both distances as the reach, and knows neither
+    // its curvature nor its labels, so those conditions have no effect.
+    let plain = GroundSite::new(5.0, Vec2::ZERO);
+    let near_water = Condition::WaterDistance(Ramp::fall(3.0, 8.0));
+    assert_eq!(near_water.factor(&plain, 1.0), Some(0.0));
+    assert_eq!(
+        Condition::Curvature(Ramp::rise(0.0, 0.02)).factor(&plain, 1.0),
+        None
+    );
+    assert_eq!(landforms(&[Landform::Cliff]).factor(&plain, 1.0), None);
+    assert_eq!(flags(Flags::WET, Flags::NONE).factor(&plain, 1.0), None);
+    let layer = GroundLayer::new(key("moss"), 300).when(landforms(&[Landform::Cliff]));
+    assert_eq!(layer.weight(DVec2::ZERO, &plain, 0, 1.0), 1.0);
+}
+
+/// Bare terrain's look with mud on river banks, gravel shoulders beside
+/// roads and rock where the terrain labels a cliff.
+fn banks_and_roads() -> GroundStack {
+    let mut layers = procgena_terrain::ground::bare_layers();
+    layers.extend([
+        (
+            key("bank_mud"),
+            GroundLayer::new(key("mud"), 600)
+                .when(Condition::WaterDistance(Ramp::fall(3.0, 8.0)))
+                .when(Condition::HeightAboveWater(Ramp::fall(1.0, 2.0))),
+        ),
+        (
+            key("road_shoulder"),
+            GroundLayer::new(key("gravel_road"), 630)
+                .when(Condition::RoadDistance(Ramp::fall(0.5, 2.0))),
+        ),
+        (
+            key("cliff"),
+            GroundLayer::new(key("cliff_rock"), 660)
+                .when(Condition::Landform([Landform::Cliff].into())),
+        ),
+    ]);
+    let catalogue = Arc::new(MaterialCatalogue::standard());
+    GroundStack::new(&layers, catalogue, "test.ground", 3, 1.0).unwrap()
+}
+
+#[test]
+fn painters_ask_for_the_detail_their_conditions_need() {
+    let catalogue = Arc::new(MaterialCatalogue::standard());
+    let stack = |layers: &[(&str, GroundLayer)]| {
+        let layers = layers.iter().map(|(k, l)| (key(k), l.clone())).collect();
+        GroundStack::new(&layers, catalogue.clone(), "test.ground", 1, 1.0).unwrap()
+    };
+    let soil = ("soil", GroundLayer::new(key("grass"), 0));
+    let rock = (
+        "rock",
+        GroundLayer::new(key("cliff_rock"), 650).when(Condition::Slope(Ramp::rise(0.4, 0.6))),
+    );
+    assert_eq!(
+        stack(std::slice::from_ref(&soil)).detail(),
+        SampleDetail::Gradient
+    );
+    assert_eq!(
+        stack(&[soil.clone(), rock]).detail(),
+        SampleDetail::Gradient
+    );
+    let mud = (
+        "mud",
+        GroundLayer::new(key("mud"), 600).when(Condition::WaterDistance(Ramp::fall(1.0, 2.0))),
+    );
+    assert_eq!(stack(&[soil.clone(), mud]).detail(), SampleDetail::Measures);
+
+    // Bare terrain reads the height above the nearby water; the cliff
+    // label needs labels.
+    assert_eq!(GroundStack::bare(3, 1.0).detail(), SampleDetail::Measures);
+    assert_eq!(banks_and_roads().detail(), SampleDetail::Labels);
+
+    // An overlay asks for its own layers' detail.
+    let bare = GroundStack::bare(3, 1.0);
+    let overlay = |layer: GroundLayer| {
+        GroundOverlay::new(&BTreeMap::from([(key("wet"), layer)]), &bare, "test", 1).unwrap()
+    };
+    let wet = GroundLayer::new(key("mud"), 400).when(Condition::Flags(FlagRule {
+        any: Flags::WET,
+        none: Flags::NONE,
+    }));
+    assert_eq!(overlay(wet).detail(), SampleDetail::Labels);
+    let empty = GroundOverlay::new(&BTreeMap::new(), &bare, "test", 1).unwrap();
+    assert_eq!(empty.detail(), SampleDetail::Gradient);
+}
+
+/// Chunk `key` of `terrain` painted with `stack`, with the sites it was
+/// painted from.
+fn painted(
+    terrain: &Terrain,
+    stack: &GroundStack,
+    key: ChunkKey,
+) -> (GroundWeights, Vec<GroundSite>) {
+    use procgena_terrain::ground::GroundGrid;
+    let grid = GroundGrid::chunk(terrain, key, FeatureTier::Fine, stack.detail()).unwrap();
+    let weights = GroundWeights::chunk(stack, terrain, key, FeatureTier::Fine).unwrap();
+    assert_eq!(grid.paint(stack), weights, "the chunk reads the same sites");
+    (weights, grid.sites().to_vec())
+}
+
+#[test]
+fn mud_follows_river_banks_and_gravel_lines_roads() {
+    let plains = plains();
+    let stack = banks_and_roads();
+    let catalogue = stack.catalogue();
+    let (mud, gravel) = (
+        catalogue.id("mud").unwrap(),
+        catalogue.id("gravel_road").unwrap(),
+    );
+    let texel = |n: usize| (n as u32 % GROUND_TEXELS, n as u32 / GROUND_TEXELS);
+
+    // Mud lies on banks only: near the water and low above it.
+    let river = &plains.rivers()[0].points;
+    let key = ChunkKey::containing(river[river.len() / 2], 0);
+    let (weights, sites) = painted(&plains, &stack, key);
+    let mut banks = 0;
+    for (n, site) in sites.iter().enumerate() {
+        let (i, j) = texel(n);
+        if weights.weight(i, j, mud) > 128 {
+            banks += 1;
+            assert!(site.water_distance.unwrap() < 8.0, "{site:?}");
+            assert!(site.height_above_water().unwrap() < 2.0, "{site:?}");
+        }
+        if site.water_distance.unwrap() >= 8.0 {
+            assert_eq!(weights.weight(i, j, mud), 0, "{site:?}");
+        }
+    }
+    assert!(banks > 50, "mud on {banks} texels of the river's chunk");
+
+    // Gravel lines roads beyond their surface, and fades by 2 m.
+    let road = &plains.roads()[0].points;
+    let key = ChunkKey::containing(road[road.len() / 2], 0);
+    let (weights, sites) = painted(&plains, &stack, key);
+    let mut shoulders = 0;
+    for (n, site) in sites.iter().enumerate() {
+        let (i, j) = texel(n);
+        let off_road = !site.road_tags.unwrap().contains(RoadTags::ROAD);
+        let gentle = site.slope < 0.4;
+        if off_road && gentle && weights.weight(i, j, gravel) > 128 {
+            shoulders += 1;
+            assert!(site.road_distance.unwrap() < 2.0, "{site:?}");
+        }
+        if site.road_distance.unwrap() >= 2.0 {
+            assert_eq!(weights.weight(i, j, gravel), 0, "{site:?}");
+        }
+    }
+    assert!(
+        shoulders > 20,
+        "gravel beside the road on {shoulders} texels"
+    );
+}
+
+#[test]
+fn a_cliff_label_picks_cliff_rock() {
+    let stack = banks_and_roads();
+    let rock = stack.catalogue().id("cliff_rock").unwrap();
+    let labelled = |landform| {
+        GroundSite::new(40.0, Vec2::new(0.2, 0.0)).with_labels(Labels {
+            landform,
+            flags: Flags::NONE,
+        })
+    };
+    // Gentle enough that the slope alone lays no rock.
+    assert_eq!(
+        stack
+            .paint(DVec2::ZERO, &labelled(Landform::Slope))
+            .weight(rock),
+        0.0
+    );
+    assert_eq!(
+        stack
+            .paint(DVec2::ZERO, &labelled(Landform::Cliff))
+            .weight(rock),
+        1.0
+    );
+
+    // On mountains, every texel labelled a cliff is rock: look in a chunk
+    // holding one.
+    let mountains = TerrainGenerator::new(fixtures::mountains_medium().terrain.clone())
+        .unwrap()
+        .build(
+            Region {
+                id: RegionId(1),
+                boundary: Boundary::Polygon(vec![
+                    DVec2::ZERO,
+                    DVec2::new(1500.0, 0.0),
+                    DVec2::new(1500.0, 1500.0),
+                    DVec2::new(0.0, 1500.0),
+                ]),
+                edges: Vec::new(),
+                corners: Vec::new(),
+            },
+            &[],
+        )
+        .unwrap();
+    let cliff = a_cliff(&mountains).expect("the mountains have a cliff");
+    let (weights, sites) = painted(&mountains, &stack, ChunkKey::containing(cliff, 0));
+    let mut cliffs = 0;
+    for (n, site) in sites.iter().enumerate() {
+        if site.labels.unwrap().landform == Landform::Cliff {
+            cliffs += 1;
+            let (i, j) = (n as u32 % GROUND_TEXELS, n as u32 / GROUND_TEXELS);
+            assert!(weights.weight(i, j, rock) >= 254, "{site:?}");
+        }
+    }
+    assert!(cliffs > 0, "texels of the chunk are cliffs");
+}
+
+/// A point `terrain` labels a cliff, found on a 4 m lattice over its
+/// region, if there is one.
+fn a_cliff(terrain: &Terrain) -> Option<DVec2> {
+    let procgena_terrain::Boundary::Polygon(corners) = &terrain.region().boundary else {
+        panic!("test regions have polygons");
+    };
+    let (lo, hi) = corners
+        .iter()
+        .fold((DVec2::INFINITY, DVec2::NEG_INFINITY), |(lo, hi), &q| {
+            (lo.min(q), hi.max(q))
+        });
+    let steps = ((hi - lo) / 4.0).as_uvec2();
+    (0..steps.y)
+        .flat_map(|j| (0..steps.x).map(move |i| lo + DVec2::new(f64::from(i), f64::from(j)) * 4.0))
+        .filter(|&p| terrain.region().boundary.contains(p))
+        // Cheaply steep first: a cliff is at least 55°, or a road bank.
+        .filter(|&p| {
+            terrain.gradient(p).length() > 1.0 || terrain.road_tags(p).contains(RoadTags::CLIFF)
+        })
+        .find(|&p| terrain.annotate(p).landform == Landform::Cliff)
+}
+
+/// Bare terrain's riverbed reads the height above the nearby water, which
+/// only measures give. Read with them, it lies under the drawn water as it
+/// did when it read only the water covering each point, but for a few
+/// texels where waters at different levels meet.
+#[test]
+fn bare_riverbeds_lie_under_drawn_water_read_with_measures() {
+    use procgena_terrain::ground::{GroundGrid, Water};
+    let bare = GroundStack::bare(3, 1.0);
+    let riverbed = bare.catalogue().id("riverbed").unwrap();
+    let (mut wet, mut lost) = (0, 0);
+    for seed in RIVER_SEEDS {
+        let world = hills_into_plains(seed, DEFAULT);
+        for terrain in world.terrains() {
+            let waters = terrain
+                .rivers()
+                .iter()
+                .map(|r| r.points[r.points.len() / 2]);
+            let ponds = terrain.ponds().iter().map(|p| p.centre);
+            for p in waters.chain(ponds) {
+                let key = ChunkKey::containing(p, 0);
+                let read = |detail| GroundGrid::chunk(terrain, key, FeatureTier::Fine, detail);
+                let (rough, fine) = (
+                    read(SampleDetail::Gradient).unwrap(),
+                    read(SampleDetail::Measures).unwrap(),
+                );
+                let (a, b) = (rough.paint(&bare), fine.paint(&bare));
+                for (n, site) in fine.sites().iter().enumerate() {
+                    if !matches!(site.water, Some(Water::Level(_))) {
+                        continue;
+                    }
+                    let (i, j) = (n as u32 % GROUND_TEXELS, n as u32 / GROUND_TEXELS);
+                    let (was, now) = (a.weight(i, j, riverbed), b.weight(i, j, riverbed));
+                    wet += 1;
+                    if u32::from(now) + 64 < u32::from(was) {
+                        lost += 1;
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("{wet} texels under water, {lost} lost a quarter of their riverbed");
+    assert!(wet > 10_000, "{wet} texels under water");
+    assert!(lost * 1000 < wet, "{lost} of {wet} texels lost riverbed");
 }

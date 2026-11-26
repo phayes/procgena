@@ -1,13 +1,15 @@
 //! Ground layers and the rules that say where each one lies.
 
+use std::collections::BTreeSet;
+
 use glam::DVec2;
 use procgena_core::ChildKey;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::GroundSite;
-use crate::RoadTags;
 use crate::noise::gradient_noise;
+use crate::{Flags, Landform, RoadTags, SampleDetail};
 
 /// A soft band over one measure, such as a slope or a height: 0 outside
 /// it, 1 inside it, with smooth edges.
@@ -84,11 +86,39 @@ pub enum HeightRule {
     Relief(Ramp),
 }
 
+/// A rule over a point's [`Flags`]: 1 where the point has at least one of
+/// the `any` flags (or `any` is empty) and none of the `none` flags,
+/// otherwise 0.
+///
+/// ```yaml
+/// any: [wet]
+/// none: [road, road_bank]
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FlagRule {
+    /// Flags of which the point must have at least one. Empty means no
+    /// flag is needed.
+    #[serde(with = "flag_names")]
+    pub any: Flags,
+    /// Flags the point must not have.
+    #[serde(with = "flag_names")]
+    pub none: Flags,
+}
+
+impl FlagRule {
+    /// Whether `flags` pass the rule.
+    pub fn passes(&self, flags: Flags) -> bool {
+        (self.any.is_empty() || flags.intersects(self.any)) && !flags.intersects(self.none)
+    }
+}
+
 /// One condition of a ground layer's rule. Each gives a factor from 0 to
 /// 1, and a layer's conditions are multiplied together.
 ///
 /// A condition whose measure the [`GroundSite`] doesn't have counts as 1,
-/// so it has no effect: see [`Condition::factor`].
+/// so it has no effect: see [`Condition::factor`]. Each condition needs
+/// the site read at least at its [`detail`](Self::detail).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Condition {
@@ -97,12 +127,27 @@ pub enum Condition {
     Slope(Ramp),
     /// The ground's height.
     Height(HeightRule),
-    /// How far the ground lies above the water surface covering it, in
-    /// metres: negative under water. Ground no water covers counts as
-    /// infinitely high above it.
+    /// How far the ground lies above the water, in metres: negative under
+    /// water (see [`GroundSite::height_above_water`]). Ground with no water
+    /// near or over it counts as infinitely high above it.
     HeightAboveWater(Ramp),
     /// 1 where a road gives the ground any of these tags, otherwise 0.
     RoadTags(#[serde(with = "tag_names")] RoadTags),
+    /// How far it is to the nearest river's or pond's edge, in metres: 0 in
+    /// the water, and at most [`MEASURE_REACH`](crate::MEASURE_REACH).
+    WaterDistance(Ramp),
+    /// How far it is to the nearest road surface's edge, in metres: 0 on
+    /// the road, and at most [`MEASURE_REACH`](crate::MEASURE_REACH).
+    RoadDistance(Ramp),
+    /// How the ground bends, per metre: positive where it is convex
+    /// (ridges, the tops of banks), negative where it is concave (valley
+    /// floors, hollows); see [`Measures::curvature`](crate::Measures::curvature).
+    Curvature(Ramp),
+    /// 1 where the ground's [`Landform`] is one of these, otherwise 0. An
+    /// empty set is 0 everywhere labels are known.
+    Landform(#[serde(with = "landform_names")] BTreeSet<Landform>),
+    /// 1 where the ground's [`Flags`] pass the rule, otherwise 0.
+    Flags(FlagRule),
 }
 
 impl Condition {
@@ -112,17 +157,40 @@ impl Condition {
     /// `vertical` is the World's vertical scale, which multiplies
     /// [`HeightRule::Absolute`] bands.
     pub fn factor(&self, site: &GroundSite, vertical: f32) -> Option<f32> {
+        let pass = |pass: bool| if pass { 1.0 } else { 0.0 };
         match self {
             Self::Slope(ramp) => Some(ramp.at(site.slope)),
             Self::Height(HeightRule::Absolute(ramp)) => Some(ramp.at(site.height / vertical)),
             Self::Height(HeightRule::Relief(ramp)) => site.relief_height.map(|h| ramp.at(h)),
             Self::HeightAboveWater(ramp) => site.height_above_water().map(|h| ramp.at(h)),
             Self::RoadTags(wanted) => site.road_tags.map(|tags| {
-                let any = ROAD_TAGS
-                    .iter()
-                    .any(|&tag| wanted.contains(tag) && tags.contains(tag));
-                if any { 1.0 } else { 0.0 }
+                pass(
+                    ROAD_TAGS
+                        .iter()
+                        .any(|&tag| wanted.contains(tag) && tags.contains(tag)),
+                )
             }),
+            Self::WaterDistance(ramp) => site.water_distance.map(|d| ramp.at(d)),
+            Self::RoadDistance(ramp) => site.road_distance.map(|d| ramp.at(d)),
+            Self::Curvature(ramp) => site.curvature.map(|c| ramp.at(c)),
+            Self::Landform(set) => site.labels.map(|l| pass(set.contains(&l.landform))),
+            Self::Flags(rule) => site.labels.map(|l| pass(rule.passes(l.flags))),
+        }
+    }
+
+    /// The least a [`GroundSource`](super::GroundSource) must work out
+    /// about a point for this condition to read it: slope, height and road
+    /// tags need [`SampleDetail::Gradient`]; height above water, distances
+    /// and curvature [`SampleDetail::Measures`]; landforms and flags
+    /// [`SampleDetail::Labels`].
+    pub fn detail(&self) -> SampleDetail {
+        match self {
+            Self::Slope(_) | Self::Height(_) | Self::RoadTags(_) => SampleDetail::Gradient,
+            Self::HeightAboveWater(_)
+            | Self::WaterDistance(_)
+            | Self::RoadDistance(_)
+            | Self::Curvature(_) => SampleDetail::Measures,
+            Self::Landform(_) | Self::Flags(_) => SampleDetail::Labels,
         }
     }
 
@@ -131,9 +199,85 @@ impl Condition {
         match self {
             Self::Slope(ramp)
             | Self::Height(HeightRule::Absolute(ramp) | HeightRule::Relief(ramp))
-            | Self::HeightAboveWater(ramp) => ramp.is_valid(),
-            Self::RoadTags(_) => true,
+            | Self::HeightAboveWater(ramp)
+            | Self::WaterDistance(ramp)
+            | Self::RoadDistance(ramp)
+            | Self::Curvature(ramp) => ramp.is_valid(),
+            Self::RoadTags(_) | Self::Landform(_) | Self::Flags(_) => true,
         }
+    }
+}
+
+/// Every single flag, in the order [`Flags::names`] lists them.
+pub(crate) const FLAGS: [Flags; 6] = [
+    Flags::UNDERWATER,
+    Flags::RIVER,
+    Flags::POND,
+    Flags::ROAD,
+    Flags::ROAD_BANK,
+    Flags::WET,
+];
+
+/// Reads and writes [`Flags`] as a list of flag names, such as
+/// `[wet, river]`.
+mod flag_names {
+    use super::*;
+
+    pub(super) fn serialize<S: Serializer>(flags: &Flags, s: S) -> Result<S::Ok, S::Error> {
+        flags.names().serialize(s)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Flags, D::Error> {
+        let names = Vec::<String>::deserialize(d)?;
+        names.iter().try_fold(Flags::NONE, |flags, name| {
+            let flag = FLAGS
+                .iter()
+                .find(|flag| flag.names()[0] == name)
+                .ok_or_else(|| {
+                    D::Error::custom(format!(
+                        "unknown flag {name:?}; the flags are underwater, river, pond, road, \
+                         road_bank and wet"
+                    ))
+                })?;
+            Ok(flags | *flag)
+        })
+    }
+}
+
+/// Reads and writes a set of [`Landform`]s as a list of names, such as
+/// `[cliff, ridge]`.
+mod landform_names {
+    use super::*;
+
+    pub(super) fn serialize<S: Serializer>(
+        set: &BTreeSet<Landform>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        set.iter()
+            .map(|l| l.name())
+            .collect::<Vec<_>>()
+            .serialize(s)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<BTreeSet<Landform>, D::Error> {
+        let names = Vec::<String>::deserialize(d)?;
+        names
+            .iter()
+            .map(|name| {
+                Landform::ALL
+                    .into_iter()
+                    .find(|l| l.name() == name)
+                    .ok_or_else(|| {
+                        let all: Vec<_> = Landform::ALL.iter().map(|l| l.name()).collect();
+                        D::Error::custom(format!(
+                            "unknown landform {name:?}; the landforms are {}",
+                            all.join(", ")
+                        ))
+                    })
+            })
+            .collect()
     }
 }
 
@@ -390,6 +534,18 @@ impl GroundLayer {
             weight *= noise.factor(p, seed);
         }
         weight
+    }
+
+    /// The least a [`GroundSource`](super::GroundSource) must work out
+    /// about a point for every condition of this layer to read it (see
+    /// [`Condition::detail`]); [`SampleDetail::Gradient`] for a layer with
+    /// no conditions.
+    pub fn detail(&self) -> SampleDetail {
+        self.when
+            .iter()
+            .map(Condition::detail)
+            .max()
+            .unwrap_or(SampleDetail::Gradient)
     }
 
     /// Whether every setting is usable: opacity from 0 to 1, bands running

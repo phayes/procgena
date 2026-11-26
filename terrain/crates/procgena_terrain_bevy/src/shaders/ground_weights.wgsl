@@ -10,11 +10,23 @@ fn edge(a: f32, b: f32, x: f32) -> f32 {
     let t = clamp((x - a) / (b - a), 0.0, 1.0);
     return t * t * (3.0 - 2.0 * t);
 }
+// Each site is three words: [height, slope, relief height, height above
+// water], [known bits, road tag bits, landform bit, flag bits] and [water
+// distance, road distance, curvature, unused]. Known bits: 1 relief height,
+// 2 height above water, 4 road tags, 8 water distance, 16 road distance,
+// 32 curvature, 64 labels. A condition on an unknown measure counts as 1.
+const SITE_WORDS: u32 = 3u;
+fn known(bits: u32, bit: u32) -> bool {
+    return (bits & bit) != 0u;
+}
 fn weights(at: vec2<u32>) -> array<f32, 8> {
     let width = u32(data[0].x);
-    let site = data[2u + 2u * (at.y * width + at.x)];
-    let known = data[3u + 2u * (at.y * width + at.x)];
-    var cursor = 2u + 2u * width * u32(data[0].y);
+    let index = 2u + SITE_WORDS * (at.y * width + at.x);
+    let site = data[index];
+    let labels = data[index + 1u];
+    let measures = data[index + 2u];
+    let bits = u32(labels.x);
+    var cursor = 2u + SITE_WORDS * width * u32(data[0].y);
     var mix: array<f32, 8>;
     for (var layer = 0u; layer < u32(data[0].z); layer++) {
         let info = data[cursor];
@@ -28,15 +40,41 @@ fn weights(at: vec2<u32>) -> array<f32, 8> {
             var x = site.y;
             if kind == 1u { x = site.x / data[0].w; }
             if kind == 2u {
-                if known.x == 0.0 { continue; }
+                if !known(bits, 1u) { continue; }
                 x = site.z;
             }
             if kind == 3u {
-                if known.y == 0.0 { continue; }
+                if !known(bits, 2u) { continue; }
                 x = site.w;
             }
             if kind == 4u {
-                if known.z != 0.0 { w *= select(0.0, 1.0, (u32(known.w) & u32(rule.w)) != 0u); }
+                if known(bits, 4u) { w *= select(0.0, 1.0, (u32(labels.y) & u32(rule.w)) != 0u); }
+                continue;
+            }
+            if kind == 5u {
+                if !known(bits, 8u) { continue; }
+                x = measures.x;
+            }
+            if kind == 6u {
+                if !known(bits, 16u) { continue; }
+                x = measures.y;
+            }
+            if kind == 7u {
+                if !known(bits, 32u) { continue; }
+                x = measures.z;
+            }
+            if kind == 8u {
+                if known(bits, 64u) { w *= select(0.0, 1.0, (u32(labels.z) & u32(rule.w)) != 0u); }
+                continue;
+            }
+            if kind == 9u {
+                // Any of rule.w (or none asked for), and none of band.x.
+                if known(bits, 64u) {
+                    let flags = u32(labels.w);
+                    let any = u32(rule.w);
+                    let passes = (any == 0u || (flags & any) != 0u) && (flags & u32(band.x)) == 0u;
+                    w *= select(0.0, 1.0, passes);
+                }
                 continue;
             }
             var factor = 1.0;

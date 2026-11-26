@@ -238,7 +238,10 @@ impl<T: ChunkSource + GroundSource + Send + ?Sized> TerrainSource for T {}
 ///
 /// Replacing its source or tier policy reads every chunk again; the old
 /// chunks stay until replacements are ready. Changing only `ground` reuses
-/// retained sites and updates materials without reading or remeshing terrain.
+/// retained sites and updates materials without reading or remeshing
+/// terrain, unless the new painter's
+/// [`detail`](procgena_terrain::ground::GroundPainter::detail) is more than
+/// the old one's: then every chunk is read again.
 /// To signal changed contents of a source, replace its `Arc`.
 #[derive(Component, Clone)]
 #[require(Transform, Visibility, TerrainProgress)]
@@ -423,7 +426,7 @@ impl ChunkRead {
         gpu: bool,
     ) -> Result<Self, ChunkError> {
         let samples = ChunkSamples::sample(source, key, tier)?;
-        let grid = Arc::new(GroundGrid::chunk(source, key, tier)?);
+        let grid = Arc::new(GroundGrid::chunk(source, key, tier, painter.detail())?);
         Ok(Self::paint(samples, grid, key, painter, gpu))
     }
 
@@ -677,11 +680,14 @@ fn reset_streams(
                 });
             }
             Some(mut state) if stream.is_changed() && !stream.is_added() => {
+                // A painter that reads more of the ground than the chunks
+                // were read with needs them read again.
                 let same_ground = state.last.as_ref().is_some_and(|last| {
                     Arc::ptr_eq(&last.source, &stream.source)
                         && last.rough_from == stream.rough_from
                         && last.mid_from == stream.mid_from
                         && last.coarse_first == stream.coarse_first
+                        && stream.ground.detail() <= last.ground.detail()
                 });
                 if same_ground {
                     if !Arc::ptr_eq(&state.last.as_ref().unwrap().ground, &stream.ground) {
@@ -1277,6 +1283,89 @@ mod tests {
             let fresh = read.ground_grid.paint(&GroundStack::bare(0, 1.0));
             assert_eq!(read.images[0].data, weight_images(&fresh)[0].data);
         }
+    }
+
+    #[test]
+    fn a_painter_that_reads_more_reads_the_chunks_again() {
+        use procgena_core::ChildKey;
+        use procgena_terrain::ground::{Condition, GroundLayer, GroundSite, MaterialCatalogue};
+        use procgena_terrain::{Landform, SampleDetail, SurfacePoint};
+        use std::collections::BTreeMap;
+        use std::sync::Mutex;
+
+        /// Flat ground that remembers the most detail its sites were read at.
+        struct Recorded(Mutex<SampleDetail>);
+        impl ChunkSource for Recorded {
+            fn surface(&self, _: DVec2, _: FeatureTier) -> SurfacePoint {
+                SurfacePoint {
+                    height: 100.0,
+                    water: None,
+                }
+            }
+            fn tier(&self, tier: FeatureTier) -> FeatureTier {
+                tier
+            }
+            fn tier_difference(&self, _: DVec2, _: DVec2, _: FeatureTier) -> f32 {
+                0.0
+            }
+        }
+        impl GroundSource for Recorded {
+            fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite {
+                self.site_at(p, tier, SampleDetail::Gradient)
+            }
+            fn site_at(&self, _: DVec2, _: FeatureTier, detail: SampleDetail) -> GroundSite {
+                let mut most = self.0.lock().unwrap();
+                *most = (*most).max(detail);
+                GroundSite::new(100.0, Vec2::ZERO)
+            }
+        }
+
+        // Grass alone reads the gradient; grass with rock on cliffs, labels.
+        let key = |k: &'static str| ChildKey::from_static(k);
+        let stack = |cliffs: bool| {
+            let mut layers = BTreeMap::from([(key("soil"), GroundLayer::new(key("grass"), 0))]);
+            if cliffs {
+                layers.insert(
+                    key("cliff"),
+                    GroundLayer::new(key("cliff_rock"), 660)
+                        .when(Condition::Landform([Landform::Cliff].into())),
+                );
+            }
+            let catalogue = Arc::new(MaterialCatalogue::standard());
+            Arc::new(GroundStack::new(&layers, catalogue, "test.ground", 0, 1.0).unwrap())
+        };
+        let details = |app: &App, stream: Entity| -> Vec<SampleDetail> {
+            let state = app.world().get::<StreamState>(stream).unwrap();
+            let reads = state.materials.values();
+            reads.map(|(read, _)| read.ground_grid.detail()).collect()
+        };
+
+        let _streaming = streaming();
+        let mut app = app();
+        let source = Arc::new(Recorded(Mutex::new(SampleDetail::Height)));
+        let mut terrain = TerrainStream::new(source.clone());
+        terrain.ground = stack(false);
+        let stream = app.world_mut().spawn(terrain).id();
+        app.world_mut()
+            .spawn((TerrainViewer, Transform::from_xyz(0.0, 140.0, 0.0)));
+        settle(&mut app, 2000);
+        let read = details(&app, stream);
+        assert!(!read.is_empty());
+        assert!(
+            read.iter().all(|&d| d == SampleDetail::Gradient),
+            "{read:?}"
+        );
+        assert_eq!(*source.0.lock().unwrap(), SampleDetail::Gradient);
+
+        // The labels painter reads every chunk again, with labels.
+        app.world_mut()
+            .get_mut::<TerrainStream>(stream)
+            .unwrap()
+            .ground = stack(true);
+        settle(&mut app, 2000);
+        let read = details(&app, stream);
+        assert!(read.iter().all(|&d| d == SampleDetail::Labels), "{read:?}");
+        assert_eq!(*source.0.lock().unwrap(), SampleDetail::Labels);
     }
 
     #[test]

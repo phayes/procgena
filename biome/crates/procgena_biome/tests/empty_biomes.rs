@@ -241,3 +241,100 @@ fn catalogue_keys_are_unique_and_named_finds_them() {
     }
     assert_eq!(BiomePreset::named("PLAINS"), None);
 }
+
+/// Chunk `key` of `terrain` painted with `painter` at its own detail.
+fn paint(
+    painter: &procgena_terrain::ground::GroundStack,
+    terrain: &Terrain,
+    key: procgena_terrain::ChunkKey,
+) -> procgena_terrain::ground::GroundWeights {
+    use procgena_terrain::FeatureTier;
+    use procgena_terrain::ground::GroundWeights;
+    GroundWeights::chunk(painter, terrain, key, FeatureTier::Fine).expect("ground in the region")
+}
+
+#[test]
+fn an_empty_biomes_base_ground_replaces_the_bare_look() {
+    use std::sync::Arc;
+
+    use procgena_biome::{BiomeGround, biome_seed, standard_base_layers};
+    use procgena_terrain::ground::{GroundStack, MaterialCatalogue, bare_layers};
+    use procgena_terrain::{ChunkKey, SampleDetail};
+
+    let catalogue = Arc::new(MaterialCatalogue::standard());
+    let bare = GroundStack::bare(0, 1.0);
+    let mud = catalogue.id("mud").unwrap();
+    let gravel = catalogue.id("gravel_road").unwrap();
+    // Every empty Biome preset has the standard base ground, the bare look
+    // with banks, road sides and cliffs of its own.
+    for preset in BiomePreset::BARE_LAND {
+        assert_eq!(preset.biome.ground, BiomeGround::Standard, "{}", preset.key);
+        let seed = biome_seed(preset.default_seed, RegionId(1));
+        let base = preset.biome.ground(catalogue.clone(), seed, 1.0).unwrap();
+        assert_eq!(base.detail(), SampleDetail::Labels);
+        let keys: Vec<_> = base.layers().map(|(k, _)| k.clone()).collect();
+        assert!(bare_layers().keys().all(|k| keys.contains(k)), "{keys:?}");
+        assert_eq!(keys.len(), standard_base_layers().len());
+    }
+
+    // Plains west of rolling hills, so roads cross their border. Along a
+    // river, the base lays mud the bare look doesn't; along a road, more
+    // gravel than the road's surface.
+    let pairs = [
+        (RegionId(1), DVec2::new(-SIDE, 0.0), BiomePreset::PLAINS),
+        (RegionId(2), DVec2::ZERO, BiomePreset::ROLLING_HILLS),
+    ];
+    let specs = pairs.clone().map(|(id, origin, preset)| RegionSpec {
+        id,
+        polygon: square(origin),
+        options: preset.biome.terrain_options(0).unwrap(),
+    });
+    let world = StitchedWorld::build(specs.to_vec(), &Convergence::default(), &Elevation::flat())
+        .expect("world builds");
+    let (mut rivers, mut roads) = (0, 0);
+    for terrain in world.terrains() {
+        let id = terrain.region().id;
+        let (_, _, preset) = pairs.iter().find(|(i, ..)| *i == id).unwrap();
+        let base = preset
+            .biome
+            .ground(catalogue.clone(), biome_seed(0, id), 1.0)
+            .unwrap();
+        for river in terrain.rivers() {
+            let key = ChunkKey::containing(river.points[river.points.len() / 2], 0);
+            let (on_base, on_bare) = (paint(&base, terrain, key), paint(&bare, terrain, key));
+            assert!(
+                on_base.palette().contains(&mud),
+                "region {id:?}: mud by the river"
+            );
+            assert!(!on_bare.palette().contains(&mud), "region {id:?}");
+            rivers += 1;
+        }
+        for road in terrain.roads() {
+            let key = ChunkKey::containing(road.points[road.points.len() / 2], 0);
+            let (on_base, on_bare) = (paint(&base, terrain, key), paint(&bare, terrain, key));
+            let total = |w: &procgena_terrain::ground::GroundWeights| -> u64 {
+                (0..w.size().y)
+                    .flat_map(|j| (0..w.size().x).map(move |i| (i, j)))
+                    .map(|(i, j)| u64::from(w.weight(i, j, gravel)))
+                    .sum()
+            };
+            assert!(
+                total(&on_base) > total(&on_bare),
+                "region {id:?}: gravel shoulders"
+            );
+            roads += 1;
+        }
+    }
+    assert!(rivers > 0 && roads > 0, "{rivers} rivers and {roads} roads");
+
+    // Layers given in full replace the standard ones: the bare layers
+    // paint as the bare look does.
+    let plain = Biome {
+        ground: BiomeGround::Layers(bare_layers()),
+        ..BiomePreset::PLAINS.biome
+    };
+    let base = plain.ground(catalogue.clone(), 5, 1.0).unwrap();
+    let terrain = plain.build(0, region(), &[]).unwrap();
+    let key = ChunkKey::containing(DVec2::splat(SIDE / 2.0), 1);
+    assert_eq!(paint(&base, &terrain, key), paint(&bare, &terrain, key));
+}

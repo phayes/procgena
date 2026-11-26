@@ -268,3 +268,69 @@ fn bad_ground_layers_are_refused() {
         Err(EcotopeError::Ground(GroundError::UnknownMaterial { .. }))
     ));
 }
+
+#[test]
+fn measure_and_label_conditions_read_and_write_in_a_file() {
+    use procgena_terrain::ground::{Condition, FlagRule, Ramp};
+    use procgena_terrain::{Flags, Landform, SampleDetail};
+
+    let text = "\
+base: pine_forest_floor
+ecotope:
+  ground:
+    bank_mud:
+      material: mud
+      order: 330
+      when:
+        - water_distance: { fall: [2.0, 5.0] }
+        - road_distance: { rise: [3.0, 6.0] }
+        - curvature: { fall: [-0.01, 0.0] }
+        - landform: [riverbank, shore]
+        - flags: { any: [wet], none: [road, road_bank] }
+";
+    let read = EcotopePreset::from_yaml("mine", text).expect("the file reads");
+    let ecotope = &read.ecotope;
+    let mud = &ecotope.ground[&key("bank_mud")];
+    assert_eq!(
+        mud.when,
+        [
+            Condition::WaterDistance(Ramp::fall(2.0, 5.0)),
+            Condition::RoadDistance(Ramp::rise(3.0, 6.0)),
+            Condition::Curvature(Ramp::fall(-0.01, 0.0)),
+            Condition::Landform([Landform::Riverbank, Landform::Shore].into()),
+            Condition::Flags(FlagRule {
+                any: Flags::WET,
+                none: Flags::ROAD | Flags::ROAD_BANK,
+            }),
+        ]
+    );
+    assert_eq!(mud.detail(), SampleDetail::Labels);
+    ecotope.validate().expect("the merged Ecotope is valid");
+
+    // The Ecotope's painter asks for its layers' detail.
+    let (placement, _) = placed(ecotope);
+    let bare = GroundStack::bare(1, 1.0);
+    let painter = ecotope.ground(&bare, &placement).unwrap();
+    assert_eq!(painter.detail(), SampleDetail::Labels);
+
+    // It writes and reads back the same.
+    let written = read.to_file(Some(EcotopePreset::pine_forest_floor()));
+    assert!(written.contains("riverbank"), "{written}");
+    let again = EcotopePreset::from_yaml("mine", &written).expect(&written);
+    assert_eq!(&again.ecotope, ecotope);
+
+    // Unknown names are errors that list the known ones.
+    for (bad, known) in [
+        ("landform: [beach]", "riverbank"),
+        ("flags: { any: [snow] }", "road_bank"),
+    ] {
+        let text = format!(
+            "base: pine_forest_floor\necotope:\n  ground:\n    m:\n      material: mud\n      \
+             order: 331\n      when:\n        - {bad}\n"
+        );
+        let error = EcotopePreset::from_yaml("mine", &text)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(known), "{error}");
+    }
+}

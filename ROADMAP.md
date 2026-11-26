@@ -1617,6 +1617,31 @@ Phase 10 textures (`terrain/textures.yml`).
 - **Done when:** mud follows river banks and gravel lines roads on a
   Terrain in an image dump, an empty Biome's base ground replaces the
   default stack, and a cliff label picks cliff rock.
+- **Status (2026-11-25): done in the engine-free and Bevy crates; not
+  wired into the World or the studio.**
+  - New conditions: `WaterDistance`, `RoadDistance`, `Curvature`,
+    `Landform` (a set) and `Flags` (`FlagRule { any, none }`). They
+    read and write in YAML by name. `GroundSite` carries `labels`.
+  - Each condition, layer, stack, overlay and painter says what it reads
+    (`detail()`: gradient, measures or labels). Chunk sites are read at
+    the painter's detail (`GroundSource::site_at`/`sites_at`,
+    `GroundGrid::chunk(.., detail)`). A stream whose painter needs more
+    detail reads its chunks again.
+  - The GPU weights shader evaluates every new condition, with a
+    parity test covering both known and unknown measures and labels.
+  - `Biome::ground` gives a Biome's base ground (`BiomeGround::Standard`
+    on every empty preset). It is the bare look plus mud on river banks,
+    gravel road shoulders, and cliff rock on cliff labels.
+    `--example base_ground_dump` in `procgena_biome` draws it.
+  - **Cost:** bare terrain now reads measures, since its riverbed reads
+    the height above the nearby water. The Biome base reads labels. In
+    one run of `ground_cost` on a loaded machine, a chunk's sites took
+    45–143 ms at gradient, 65–219 ms with measures, and 79–392 ms with
+    labels.
+  - Left: painting each World region with its Biome's base ground (the
+    world lane), and the studio's Terrain document. The studio overlay
+    reads sites with `site()`; whoever wires the base in must read with
+    `site_at(.., painter.detail())`.
 
 #### GM4: Ground over Ecotope coverage and borders
 

@@ -4,6 +4,8 @@ use std::borrow::Cow;
 use std::fmt;
 
 use procgena_core::region_seed;
+
+use crate::BiomeGround;
 use procgena_terrain::{
     EdgeAgreement, OptionsError, Region, RegionId, Terrain, TerrainError, TerrainGenerator,
     TerrainOptions, TerrainPreset,
@@ -23,6 +25,9 @@ pub struct Biome {
     /// Which Ecotope grows on which kind of ground. Always empty for now,
     /// because Ecotopes don't exist yet: every Biome is bare land.
     pub ecotope_rules: Vec<EcotopeRule>,
+    /// What the ground is made of under the Ecotopes, and where none
+    /// covers it (see [`ground`](Self::ground)).
+    pub ground: BiomeGround,
 }
 
 /// The Terrain of a [`Biome`]: a Terrain preset, or settings given inline.
@@ -108,11 +113,12 @@ pub fn biome_seed(world_seed: u32, region: RegionId) -> u32 {
 
 impl Biome {
     /// An empty Biome: `terrain` with no Ecotope rules, which builds bare
-    /// land.
+    /// land, on the [standard](BiomeGround::Standard) base ground.
     pub const fn empty(terrain: BiomeTerrain) -> Self {
         Self {
             terrain,
             ecotope_rules: Vec::new(),
+            ground: BiomeGround::Standard,
         }
     }
 

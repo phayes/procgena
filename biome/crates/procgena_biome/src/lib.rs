@@ -11,6 +11,10 @@
 //! default empty Biome for every
 //! [`TerrainPreset`](procgena_terrain::TerrainPreset).
 //!
+//! Each Biome has a base ground ([`BiomeGround`]): what its ground is made
+//! of, such as grass, mud on river banks and gravel beside roads. Paint a
+//! Terrain's chunks with [`Biome::ground`].
+//!
 //! # Ecotopes
 //!
 //! An [`Ecotope`] is one kind of ground cover, such as "pine forest floor":
@@ -61,6 +65,7 @@
 
 mod biome;
 mod ecotope;
+mod ground;
 mod presets;
 
 pub use biome::{BIOME_SEED_ROLE, Biome, BiomeError, BiomeTerrain, EcotopeRule, biome_seed};
@@ -70,4 +75,5 @@ pub use ecotope::{
     ScatterKind, scatter_seed,
 };
 pub use ecotope::{EcotopeGround, GROUND_SEED_KIND};
+pub use ground::{BASE_GROUND_SEED_KIND, BiomeGround, standard_base_layers};
 pub use presets::BiomePreset;

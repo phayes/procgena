@@ -4,7 +4,7 @@
 use glam::{DVec2, UVec2};
 
 use super::{GroundMix, GroundPainter, GroundSite, GroundSource, MaterialCatalogue, MaterialId};
-use crate::{CHUNK_CELLS, ChunkError, ChunkKey, FeatureTier};
+use crate::{CHUNK_CELLS, ChunkError, ChunkKey, FeatureTier, SampleDetail};
 
 /// Texels along each side of a chunk's weights, at every level: one on
 /// every half cell of the chunk's mesh, the outer ones on its edges.
@@ -32,8 +32,9 @@ pub struct GroundWeights {
 
 impl GroundWeights {
     /// Paints chunk `key` with `painter`, reading sites from `source` at
-    /// `tier`: [`GROUND_TEXELS`] × [`GROUND_TEXELS`] texels, texel `(i, j)`
-    /// at [`chunk_point`](Self::chunk_point).
+    /// `tier` and the painter's [`detail`](GroundPainter::detail):
+    /// [`GROUND_TEXELS`] × [`GROUND_TEXELS`] texels, texel `(i, j)` at
+    /// [`chunk_point`](Self::chunk_point).
     ///
     /// Neighbouring chunks of one level share their edge texels. Where
     /// neither chunk had to drop materials (see [`dropped`](Self::dropped)),
@@ -59,7 +60,8 @@ impl GroundWeights {
     }
 
     /// Paints the rectangle from `min` to `max` (world x and z, metres)
-    /// with `painter`, reading sites from `source` at `tier`, with `size`
+    /// with `painter`, reading sites from `source` at `tier` and the
+    /// painter's [`detail`](GroundPainter::detail), with `size`
     /// texels along x and z. The texels are spread evenly, the outer ones
     /// on the rectangle's edges, so texel `(i, j)` lies at
     /// `min + (max − min) × (i, j) / (size − 1)`.
@@ -97,7 +99,7 @@ impl GroundWeights {
         tier: FeatureTier,
         point: impl Fn(u32, u32) -> DVec2 + Sync,
     ) -> Result<Self, ChunkError> {
-        Ok(GroundGrid::sample(source, size, tier, point)?.paint(painter))
+        Ok(GroundGrid::sample(source, size, tier, painter.detail(), point)?.paint(painter))
     }
 
     /// Weights from one mix per texel, row by row along x.
@@ -249,12 +251,16 @@ impl GroundWeights {
 #[derive(Debug, Clone)]
 pub struct GroundGrid {
     size: UVec2,
+    detail: SampleDetail,
     points: Vec<DVec2>,
     sites: Vec<GroundSite>,
 }
 
 impl GroundGrid {
-    /// Samples the same texels as [`GroundWeights::chunk`].
+    /// Samples the same texels as [`GroundWeights::chunk`], at `detail`
+    /// (see [`GroundSource::site_at`]). Read at least the
+    /// [`detail`](GroundPainter::detail) of every painter the grid will be
+    /// painted with.
     ///
     /// # Errors
     /// Returns [`ChunkError::NoGround`] if any site has a non-finite height.
@@ -262,8 +268,9 @@ impl GroundGrid {
         source: &(impl GroundSource + ?Sized),
         key: ChunkKey,
         tier: FeatureTier,
+        detail: SampleDetail,
     ) -> Result<Self, ChunkError> {
-        Self::sample(source, UVec2::splat(GROUND_TEXELS), tier, |i, j| {
+        Self::sample(source, UVec2::splat(GROUND_TEXELS), tier, detail, |i, j| {
             GroundWeights::chunk_point(key, i, j)
         })
     }
@@ -272,13 +279,14 @@ impl GroundGrid {
         source: &(impl GroundSource + ?Sized),
         size: UVec2,
         tier: FeatureTier,
+        detail: SampleDetail,
         point: impl Fn(u32, u32) -> DVec2,
     ) -> Result<Self, ChunkError> {
         let points: Vec<_> = (0..size.y)
             .flat_map(|j| (0..size.x).map(move |i| (i, j)))
             .map(|(i, j)| point(i, j))
             .collect();
-        let sites = source.sites(&points, tier);
+        let sites = source.sites_at(&points, tier, detail);
         assert_eq!(sites.len(), points.len(), "one site per point");
         for (p, site) in points.iter().zip(&sites) {
             if !site.height.is_finite() {
@@ -287,13 +295,22 @@ impl GroundGrid {
         }
         Ok(Self {
             size,
+            detail,
             points,
             sites,
         })
     }
 
+    /// The detail the sites were read at. A painter whose
+    /// [`detail`](GroundPainter::detail) is more needs the grid read again.
+    pub fn detail(&self) -> SampleDetail {
+        self.detail
+    }
+
     /// Repaints these samples, with the same palette and quantisation as
-    /// [`GroundWeights::chunk`], without reading any ground.
+    /// [`GroundWeights::chunk`], without reading any ground. Measures the
+    /// grid wasn't read with (see [`detail`](Self::detail)) are unknown to
+    /// `painter`.
     pub fn paint(&self, painter: &(impl GroundPainter + ?Sized)) -> GroundWeights {
         let located: Vec<_> = self.points.iter().zip(&self.sites).collect();
         let mixes = crate::batch::map(&located, |&(p, site)| painter.paint(*p, site));

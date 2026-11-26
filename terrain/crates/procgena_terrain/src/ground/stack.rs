@@ -7,6 +7,7 @@ use glam::DVec2;
 use procgena_core::{ChildKey, child_seed};
 
 use super::{GroundError, GroundLayer, GroundSite, MaterialCatalogue, MaterialId};
+use crate::SampleDetail;
 
 /// How much of each material lies at one point. The weights are more than
 /// 0 and add up to 1.
@@ -210,6 +211,13 @@ impl GroundStack {
         self.vertical
     }
 
+    /// The least a [`GroundSource`](super::GroundSource) must work out
+    /// about each point for every layer's conditions to read it (see
+    /// [`GroundLayer::detail`]).
+    pub fn detail(&self) -> SampleDetail {
+        detail_of(&self.layers)
+    }
+
     /// The stack's layers with their keys, from the bottom up.
     pub fn layers(&self) -> impl Iterator<Item = (&ChildKey, &GroundLayer)> {
         self.layers.iter().map(|p| (&p.key, &p.layer))
@@ -330,6 +338,22 @@ impl GroundOverlay {
     pub fn is_empty(&self) -> bool {
         self.layers.is_empty()
     }
+
+    /// The least a [`GroundSource`](super::GroundSource) must work out
+    /// about each point for every layer's conditions to read it (see
+    /// [`GroundLayer::detail`]); [`SampleDetail::Gradient`] with no layers.
+    pub fn detail(&self) -> SampleDetail {
+        detail_of(&self.layers)
+    }
+}
+
+/// The most detail any of `layers` needs, at least the gradient.
+fn detail_of(layers: &[Prepared]) -> SampleDetail {
+    layers
+        .iter()
+        .map(|p| p.layer.detail())
+        .max()
+        .unwrap_or(SampleDetail::Gradient)
 }
 
 /// Anything that paints the ground: a mix of materials at each point.
@@ -345,6 +369,15 @@ pub trait GroundPainter: Sync {
         None
     }
 
+    /// The least a [`GroundSource`](super::GroundSource) must work out
+    /// about each point for `paint` to read everything it needs. Sites
+    /// read with less leave the extra measures unknown, and conditions on
+    /// unknown measures have no effect. The default is
+    /// [`SampleDetail::Gradient`]: height, slope, water and road tags.
+    fn detail(&self) -> SampleDetail {
+        SampleDetail::Gradient
+    }
+
     /// The catalogue the mixes' material ids are from.
     fn catalogue(&self) -> &MaterialCatalogue;
 
@@ -356,6 +389,10 @@ pub trait GroundPainter: Sync {
 impl GroundPainter for GroundStack {
     fn layer_stack(&self) -> Option<&GroundStack> {
         Some(self)
+    }
+
+    fn detail(&self) -> SampleDetail {
+        GroundStack::detail(self)
     }
 
     fn catalogue(&self) -> &MaterialCatalogue {

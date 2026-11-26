@@ -4,7 +4,8 @@
 //! - A [`MaterialCatalogue`] names a World's materials by key, each with a
 //!   colour.
 //! - A [`GroundLayer`] lays one material where its rule says: conditions
-//!   over the ground's slope, height and water, road tags, patchy noise,
+//!   over the ground's slope, height and water, road tags, distances to
+//!   water and roads, curvature and the terrain's labels, patchy noise,
 //!   and (in an Ecotope) the Ecotope's own Scatters.
 //! - A [`GroundStack`] lays layers over each other by `order`, bottom to
 //!   top, into a [`GroundMix`] of materials at each point.
@@ -44,7 +45,9 @@ use std::fmt;
 use procgena_core::ChildKey;
 
 pub use bare::{BARE_SEED_KIND, bare_layers};
-pub use layer::{Condition, GroundLayer, GroundNoise, HeightRule, Ramp, Reach, ScatterInfluence};
+pub use layer::{
+    Condition, FlagRule, GroundLayer, GroundNoise, HeightRule, Ramp, Reach, ScatterInfluence,
+};
 pub use material::{GroundMaterial, MaterialCatalogue, MaterialId, Projection, ground_textures};
 pub use site::{GroundSite, GroundSource, OnGround, Water};
 pub use stack::{GroundMix, GroundOverlay, GroundPainter, GroundStack};
