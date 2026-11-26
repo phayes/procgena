@@ -508,8 +508,8 @@ fn polyline_height(line: &[(i64, i32)], along: i64) -> f64 {
 }
 
 /// Adds a skirt to `mesh` along `side`: the vertices `edge` (sorted along
-/// the side) copied `depth` metres lower, joined to them by quads facing
-/// out of the chunk.
+/// the side) copied `depth` metres lower, joined to them by quads drawn
+/// with both windings, so they face out of the chunk and into it.
 fn add_skirt(mesh: &mut ChunkMesh, side: ChunkSide, edge: &[(i64, u32)], depth: f32) {
     let outward = {
         let (dx, dz) = side.direction();
@@ -529,10 +529,13 @@ fn add_skirt(mesh: &mut ChunkMesh, side: ChunkSide, edge: &[(i64, u32)], depth: 
         let (a, b) = (top[w], top[w + 1]);
         let (c, d) = (bottom[w + 1], bottom[w]);
         let along = mesh.positions[b as usize] - mesh.positions[a as usize];
+        // Both windings: a skirt can be seen from inside the chunk too,
+        // where steep ground beside a coarser neighbour leaves a gap.
+        let (out, back) = ([a, d, c, a, c, b], [a, c, d, a, b, c]);
         if along.cross(-Vec3::Y).dot(outward) > 0.0 {
-            mesh.indices.extend([a, d, c, a, c, b]);
+            mesh.indices.extend(out.into_iter().chain(back));
         } else {
-            mesh.indices.extend([a, c, d, a, b, c]);
+            mesh.indices.extend(back.into_iter().chain(out));
         }
     }
 }

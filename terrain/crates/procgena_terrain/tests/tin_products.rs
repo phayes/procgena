@@ -386,6 +386,30 @@ fn the_drawn_mesh_is_the_canonical_one_with_split_sides() {
         assert!(skirted.positions.len() > plain.positions.len());
         assert!(skirted.heights.0 <= plain.heights.0 - 8.0 + 1e-4);
         assert!((upward_area(&skirted) - 64.0 * 64.0).abs() < 1e-6);
+
+        // Every skirt triangle (one with a vertex below the surface) is
+        // drawn with both windings, so it shows from either side.
+        let first_skirt = skirted
+            .positions
+            .iter()
+            .position(|p| p.y < plain.heights.0 - 1.0)
+            .expect("skirt vertices") as u32;
+        let triangles: Vec<[u32; 3]> = skirted.indices.as_chunks::<3>().0.to_vec();
+        let mut skirt_triangles = 0;
+        for &[a, b, c] in &triangles {
+            if a.max(b).max(c) < first_skirt {
+                continue;
+            }
+            skirt_triangles += 1;
+            let reversed = [a, c, b];
+            let rotations = [reversed, [c, b, a], [b, a, c]];
+            assert!(
+                triangles.iter().any(|t| rotations.contains(t)),
+                "skirt triangle {:?} has no back face",
+                [a, b, c]
+            );
+        }
+        assert!(skirt_triangles > 0 && skirt_triangles % 4 == 0);
     }
 }
 
