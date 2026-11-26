@@ -53,8 +53,8 @@ use glam::{DVec2, DVec3, Vec3};
 use procgena_core::chain::ViewScale;
 
 use crate::{
-    ChunkLevels, ChunkLevelsError, FeatureId, FeatureLine, FeatureShape, FeatureTier, Pond,
-    SampleDetail, Terrain, TerrainFeature, WorldTerrain,
+    CURVATURE_STEP, ChunkLevels, ChunkLevelsError, FeatureId, FeatureLine, FeatureShape,
+    FeatureTier, MEASURE_REACH, Pond, SampleDetail, Terrain, TerrainFeature, WorldTerrain,
 };
 
 /// Width in metres of a chunk at level 0. Each level up doubles it.
@@ -426,6 +426,26 @@ pub trait ChunkSource: Sync {
         let _ = (min, max, tier);
         Vec::new()
     }
+
+    /// Whether reading chunk `key` at tier `to` could give anything
+    /// different from reading it at tier `from`: its samples, or any
+    /// ground site a painter reads inside it, at any detail. `false` means
+    /// a read at `from` is exactly a read at `to`, bit for bit, so it can
+    /// stand for one.
+    ///
+    /// The default answers `true` whenever the tiers differ, which is
+    /// always safe.
+    fn tier_changes(&self, key: ChunkKey, from: FeatureTier, to: FeatureTier) -> bool {
+        let _ = key;
+        self.tier(from) != self.tier(to)
+    }
+}
+
+/// How far past a chunk's sides its read looks: the ring of samples
+/// around its mesh, plus how far a ground site reads features and
+/// neighbouring heights from its point.
+fn read_reach(key: ChunkKey) -> f64 {
+    2.0 * key.step() + f64::from(MEASURE_REACH) + 2.0 * CURVATURE_STEP
 }
 
 /// `features` sorted by id, each once.
@@ -548,6 +568,21 @@ impl ChunkSource for WorldTerrain {
             }
         }
         sorted_features(features)
+    }
+
+    /// Whether any feature near chunk `key` differs between the tiers:
+    /// the rivers, ponds and roads within reach of anything the chunk's
+    /// read samples, at `from` against `to`. A later tier only adds and
+    /// reshapes roads, and a point's ground and site come from its region's
+    /// features near it, so equal features mean an equal read. Builds the
+    /// regions reaching the chunk at both tiers.
+    fn tier_changes(&self, key: ChunkKey, from: FeatureTier, to: FeatureTier) -> bool {
+        if from == to {
+            return false;
+        }
+        let reach = DVec2::splat(read_reach(key));
+        let (min, max) = (key.min_corner() - reach, key.max_corner() + reach);
+        self.lines_within(min, max, from) != self.lines_within(min, max, to)
     }
 }
 

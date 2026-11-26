@@ -786,3 +786,57 @@ fn a_world_gives_provisional_and_canonical_chunks() {
         }
     }
 }
+
+/// Wherever a world says a later tier changes nothing about a chunk, the
+/// chunk read at the roughest tier is that later read, bit for bit: its
+/// mesh and every ground site a painter reads, at the highest detail.
+/// Somewhere in the block the later tier does change chunks, so the test
+/// checks both answers.
+#[test]
+fn a_chunk_the_later_tier_leaves_alone_reads_the_same_at_rough() {
+    use procgena_terrain::ground::{GroundGrid, SiteDetail};
+
+    // Medium fixtures with rivers and roads switched on.
+    let featured = |id: RegionId, _: DVec2, _: &Elevation| {
+        let preset = if id.0.is_multiple_of(2) {
+            fixtures::plains_medium()
+        } else {
+            fixtures::rolling_hills_medium()
+        };
+        let mut options = preset.terrain.clone();
+        options.features.roads.enabled = true;
+        options.features.rivers.density = 1.0;
+        options
+    };
+    let world = WorldTerrain::new(fixtures::world_medium(), Arc::new(featured)).unwrap();
+
+    // Everything a read gives but its tier label, as text that tells apart
+    // any two bit patterns of its numbers.
+    let read = |key: ChunkKey, tier: FeatureTier| {
+        let mesh = ChunkSamples::sample(&world, key, tier)
+            .unwrap()
+            .mesh(Transitions::NONE, 0.0);
+        let mesh = format!("{mesh:?}").replacen(&format!("tier: {tier:?}"), "tier: _", 1);
+        let sites = GroundGrid::chunk(&world, key, tier, SiteDetail::Labels).unwrap();
+        format!("{mesh}\n{:?}", sites.sites())
+    };
+
+    let (mut same, mut changed) = (0, 0);
+    for z in -3..2 {
+        for x in -3..2 {
+            let key = ChunkKey { x, z, level: 3 };
+            for to in [FeatureTier::Mid, FeatureTier::Fine] {
+                if world.tier_changes(key, FeatureTier::Rough, to) {
+                    changed += 1;
+                } else {
+                    same += 1;
+                    assert!(
+                        read(key, FeatureTier::Rough) == read(key, to),
+                        "{key:?} differs at {to:?}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(same > 0 && changed > 0, "{same} same, {changed} changed");
+}
