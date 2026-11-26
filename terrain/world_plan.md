@@ -92,7 +92,7 @@ stays as a small test fixture.
   - optional per-region feature plans, in stages cached on their own
     (relief and seam offers, rivers, roads, local features), so a far
     region can be drawn from its relief and offers before its roads are
-    routed (see [features_plan.md](features_plan.md), "Real-time
+    routed (see [terrain-features.md](../docs/decisions/terrain-features.md), "Real-time
     generation and far vistas");
   - chunks, which stay pure and disposable.
 
@@ -596,7 +596,7 @@ the faster integral).
   identical bits, since negotiation doesn't depend on which side asks.
   Each cache holds a per-key once-lock, so several threads asking for one
   stage build it once; the map lock is never held while building. The
-  plan stage is where the staged feature plans (features_plan_review,
+  plan stage is where the staged feature plans (terrain-features-review,
   step 2) will split: relief and offers first, then rivers, roads and
   local features.
 - **Owner lookup:** the 25 nearest lattice cells, nearest site first,
@@ -735,7 +735,7 @@ committed.
    This moved to decision gate D4. Region size also sets how long a
    region's feature plan takes. Planning stays per region, with macro
    cells only if step 2's benchmarks call for them (decided 2026-11-23;
-   see [features_plan_review.md](features_plan_review.md), "Decisions").
+   see [terrain-features-review.md](../docs/decisions/terrain-features-review.md), "Decisions").
 3. ~~**Moisture:** include it now as a Biome selector (deserts, wetlands)
    or later?~~ Included in W0 (2026-11-24) as a World selector field
    beside ruggedness. With only bare-land Biomes it decides little (the

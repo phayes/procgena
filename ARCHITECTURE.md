@@ -201,7 +201,7 @@ an Ecotope's wetness driving moss), but not yet.
 
 **What they get from above.** The host `Specimen` and its tags.
 
-**Status.** Clump is built, CPU and GPU ([PLAN-clump-bevy.md](PLAN-clump-bevy.md)).
+**Status.** Clump is built, CPU and GPU ([clump/plan.md](clump/plan.md)).
 Deadwood's studio tab already grows clump covers on a single piece. Further
 out, **`MushroomGrowth`** and **`PlantGrowth`** let mushrooms and plants
 grow on stumps, logs and rocks as modifiers, the way mushrooms grow on
@@ -466,8 +466,8 @@ relief, erosion, water, roads, volume features, chunks and meshes.
 lakes and general landforms (mesas, terraces, rock outcrops), are
 **terrain features**: planned, bounded pieces of the ground, inside the
 Terrain, not a level of their own. The design is in
-[terrain/features_plan.md](terrain/features_plan.md), and what is adopted
-is in [terrain/features_plan_review.md](terrain/features_plan_review.md).
+[docs/decisions/terrain-features.md](docs/decisions/terrain-features.md), and what is adopted
+is in [docs/decisions/terrain-features-review.md](docs/decisions/terrain-features-review.md).
 
 - **Where the line is.** A loose stone is a copy in a Scatter. A formation
   that shapes the ground, makes a cliff or carries the surface is a
@@ -1023,7 +1023,7 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   seam offers, then its features in **tiers** from rough to fine. Each
   feature type declares the tiers it is drawn at, and builds each as it
   sees fit (decided 2026-11-24; see "Feature tiers" in
-  [terrain/features_plan.md](terrain/features_plan.md)). A far region can
+  [docs/decisions/terrain-features.md](docs/decisions/terrain-features.md)). A far region can
   be drawn from an early tier before its costly features are planned, so
   a distant mountain never waits for a road search (story 5). Such a far
   tile is **provisional**: only drawing may use it. Placement, masks and
@@ -1894,7 +1894,7 @@ it starts.
 - [ ] **Terrain features**: one feature type for rivers, roads and ponds,
   then staged and separately cached planning with
   benchmarks, then cliffs and landforms (see
-  [terrain/features_plan_review.md](terrain/features_plan_review.md) for
+  [docs/decisions/terrain-features-review.md](docs/decisions/terrain-features-review.md) for
   the steps and the open points). Feature seeds follow "Seeds": 32-bit,
   from code seed keys for built-in families and frozen data keys for
   children named in data. Proposed, not decided: local features sit on

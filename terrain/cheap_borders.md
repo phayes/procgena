@@ -5,7 +5,7 @@
 
 Decided by the user 2026-11-26: "the cheap borders" and "no blending at all
 between same-preset neighbours. Lets start there." Options 6 and 7 of
-[speedup_options.md](speedup_options.md). Status lives in
+[terrain-speedup-options.md](../docs/decisions/terrain-speedup-options.md). Status lives in
 [ROADMAP.md](../ROADMAP.md#tb-cheap-borders). Paths are relative to
 `terrain/crates/procgena_terrain/src/`.
 

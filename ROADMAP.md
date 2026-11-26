@@ -461,7 +461,7 @@ the follow-ups).
 - **Done when:** Phase 3's landforms and Phase 4's rivers, roads and
   bridges are built, and the feature suites pass with them.
 - **Terrain features:** steps 1 and 2 of
-  [terrain/features_plan.md](terrain/features_plan.md) (one feature type,
+  [docs/decisions/terrain-features.md](docs/decisions/terrain-features.md) (one feature type,
   staged planning, one sample path, benchmarks) come first in G3, before
   Phase 3's landforms and Phase 4. Step 2's sample path is where G2's
   gradient and G4's labels live; see the review's "Milestone order" for
@@ -567,7 +567,7 @@ the follow-ups).
 - **Decided 2026-11-23:** Phases 6 and 7 mesh a heightfield by default,
   with volume patches only for caves and overhangs, and rock outcrops are
   meshes the terrain builds. See
-  [terrain/features_plan_review.md](terrain/features_plan_review.md),
+  [docs/decisions/terrain-features-review.md](docs/decisions/terrain-features-review.md),
   "Decisions".
 - **Status (2026-11-24): heightfield part built.** Chunk meshes on the
   shared grid with crack-free level transitions, feature tiers (rough and
@@ -1746,8 +1746,7 @@ replaces feature tiers with a highest level per feature type.
 #### TE5: Road planning revamp
 
 **Status (2026-11-25): landed; the user accepted the new road look.**
-Measured and compared in `terrain/roads_plan.md` (timing with
-`--example road_cost`):
+Measured with `--example road_cost`:
 
 - **Measurements:**
   - Roads took a median of about 1.1 s per region in release, and up to
@@ -1905,7 +1904,7 @@ goals."
 
 #### TO: Disabled features cost nothing
 
-Speed-up option 1 in [terrain/speedup_options.md](terrain/speedup_options.md),
+Speed-up option 1 in [docs/decisions/terrain-speedup-options.md](docs/decisions/terrain-speedup-options.md),
 assigned 2026-11-26 while the user was away.
 
 - **Covers:**
@@ -1939,7 +1938,7 @@ assigned 2026-11-26 while the user was away.
 #### TQ: Query path costs
 
 Assigned 2026-11-26 while the user was away, after TB: speed-up option 4
-in [terrain/speedup_options.md](terrain/speedup_options.md), then the
+in [docs/decisions/terrain-speedup-options.md](docs/decisions/terrain-speedup-options.md), then the
 per-point search for a point's region. Every step keeps the output
 bitwise identical.
 
@@ -2379,8 +2378,14 @@ in a `tin` module of `procgena_terrain`.
   routing median 84 ms. **Left as shortcuts:** a crossing whose gap
   would reach a road's end is skipped and the road fills the river (one
   case in the corpus, mountains 3/2); no clearance above the water; the
-  fitted line may stray up to 4 m from the routed cells. Details in
-  [docs/coordination/rb4-handoff.md](docs/coordination/rb4-handoff.md).
+  fitted line may stray up to 4 m from the routed cells, which can bring
+  it slightly inside the border clearance; the route search doesn't see
+  ponds (only the gap finder does). **Still to do:** rerun the corpus
+  timing on a quiet machine before comparing it with
+  `terrain/roads_baseline.md`; handle a gap at a road's end by moving
+  the end (or the hub) instead of filling the river; a close look by the
+  user at arc radii and bank gaps, and at seed 1's junction right at a
+  river bend.
 
 #### RB5: Cross-sections and earthworks
 
@@ -2512,8 +2517,7 @@ design." The TIN is the ground and `H*` is only the generator the TINs
 sample; this revises D6b. The design is in
 [terrain/terrain_lod.md](terrain/terrain_lod.md). It supersedes the
 tentative CT-T of earlier the same day (one canonical level 0 out to the
-largest place range), whose costs are in
-[terrain/tin_canonical.md](terrain/tin_canonical.md).
+largest place range).
 
 - **Covers, in stages:**
   1. **Canonical TIN at every chunk level.** Level `L` (64 m × 2^L,
@@ -2821,18 +2825,16 @@ document is treated by its class:
   wetness), after B1.
 - TODO "`MushroomGrowth` and `PlantGrowth`", after C1 moves mushrooms off
   their hosts, and after R3 for plants.
-- Investigation: should Scatter live inside the Ecotope? (asked by the
-  user 2026-11-25; no ARCHITECTURE TODO until it ends in a
-  recommendation). Today a Scatter is its own type (and C2's `Scatter`
-  trait), and a lower Scatter sees the copies above it only as
-  footprints that exclude it. The question is whether Scatters should
-  instead be layers of the Ecotope that can read the copies placed before
-  them as attractors too: a tuft of mushrooms around each stone, ferns
-  along fallen logs, litter under a crown. The gain the user is after is
-  fine control over the feel of an Ecotope: how its pieces gather and
-  relate, not only where each kind may go. Weigh that against:
-  - what it means for C3's `Scatter` trait and for a game using one
-    Scatter on its own;
+- Investigation: may an Ecotope layer read the copies placed before it
+  as attractors? (asked by the user 2026-11-25; no ARCHITECTURE TODO
+  until it ends in a recommendation). [EL](#el-ecotope-layers) already
+  makes Scatters layers of the Ecotope, but a lower layer still sees the
+  copies above it only as footprints that exclude it. Attractors would
+  let it gather around them too: a tuft of mushrooms around each stone,
+  ferns along fallen logs, litter under a crown. The gain the user is
+  after is fine control over the feel of an Ecotope: how its pieces
+  gather and relate, not only where each kind may go. Weigh that
+  against:
   - placement order, chunk independence and border negotiation when one
     layer reads another's copies across a chunk edge;
   - GPU everywhere: a layer waits only for the layers it reads. The user
@@ -2845,6 +2847,15 @@ document is treated by its class:
   - overlap with `MushroomGrowth` and `PlantGrowth`.
   Ends in a recommendation for the user, and an ARCHITECTURE change if
   accepted.
+- Five flowering tree presets: cherry blossom, magnolia, laburnum,
+  oceanspray and grape vine (kept by the user 2026-11-26). The fruit
+  crate already has the cluster kinds they need (umbel, raceme,
+  panicle). Grape vine needs a new tree shape type, a Vine, to grow
+  along its trellis. Magnolia flowers before its leaves come out, so it
+  wants few leaves or none. Each preset is tuned in the viewer and its
+  triangle count checked. Fruit ideas not planned yet: falling petals
+  or fruit, seasonal blending from flower to fruit, and several fruit
+  kinds on one tree.
 - Terrain follow-ups already listed in its plan: hub placement, river
   crossing cost for roads, clearings at points of interest (which become
   terrain stamps, X1), GPU road routing.
@@ -2886,8 +2897,7 @@ not resolved.
    zeapp, named in plant's old field plan (now removed), no longer exists, so the plant split and the `PlantScatter` rename stay
    inside this repository.
 4. ~~**Terrain review** (in M0).~~ Signed off by the user 2026-11-23:
-   "Terrains look good." Recorded in
-   [docs/coordination/terrain-review.md](docs/coordination/terrain-review.md).
+   "Terrains look good."
 
 Still open, most urgent first. Each says what is being decided, the
 options with what they change, the recommendation where there is one, and
@@ -2938,7 +2948,8 @@ where the details are.
       now (keeping them is a long-term goal); namespaced keys
       (`builtin` or the project/bundle id, bare when unambiguous;
       `builtin` reserved);
-      thumbnails cached, not committed; textures converted on import
+      thumbnails cached, not committed (built-in ones too, rendered on
+      first use); textures converted on import
       with `ctt` (BC7); one texture catalogue in `procgena_core`;
       viewing distance a requirement on IX; editing in context edits the
       referenced preset; which extras come early.
@@ -2947,8 +2958,7 @@ where the details are.
       capture service's home, and the "what is saved where" table.
     - *Open:* whether a reference written in a built-in file always
       means `builtin:` (see item 30), enum
-      coverage in the metadata drift test, whether built-in thumbnails
-      ship pre-rendered, where the capture module lives, Biome climate
+      coverage in the metadata drift test, where the capture module lives, Biome climate
       on the view frame, and the tree's Fruit chip.
     - *Needed by:* ST0 for the registry and layout, ST2 for key clashes,
       ST4 for thumbnails and capture.
@@ -3165,13 +3175,13 @@ Done (2026-11-24): items 10, 15 and 16 above.
     discrete GPU is still owed (is either machine available?). The terrain
     features review's Conflict 6 asks the same: which machines count for
     streaming and far-view budgets, and what the budgets are. Details:
-    [terrain/features_plan_review.md](terrain/features_plan_review.md),
+    [docs/decisions/terrain-features-review.md](docs/decisions/terrain-features-review.md),
     Conflict 6.
 19. **Large features across region borders (later).** An escarpment or
     geological field spanning regions must look the same from both sides.
     It can enter through the natural height field before the border
     offers, or through a shared field both sides sample. Nothing needs it
-    until the first such feature. Details: features_plan_review.md,
+    until the first such feature. Details: terrain-features-review.md,
     Conflict 5.
 
 ### Housekeeping that needs the user
@@ -3254,6 +3264,38 @@ Done (2026-11-24): items 10, 15 and 16 above.
   dozen runs.
 - Changing the quality setting doesn't rebuild trees already built, and
   tree's per-level `casts_shadows` is passed through but unused (R1).
+- Asset follow-ups carried over from their finished plans (deleted
+  2026-11-26; git keeps them):
+  - **Stone:** a README overview of the CPU, GPU and pool paths, and a
+    comparison with the Unity original (what matches, what changed on
+    purpose). `StonePool`: skip empty draws with
+    `multi_draw_indexed_indirect_count`, honour camera `RenderLayers`,
+    re-upload only changed rocks, motion vectors for moving rocks,
+    `invert_culling` and negative scale, shadow views choosing levels
+    from the first camera (split screen), the multi-batch split run on a
+    GPU, less mesh room reserved per variant, the viewer waiting for
+    generation before a pool screenshot. Pooled rocks ignore SSAO in
+    forward rendering. Optional height-blend sharpness and
+    ambient-occlusion strength. A Rapier collider example for a pooled
+    rock.
+  - **Tree:** `TreeOptions::validate` doesn't check
+    `BarkOptions::texture_scale` (zero, NaN or infinite values give
+    infinite texture coordinates). A feature map against ez-tree in the
+    README, and `jiggle` in its "Customize the shape" section. Possible:
+    an optional per-level `LodDetail::max_leaf_growth` for large-leaf
+    presets; a shared overall size factor and leaf tint variation in
+    `jiggle`; trellis wires and a per-copy colour tint in tree Scatters;
+    alpha coverage of leaf mips at distance; BC5 normal maps; a
+    `basis-universal` feature for the UASTC set.
+  - **Deadwood:** upload its converted bark, end-grain and leaf-card
+    textures to `gs://ze_textures/deadwood/` (check first: the plan said
+    not yet); fern and fungus cards (no CC0 bracket-fungus cutouts, so
+    generated); twist, a raised bark edge on peeled patches, the rot
+    cavity; the `FallenTree` stretch goal; tests for the centre of mass
+    over the supports, a class-4 log touching the ground along its
+    length, and a real clump build on a log.
+  - **Mushroom:** exports leave out the cap texture; segment counts are
+    fixed per detail (no target-edge-length helper); a lace ring.
 - Stale text: ROADMAP's "Where things stand (2026-11-23)",
   `procgena_mesh`, `Object` and `tree_id` in ARCHITECTURE.md, "review
   pending" in terrain/plan.md, and D2 decision 4 (mask resolutions) still

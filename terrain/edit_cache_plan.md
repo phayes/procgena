@@ -531,7 +531,7 @@ is what makes any of this sound. Nothing here changes the rules.
     a plan takes about 0.6–0.9 s, but the roads of one near region take
     about 5 s.
   - That breaks the budget. It is the step-2 benchmark that
-    [features_plan_review.md](features_plan_review.md), Conflict 4, set
+    [terrain-features-review.md](../docs/decisions/terrain-features-review.md), Conflict 4, set
     as the gate for macro cells.
 - **Provisional far tiles** may be used for drawing only. W2's preview
   tier is that idea applied near the camera, for a few seconds, in the
@@ -540,14 +540,14 @@ is what makes any of this sound. Nothing here changes the rules.
   memory only. A disk cache adds the version and target to every key
   (see "Float determinism").
 
-**features_plan_review.md, step 2** ("planning stages cached on their
+**terrain-features-review.md, step 2** ("planning stages cached on their
 own", with cold and warm benchmarks) is where this work belongs.
 
 - The review notes that "W4's region cache is where the staged plans
   live". TE3 and TE4 are the rest of step 2, and the measurements above
   are its first cold benchmarks for the studio's view.
 
-**features_plan.md §9** says "exact seam agreements need the port
+**terrain-features.md §9** says "exact seam agreements need the port
 offers". TE4 keeps that rule:
 
 - Ports are still negotiated before any tier that carves them.
@@ -571,7 +571,7 @@ whose shares are:
 | Win | Saves | Costs |
 |---|---|---|
 | **W1. Cancel stale builds.** Pass a generation token or `Arc<AtomicBool>` into `WorldTerrain`. Check it between region stages and between chunk rows; a cancelled build returns an error that is never cached. | Wasted CPU after each edit: up to 4 threads × one region build. Mostly battery, plus a faster second edit during a drag. | Small. One flag check per stage. Results are unchanged, because a cancelled build is dropped, never stored. |
-| **W2. Relief-only preview tier.** A `FeatureTier::Preview` (or a separate preview source) that draws each region's **unconverged** relief plus E from its Settings alone, without plans or borders. Show it right after an edit, then swap in Rough and Fine as they land. | Time to the first picture of a `base.*` edit: from all 23 plans to sampling only: under 23% of the work (~8 s of CPU, spread over the cores by rayon), and much less for relief alone, without borders and carving, or less if previewed at a coarser level. | Borders show seams for a few seconds, and rivers and roads are missing. A new tier for chunks and skirts. Must be marked provisional and never queried (features_plan §9, "Canonical terrain versus display LOD"). |
+| **W2. Relief-only preview tier.** A `FeatureTier::Preview` (or a separate preview source) that draws each region's **unconverged** relief plus E from its Settings alone, without plans or borders. Show it right after an edit, then swap in Rough and Fine as they land. | Time to the first picture of a `base.*` edit: from all 23 plans to sampling only: under 23% of the work (~8 s of CPU, spread over the cores by rayon), and much less for relief alone, without borders and carving, or less if previewed at a coarser level. | Borders show seams for a few seconds, and rivers and roads are missing. A new tier for chunks and skirts. Must be marked provisional and never queried (terrain-features §9, "Canonical terrain versus display LOD"). |
 | **W3. Nearest region first.** Order region builds and reads by distance to the camera, and swap per region rather than waiting for the whole view. | The land under the camera arrives first. Today the swap waits for all 9 Rough regions. | Medium. `Stream` swaps the whole set on purpose, so cracks never show between old and new land. Per-region swaps need skirts or a fade at the boundary. |
 | **W4. Keep meshes on non-height edits.** Route ground-colour (GM) and debug changes to weights and materials only. Don't make a new world. | All of the land time for ground edits. | Small, once GM1's settings are in the editor. Separate the height settings from the paint settings in `TerrainSettings`. |
 | **W5. Faster plan.** Profile `build_plan` (convergence, trace, offers). The warped-border cost (W3b: 2.7× straight) and the per-region ring overhead are known. | Every edit, cold builds and the game too. | A performance sweep. Already a TODO in `world_plan.md`. |
@@ -870,7 +870,7 @@ exactly, by construction, not by filtering:
 - **Carving is not band-limited.**
   - A riverbed or road cut has sharp banks, so "exact low-pass" can't
     hold for features.
-  - Features keep today's rule instead (features_plan, "Feature tiers";
+  - Features keep today's rule instead (terrain-features, "Feature tiers";
     tiers superseded 2026-11-26 by a highest chunk level per feature
     type, [terrain_lod.md](terrain_lod.md)):
     each declares the largest height difference between its coarse and
@@ -1185,7 +1185,7 @@ the web demo would keep the CPU path there.
   - Caching changes no math. Every stage stays closed-form or bounded per
     region.
   - The risk runs the other way: a cache can make a slow, unbounded step
-    feel acceptable. The per-stage budgets in features_plan §9 still
+    feel acceptable. The per-stage budgets in terrain-features §9 still
     apply.
 - **Undo and dragging.** A slider drag settles at 400 ms, and each
   settled value starts a build. W1 makes the abandoned build stop. A
@@ -1279,7 +1279,7 @@ Each stage stands alone and is worth doing even if the next never comes.
   - Move road and river port wishes out of the height offers, if the
     agreed heights can stay independent of them: a separate port
     negotiation. The ports are still negotiated before any tier that
-    carves them (features_plan §9: "exact seam agreements need the port
+    carves them (terrain-features §9: "exact seam agreements need the port
     offers").
   - Split the Plan stage into convergence, trace and offers, each cached
     on its own.
@@ -1340,7 +1340,7 @@ Each stage stands alone and is worth doing even if the next never comes.
      - Roads and rivers sit inside the border offers today, so a road
        edit rebuilds every plan, and TE3 alone saves nothing on it.
      - Moving port wishes into their own negotiation, still settled
-       before any tier that carves them (features_plan §9), makes road
+       before any tier that carves them (terrain-features §9), makes road
        and river edits cheaper.
      - But it reopens the protocol that the seam, crack and feature
        suites guard.
@@ -1378,14 +1378,14 @@ Each stage stands alone and is worth doing even if the next never comes.
      - In release, one region's roads took about 5.4 s on rolling hills.
        ARCHITECTURE.md budgets a whole region plan at "up to about a
        second".
-     - features_plan_review.md (Conflict 4) made macro cells wait for
+     - terrain-features-review.md (Conflict 4) made macro cells wait for
        exactly this benchmark.
      - Every road edit re-routes the roads whatever the cache, so this
        sets the floor for road edits.
    - Options:
      - (a) profile and speed up the road search first (TE5);
      - (b) a fixed search budget per region with a deterministic
-       fallback (features_plan §9);
+       fallback (terrain-features §9);
      - (c) macro cells now.
    - Recommendation: (a), then (b) if it is still over. Decide (c) with
      D4's region sizes.
@@ -1442,7 +1442,7 @@ Each stage stands alone and is worth doing even if the next never comes.
         their exact low-pass.
     - Options:
       - (a) Relief bands exact. Each feature declares its largest
-        coarse-to-fine height difference, as features_plan already
+        coarse-to-fine height difference, as terrain-features already
         asks, and skirts cover it.
       - (b) Make carving band-limited too: smooth valley shapes at
         rough, sharp banks at fine. More work, and still not exact for

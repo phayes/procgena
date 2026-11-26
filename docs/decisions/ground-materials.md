@@ -22,8 +22,8 @@ Written from ARCHITECTURE.md ("3. Ecotope", "4. Biome and Terrain",
 "Asset alignment" rule 13), ROADMAP.md (G4, G6, C3a, C3, B1, W1, S1, R3,
 IX, "For the user"), [terrain/plan.md](../../terrain/plan.md) ("Classification
 and labels", "Bevy design", Phases 5, 8 and 10),
-[terrain/features_plan.md](../../terrain/features_plan.md) and its
-[review](../../terrain/features_plan_review.md), [D5](D5.md),
+[terrain-features.md](terrain-features.md) and its
+[review](terrain-features-review.md), [D5](D5.md),
 `procgena_biome/src/ecotope*`, `plant/crates/procgena_plant_bevy/src/far.rs`,
 `plant/docs/terrain.md`, and the G6 branch (`claude/terrain-g6-0c9714`:
 `procgena_terrain::chunk`, `procgena_terrain_bevy`'s `material.rs`,

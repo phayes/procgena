@@ -1,10 +1,10 @@
 # Review of the terrain features proposal
 
-Reviewed on 2026-11-24 against [ARCHITECTURE.md](../ARCHITECTURE.md),
-[the terrain plan](plan.md), [the WorldTerrain plan](world_plan.md),
-[ROADMAP.md](../ROADMAP.md) and decisions D1 to D3 in
-[docs/decisions](../docs/decisions). The proposal itself is
-[features_plan.md](features_plan.md); its status is "proposed", and its
+Reviewed on 2026-11-24 against [ARCHITECTURE.md](../../ARCHITECTURE.md),
+[the terrain plan](../../terrain/plan.md), [the WorldTerrain plan](../../terrain/world_plan.md),
+[ROADMAP.md](../../ROADMAP.md) and decisions D1 to D3 in
+[docs/decisions](README.md). The proposal itself is
+[terrain-features.md](terrain-features.md); its status is "proposed", and its
 section 12 lists the decisions it asks for.
 
 Section labels here are "Conflict 1", "Gap 1" and so on. Those are labels
@@ -27,8 +27,8 @@ In short:
 ## How the proposal maps onto the plans
 
 The proposal's migration steps (its section 11), against today's phases
-in [plan.md](plan.md#phases) and milestones in
-[ROADMAP.md](../ROADMAP.md). This table lives here only; the other
+in [plan.md](../../terrain/plan.md#phases) and milestones in
+[ROADMAP.md](../../ROADMAP.md). This table lives here only; the other
 documents link to it.
 
 | Proposal step | What it is | Terrain phase today | Milestone | Waits on |
@@ -86,7 +86,7 @@ documents link to it.
   are added only if step 2's benchmarks show they are needed.
 - Conflicts 5 and 6 are still open; they wait for later milestones.
 - **Feature tiers (2026-11-24; superseded 2026-11-26 by a highest chunk
-  level per feature type, [terrain_lod.md](terrain_lod.md)):** each
+  level per feature type, [terrain_lod.md](../../terrain/terrain_lod.md)):** each
   feature type declares which load
   tiers it is drawn at (rough, …, fine), and builds each as it sees fit:
   one algorithm at every tier if cheap, fine only, or a different method
@@ -99,7 +99,7 @@ documents link to it.
 
 - **The terrain plan says:** the whole terrain is a signed distance
   field, meshed everywhere with Transvoxel-style marching cubes
-  ([plan.md](plan.md), "Bottom line", "Chunks and meshing"; Phases 6 and
+  ([plan.md](../../terrain/plan.md), "Bottom line", "Chunks and meshing"; Phases 6 and
   7). That came from the user's early answer "volumetric from day one",
   but the plan's own open question 1 ("Volumetric reading") was never
   confirmed.

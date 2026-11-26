@@ -173,8 +173,8 @@ Made by the user on 2026-11-24 in this planning session.
    Figures from crates.io on 2026-11-24. Whoever takes up the goal runs
    the replace / insert nested key / remove spike first.
 6. **Thumbnails are cached, not committed.** Keyed by content hash under
-   the project's `.cache/`. (Whether built-in presets' thumbnails ship
-   pre-rendered is open question 4.)
+   the project's `.cache/`. Built-in presets' thumbnails are not shipped
+   pre-rendered; they are rendered on first use too.
 7. **Textures convert on import,** with `ctt` (MIT/Apache/Zlib, v0.6.1,
    about 100k downloads): BC7 KTX2 with mipmaps and Zstandard. UASTC
    copies are made by the Python tool when publishing. Chosen over adding
@@ -650,9 +650,9 @@ runtime), which the impostor bake then uses.
   `THUMBNAIL_VERSION`. A preset whose references change (a tree used by
   an Ecotope) changes the key through the referenced presets' hashes.
 - **Thumbnail cache:** `<project>/.cache/thumbnails/<kind>/<key>.png`,
-  never committed (decided). Built-in presets' thumbnails are rendered
-  ahead by a headless command (`procgena --render-thumbnails <dir>`) and
-  shipped in the studio's assets.
+  never committed (decided). Built-in presets' thumbnails are not
+  shipped either: they are rendered on first use, like any other
+  (decided).
 - **Budget:** thumbnails render in the background a few per frame while
   the studio is idle, never during a slider drag, and only for presets
   scrolled into view.
@@ -1257,10 +1257,9 @@ or host interface is planned for it, and ST0–ST9 are unchanged.
 3. **Enum coverage in the drift test.** Listing variant settings by name
    in the metadata (proposed) versus each crate supplying one sample value
    per variant to the test.
-4. **Built-in thumbnails in git.** Shipping pre-rendered built-in
-   thumbnails puts binary files in the repository (proposed: in the
-   studio's assets, re-rendered by the headless command when presets
-   change). Alternative: render them on first run into the user's cache.
+4. ~~**Built-in thumbnails in git.**~~ Answered (the user, 2026-11-26):
+   not shipped. Built-in presets' thumbnails are rendered on first use
+   into `.cache/`, like impostor bakes.
 5. **Where the capture module lives.** `procgena_core_bevy` (proposed) or
    a new `procgena_capture` crate, or inside `procgena_impostor` with the
    bake on top.

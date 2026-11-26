@@ -24,5 +24,6 @@ uv run --project tools textures download clump
 ```
 
 This project is under construction. See [plan.md](plan.md) for the clump
-algorithm's plan and status, and [PLAN-clump-bevy.md](../PLAN-clump-bevy.md)
-for the Bevy integration and the tagged objects generators share.
+algorithm's plan and what is still open, and
+[procgena_specimen](../specimen/README.md) for the tagged specimens
+generators share.

@@ -1,8 +1,8 @@
 # Terrain features: architecture proposal
 
-Status: proposed for review, 2026-11-23. This document supplements [the architecture](../ARCHITECTURE.md), [the terrain plan](plan.md) and [the world terrain plan](world_plan.md). It proposes changes to those plans, not claims that the changes have already been implemented.
+Status: proposed for review, 2026-11-23. This document supplements [the architecture](../../ARCHITECTURE.md), [the terrain plan](../../terrain/plan.md) and [the world terrain plan](../../terrain/world_plan.md). It proposes changes to those plans, not claims that the changes have already been implemented.
 
-Reviewed 2026-11-24 in [features_plan_review.md](features_plan_review.md). That review holds what has been adopted into the other plans, how the migration steps map onto the terrain phases and roadmap milestones, and the points that wait for the user (meshing, rock outcrops, lakes, macro cells, and later border features and performance budgets).
+Reviewed 2026-11-24 in [terrain-features-review.md](terrain-features-review.md). That review holds what has been adopted into the other plans, how the migration steps map onto the terrain phases and roadmap milestones, and the points that wait for the user (meshing, rock outcrops, lakes, macro cells, and later border features and performance budgets).
 
 ## Bottom line
 
@@ -28,14 +28,14 @@ The terrain crate already implements a specialized feature engine:
 
 | Existing code | Responsibility |
 |---|---|
-| [relief.rs](crates/procgena_terrain/src/relief.rs) | Natural relief, shared world noise and convergence |
-| [plan.rs](crates/procgena_terrain/src/plan.rs) | River sources, port wishes, river/pond/road planning, valley profiles |
-| [carve.rs](crates/procgena_terrain/src/carve.rs) | FeatureLine, Pond, Features, Carved, RoadTags and spatially indexed carving |
-| [road/](crates/procgena_terrain/src/road/mod.rs) | Routing, grade fit, cut/fill, crossing costs |
-| [river.rs](crates/procgena_terrain/src/river.rs) | Downhill tracing and joins |
-| [terrain.rs](crates/procgena_terrain/src/terrain.rs) | TerrainGenerator, Terrain, seam conformance, point and tile queries |
-| [seam.rs](crates/procgena_terrain/src/seam.rs), [ports.rs](crates/procgena_terrain/src/ports.rs) | Symmetric border agreements and agreed crossings |
-| [grid.rs](crates/procgena_terrain/src/grid.rs) | Bounded planning grids |
+| [relief.rs](../../terrain/crates/procgena_terrain/src/relief.rs) | Natural relief, shared world noise and convergence |
+| [plan.rs](../../terrain/crates/procgena_terrain/src/plan.rs) | River sources, port wishes, river/pond/road planning, valley profiles |
+| [carve.rs](../../terrain/crates/procgena_terrain/src/carve.rs) | FeatureLine, Pond, Features, Carved, RoadTags and spatially indexed carving |
+| [road/](../../terrain/crates/procgena_terrain/src/road/mod.rs) | Routing, grade fit, cut/fill, crossing costs |
+| [river.rs](../../terrain/crates/procgena_terrain/src/river.rs) | Downhill tracing and joins |
+| [terrain.rs](../../terrain/crates/procgena_terrain/src/terrain.rs) | TerrainGenerator, Terrain, seam conformance, point and tile queries |
+| [seam.rs](../../terrain/crates/procgena_terrain/src/seam.rs), [ports.rs](../../terrain/crates/procgena_terrain/src/ports.rs) | Symmetric border agreements and agreed crossings |
+| [grid.rs](../../terrain/crates/procgena_terrain/src/grid.rs) | Bounded planning grids |
 
 Today TerrainGenerator::offers traces own rivers and proposes road and river crossings. TerrainGenerator::build constructs the conformed base and eagerly calls plan::features. Features holds rivers, valley shapes, ponds, roads, bank shapes and points of interest; a 64 m uniform spatial index holds segment references. Features::apply evaluates river/pond lowering, then road cut/fill, water and road tags. Road proximity also suppresses gullies.
 
@@ -85,7 +85,7 @@ Each family owns its options, presets, planning and composition rules. Use a fam
 
 Keep them distinct despite their common polyline geometry. Reuse path sampling, segment indexing, longitudinal interpolation and cross-sectional evaluation where useful, without conflating their rules. River valleys are part of the river's terrain effect, not unrelated decorations. Road can generate cuttings, embankments and eventually retaining walls or bridge requirements.
 
-Road planning may read river plans. At a bridge, the road stops filling/cutting the river corridor; the bridge supplies a deck and optional structure, with a separate surface/query contract from the ground beneath. This addresses the existing known issue in the feature probes where road carving removes river water, including at confluences (see [Phase 2.7](plan.md#road-rework-phase-27)).
+Road planning may read river plans. At a bridge, the road stops filling/cutting the river corridor; the bridge supplies a deck and optional structure, with a separate surface/query contract from the ground beneath. This addresses the existing known issue in the feature probes where road carving removes river water, including at confluences (see [Phase 2.7](../../terrain/plan.md#road-rework-phase-27)).
 
 ### Cliff
 
@@ -248,7 +248,7 @@ Keep analytic top-surface and annotation queries independent of rendered meshes.
 
 ### Current cost and coupling
 
-The repository's recorded measurements (2026-11-23, [road rework](plan.md#road-rework-phase-27)) report roughly 80–170 ms for road-grid heights, 25 ms for plains routing and 0.6–1.1 s for mountain routing after A* improvements. These are historical measurements, not new benchmarks. The current TerrainGenerator::build eagerly plans features, and the architecture proposes preplanning a region ring and disk caching.
+The repository's recorded measurements (2026-11-23, [road rework](../../terrain/plan.md#road-rework-phase-27)) report roughly 80–170 ms for road-grid heights, 25 ms for plains routing and 0.6–1.1 s for mountain routing after A* improvements. These are historical measurements, not new benchmarks. The current TerrainGenerator::build eagerly plans features, and the architecture proposes preplanning a region ring and disk caching.
 
 Preplanning and caching are useful, but not sufficient for cold distant views, teleportation and rapid flight. A mountain silhouette should not wait for a fine road search.
 
@@ -291,14 +291,14 @@ For distant display, select detail using projected size and conservative geometr
 
 Generate meshes directly at the requested LOD from a shared descriptor; do not require generation of a high-resolution mesh first. Distant rock proxies may use a low-poly solid or heightfield projection, but never add the same elevation twice. Near/far transitions need stitching or controlled morphing. Keep the common world sampling lattice; filter high-frequency noise consistently rather than introducing unrelated terrain at a distance.
 
-Use the architecture's coarse-first streaming, request-driven loading, zoom-aware detail and cancellation. A distant visual tile may be provisional, but any dependent Scatter placement must use true ground and canonical exclusion masks (the existing “no trees in boulders” user story). (Since 2026-11-26 "true ground" is the canonical TIN of the Scatter's placement level, and far ground is canonical too; see [terrain_lod.md](terrain_lod.md).) If that information is unavailable, defer the affected placement rather than inventing different placements.
+Use the architecture's coarse-first streaming, request-driven loading, zoom-aware detail and cancellation. A distant visual tile may be provisional, but any dependent Scatter placement must use true ground and canonical exclusion masks (the existing “no trees in boulders” user story). (Since 2026-11-26 "true ground" is the canonical TIN of the Scatter's placement level, and far ground is canonical too; see [terrain_lod.md](../../terrain/terrain_lod.md).) If that information is unavailable, defer the affected placement rather than inventing different placements.
 
 ### Feature tiers (decided 2026-11-24, user)
 
 > **Superseded 2026-11-26 (the user):** every chunk level is a canonical
 > TIN level, and each feature type has a highest level where its lines
 > are kept and its carving sampled. Tiers give way to those cut-off
-> levels; see [terrain_lod.md](terrain_lod.md).
+> levels; see [terrain_lod.md](../../terrain/terrain_lod.md).
 
 A region's features are planned in **tiers**, in order: the relief and
 border offers first, then each tier of features from the roughest to

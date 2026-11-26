@@ -528,12 +528,21 @@ rocks. Output stays on the GPU, ready for indirect drawing.
 
 ## Later
 
-- Integration: done in `procgena_clump_bevy` and the studio's Clumps tab (see
-  `PLAN-clump-bevy.md` at the repository root). Stone and tree describe
-  their meshes as tagged `procgena_specimen::Specimen`s, and presets choose what
-  they grow on with `ClumpOptions::grows_on`. Still open there: using
-  `Part::shells` in the "inside another part" checks, wind on tree clumps,
-  and one clump level per host level. A zeapp panel remains later work.
+- Integration: done in `procgena_clump_bevy` and the studio's Clumps tab.
+  Stone and tree describe their meshes as tagged
+  `procgena_specimen::Specimen`s, and presets choose what they grow on with
+  `ClumpOptions::grows_on`. Still open there:
+  - using `Part::shells` in the "inside another part" checks (needs
+    per-shell ray queries in the BVH; measure folds and crossings on the
+    oak and the rocks before and after);
+  - wind on tree clumps (interpolate the tree's `wind` attribute onto
+    clump vertices);
+  - one clump level per host level;
+  - clump on clump (snow on moss): gather the sibling clumps' specimens,
+    in an explicit order;
+  - sharing geometry: generators store `Arc<SurfaceMesh>` instead of
+    copying;
+  - a shared triplanar shader library for stone and clump.
 - A fused mode for closed inputs: smooth-union the clumps with the input's
   signed distance field and remesh.
 - Exclusion between passes, so moss avoids snow: pass an earlier `Clump` as an

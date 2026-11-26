@@ -5,8 +5,8 @@ roughens its surface with noise, and turns the result into a triangle mesh, on t
 CPU or (planned) the GPU. The workspace also includes `procgena_stone_bevy`, a Bevy
 integration.
 
-This project is under construction. See [port_plan.md](port_plan.md) for the plan
-and current status.
+This project is under construction. Its open follow-ups are in the repository's
+[ROADMAP.md](../ROADMAP.md).
 
 ## Credits
 

@@ -18,4 +18,8 @@ built in [ROADMAP.md](../../ROADMAP.md).
   Scatters as Ecotope layers and keys at every level (EL);
   [ecotope-gpu](ecotope-gpu.md) the order of the GPU work; [ground-materials](ground-materials.md) ground layers
   (GM0–GM5; superseded 2026-11-26, paint removed); [saved-file-format](saved-file-format.md) preset bundles
-  (PB1–PB4).
+  (PB1–PB4); [terrain-features](terrain-features.md) the terrain features
+  proposal and its [review](terrain-features-review.md);
+  [terrain-gpu](terrain-gpu.md) terrain on the GPU (partly superseded by
+  CT-T); [terrain-speedup-options](terrain-speedup-options.md) the
+  one-thread speed-up options that led to TB.

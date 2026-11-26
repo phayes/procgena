@@ -13,7 +13,7 @@ lives in ROADMAP.md ("Canonical ground and roads track").
   - `docs/procgena-canonical-tin-design.md`. Its section 21 is the review
     against the code, with the D6 decisions.
   - `docs/procgena-road-builder-redesign.md`. Its section 17 is the review.
-- **The RB4 handoff:** `docs/coordination/rb4-handoff.md`.
+- **RB4's leftovers:** in ROADMAP's RB4 block.
 - **The full coordinator transcript:**
   `/Users/phayes/.claude/projects/-opt-procgena/9f175e1b-e2c2-4b43-beb7-f98fd4697123.jsonl`.
   It is large (14 MB), so search it rather than reading it whole.

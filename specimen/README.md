@@ -13,5 +13,4 @@ the generators read and write. With the `bevy` feature, a
 `GeneratedSpecimen` component puts a specimen on a Bevy entity; the
 procgena Bevy plugins add it to the rocks, trees and clumps they generate.
 
-See the crate documentation for the types, and
-[PLAN-clump-bevy.md](../PLAN-clump-bevy.md) for the design.
+See the crate documentation for the types.

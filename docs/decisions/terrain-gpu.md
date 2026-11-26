@@ -7,7 +7,7 @@
 >
 > **Superseded in part 2026-11-26** (the user): every chunk level is now a
 > canonical TIN level, and the TIN is the ground everywhere
-> ([terrain_lod.md](terrain_lod.md), ROADMAP CT-T). Below, "far ground
+> ([terrain_lod.md](../../terrain/terrain_lod.md), ROADMAP CT-T). Below, "far ground
 > stays on regular `H*` grids", "TINs exist only for Fine level-0
 > chunks" and the D6b split where placement reads `H*` no longer hold.
 > Open question 3 is answered: far ground is coarse canonical TINs, at
@@ -15,7 +15,7 @@
 > thread).
 
 A plan only: it contains no engine code. Status lives in
-[ROADMAP.md](../ROADMAP.md), and the milestones named here link there.
+[ROADMAP.md](../../ROADMAP.md), and the milestones named here link there.
 
 **Scope (the user, 2026-11-26):**
 
@@ -26,9 +26,9 @@ A plan only: it contains no engine code. Status lives in
   (milestone BP). This plan says what that painter will need from the
   ground, not how it paints.
 - **`H*` stays as it is:** the analytic surface, on the CPU, with cheap
-  borders ([TB](../ROADMAP.md#tb-cheap-borders)), adaptive TIN sampling
-  in centimetres ([CT-A](../ROADMAP.md#ct-a-adaptive-tin-sampling)) and
-  free disabled features ([TO](../ROADMAP.md#to-disabled-features-cost-nothing)).
+  borders ([TB](../../ROADMAP.md#tb-cheap-borders)), adaptive TIN sampling
+  in centimetres ([CT-A](../../ROADMAP.md#ct-a-adaptive-tin-sampling)) and
+  free disabled features ([TO](../../ROADMAP.md#to-disabled-features-cost-nothing)).
   The user may revisit `H*` later.
 - **Most of the work should move to the GPU, using the TIN.**
 
@@ -36,7 +36,7 @@ A plan only: it contains no engine code. Status lives in
 
 - **What a load costs now is `H*` reads for drawn chunks, and the worker
   waiting.**
-  - [load_profile.md](load_profile.md) ("Post-TB") measures the default
+  - [load_profile.md](../../terrain/load_profile.md) ("Post-TB") measures the default
     view on one thread with features off:
     - 1.3–2.0 s to the first picture and 2.6–5.9 s to settle;
     - the worker busy for only 0.9–1.8 s of that, and idle 19–74% of the
@@ -93,8 +93,8 @@ A plan only: it contains no engine code. Status lives in
 
 | # | Step | Gain, in its own unit | Effort | ROADMAP |
 |---|---|---|---|---|
-| 1 | **Bare-lattice far ground, with seams and normals from resident neighbours.** Regular chunks read only their 65 × 65 vertices. Normals, and the vertices a coarse side adds for a finer neighbour, come from the neighbours' resident heights in a GPU pass. Samples at level seams that no chunk holds are interpolated. | **Reads a chunk:** 6,061 → 4,225 at levels 1–4 (−30%), or 4,749 (−22%) if the half-step row inside a coarse side stays an `H*` read; 4,489 → 4,225 at level 0. **A default view:** 1.43 M → 1.06 M reads (−26%), about 0.33 s of the worker's 1.3 s at 0.9 µs a read. **Remeshing:** a level change needs no CPU work. | Medium: a stream change plus one compute pass | New (proposed **GPU-T1**); the far-ground part of [TE7](../ROADMAP.md#te7-intermediate-terrain-detail-levels) |
-| 2 | **Resident TIN buffers and TIN normals on the GPU.** Every loaded TIN chunk is uploaded once, as integer-centimetre vertices and triangles. Vertex normals are area-weighted from the chunk's own faces and its neighbours' faces across shared edges. Breaklines (`is_breakline`) get hard normals. | **Reads:** 4 `H*` reads a vertex are gone, 68 of a plains chunk's 310 and 1,344 of a mountain chunk's 4,864 (22–28%), with none kept even on borders. **Per view:** 4 k–86 k reads with TIN streaming on. | Small to medium | [CT5](../ROADMAP.md#ct5-products-and-streaming)'s ready follow-up and CT7 (proposed **GPU-T2**) |
+| 1 | **Bare-lattice far ground, with seams and normals from resident neighbours.** Regular chunks read only their 65 × 65 vertices. Normals, and the vertices a coarse side adds for a finer neighbour, come from the neighbours' resident heights in a GPU pass. Samples at level seams that no chunk holds are interpolated. | **Reads a chunk:** 6,061 → 4,225 at levels 1–4 (−30%), or 4,749 (−22%) if the half-step row inside a coarse side stays an `H*` read; 4,489 → 4,225 at level 0. **A default view:** 1.43 M → 1.06 M reads (−26%), about 0.33 s of the worker's 1.3 s at 0.9 µs a read. **Remeshing:** a level change needs no CPU work. | Medium: a stream change plus one compute pass | New (proposed **GPU-T1**); the far-ground part of [TE7](../../ROADMAP.md#te7-intermediate-terrain-detail-levels) |
+| 2 | **Resident TIN buffers and TIN normals on the GPU.** Every loaded TIN chunk is uploaded once, as integer-centimetre vertices and triangles. Vertex normals are area-weighted from the chunk's own faces and its neighbours' faces across shared edges. Breaklines (`is_breakline`) get hard normals. | **Reads:** 4 `H*` reads a vertex are gone, 68 of a plains chunk's 310 and 1,344 of a mountain chunk's 4,864 (22–28%), with none kept even on borders. **Per view:** 4 k–86 k reads with TIN streaming on. | Small to medium | [CT5](../../ROADMAP.md#ct5-products-and-streaming)'s ready follow-up and CT7 (proposed **GPU-T2**) |
 | 3 | **The Biome painter's inputs from the resident ground, on the GPU.** Per texel: height, slope and aspect from the drawn faces, shape curvature at `SHAPE_STEP` (12 m), and height relative to the neighbourhood. All are textures with an apron, read from step 2's buffers at level 0 and step 1's grids beyond. | **BP gets every terrain input with no CPU reads.** The removed CPU painter paid 16,641 `H*` reads a chunk (129² sites), about 4.2 M a view, before its own measures. | Medium; it waits for BP to name its inputs | New, under BP (proposed **GPU-T3**) |
 
 **Order of work:**
@@ -134,7 +134,7 @@ expected frame-time saving.
 So shadows cost about 8.5 ms, and drawing the terrain alone takes most of
 a 16.7 ms frame.
 
-[TE7](../ROADMAP.md#te7-intermediate-terrain-detail-levels) measured the
+[TE7](../../ROADMAP.md#te7-intermediate-terrain-detail-levels) measured the
 regular mesh at its 7 px target: 2.2 M triangles over 252 chunks, each
 chunk 8,192 triangles plus skirts.
 
@@ -153,7 +153,7 @@ measurements were taken under load, so read them as orders of magnitude.
 | # | Change | Expected frame-time saving | Effort | ROADMAP |
 |---|---|---|---|---|
 | 1 | **Cheaper terrain shadows.** First cap what terrain casts (a, b), then replace its shadow pass (c). | **Up to about 8.5 ms**, the whole shadow cost, if the terrain's casting is most of it (to measure, E1) | (a, b) small; (c) medium | New (proposed **GPU-T4**) |
-| 2 | **Fewer triangles: the TIN at level 0, then coarse TINs beyond.** | **Level 0:** about 0.5 M of 2.2 M triangles go (−23%), about 1–2 ms in the main pass. More comes off in the shadow pass, where level-0 chunks are the casters. **With coarse TINs at every level:** 2.2 M → roughly 0.02–0.3 M (252 chunks × 24–678 triangles, plus the split sides), about 4–9 ms in the main pass, before shadows. | Level 0 is built (`--tin`). Coarse TINs: medium to large (open question 3). | [CT5](../ROADMAP.md#ct5-products-and-streaming) (streaming TIN by default) and its "TIN LODs" |
+| 2 | **Fewer triangles: the TIN at level 0, then coarse TINs beyond.** | **Level 0:** about 0.5 M of 2.2 M triangles go (−23%), about 1–2 ms in the main pass. More comes off in the shadow pass, where level-0 chunks are the casters. **With coarse TINs at every level:** 2.2 M → roughly 0.02–0.3 M (252 chunks × 24–678 triangles, plus the split sides), about 4–9 ms in the main pass, before shadows. | Level 0 is built (`--tin`). Coarse TINs: medium to large (open question 3). | [CT5](../../ROADMAP.md#ct5-products-and-streaming) (streaming TIN by default) and its "TIN LODs" |
 | 3 | **GPU-driven terrain draws.** All resident chunks are culled and drawn on the GPU, per camera and per shadow cascade, with geomorphing in the vertex shader (steps 1 and 2's buffers). | Smaller: the main thread's per-chunk draw preparation, for 252 chunks times 1 view plus 4 cascades, perhaps 1–2 ms. Also fewer casters per cascade than whole-chunk culling gives. To measure. | Medium: the shared instanced renderer in `procgena_core_bevy` already culls on the GPU | Steps 1 and 2 (proposed GPU-T1/T2) |
 
 **Measure before building.** At a load average of 70 these are estimates.
@@ -335,7 +335,7 @@ seams must still match exactly, which "Parity" covers.
     - The exact alternative keeps the coarse side's inside row as `H*`
       reads (see "Read counts").
   - Skirts stay as the cover while a neighbour loads.
-- **Geomorphing within a level band** ([TE7](../ROADMAP.md#te7-intermediate-terrain-detail-levels)):
+- **Geomorphing within a level band** ([TE7](../../ROADMAP.md#te7-intermediate-terrain-detail-levels)):
   - a vertex shader blends towards the parent's surface, read from the
     parent's resident grid;
   - it needs no CPU read;

@@ -26,13 +26,13 @@ differ a little from side to side.
 
   **Decided 2026-11-23 (user):** a heightfield mesh by default, with
   volume meshing only in bounded patches for caves and overhangs (see
-  [features_plan_review.md](features_plan_review.md), "Decisions"). The
+  [terrain-features-review.md](../docs/decisions/terrain-features-review.md), "Decisions"). The
   SDF stays the shape of the land; only the default mesher changes.
 - **Terrain features.** Rivers, roads, ponds, and later cliffs, caves,
   lakes and general landforms (mesas, terraces, outcrops) share one
   lifecycle: plan, check bounds, evaluate, draw, query. Each keeps its own
-  planner. See [features_plan.md](features_plan.md) for the design and
-  [features_plan_review.md](features_plan_review.md) for what is adopted
+  planner. See [terrain-features.md](../docs/decisions/terrain-features.md) for the design and
+  [terrain-features-review.md](../docs/decisions/terrain-features-review.md) for what is adopted
   and how its steps map onto the phases below.
 - **Two new crates**, in the stone/tree split:
   - `terrain/crates/procgena_terrain`: engine-free core. It holds the
@@ -768,7 +768,7 @@ patches).
   chunk level `i`, its cull distance the view distance), split by distance
   with each level's hysteresis against the last selection, and balanced so
   neighbours across a side or a corner are at most one level apart.
-- **Feature tiers** (features_plan.md §9, "Feature tiers"; superseded as
+- **Feature tiers** (terrain-features.md §9, "Feature tiers"; superseded as
   the direction on 2026-11-26 by canonical TIN at every chunk level with
   a highest level per feature type, [terrain_lod.md](terrain_lod.md);
   this describes what is built today). Chunks are
@@ -2059,8 +2059,8 @@ What that asks of this crate, and where it stands:
 Phases 3 and 6 can run in parallel after phase 1, with one agent each. They
 touch separate modules.
 
-**Terrain features** ([features_plan.md](features_plan.md), reviewed in
-[features_plan_review.md](features_plan_review.md)) add two steps at the
+**Terrain features** ([terrain-features.md](../docs/decisions/terrain-features.md), reviewed in
+[terrain-features-review.md](../docs/decisions/terrain-features-review.md)) add two steps at the
 start of G3, before Phase 3's landforms and before Phase 4:
 
 1. Rivers, roads and ponds become one feature type with one index. Their
@@ -2186,7 +2186,7 @@ The worlds signed off on 2026-11-23 stay identical through steps 1 and 2.
 1. ~~**Volumetric reading.**~~ **Answered 2026-11-23:** the SDF with a
    heightfield base and a top-surface heightmap API stands, and meshing
    is a heightfield by default with volume patches only for caves and
-   overhangs (see [features_plan_review.md](features_plan_review.md),
+   overhangs (see [terrain-features-review.md](../docs/decisions/terrain-features-review.md),
    "Decisions"). Question 5 now only matters for those patches.
 2. ~~**Sea level.**~~ **Answered 2026-11-22:** oceans are not this crate's
    concern. Sea level is the zero of `WorldTerrain`'s elevation field E,

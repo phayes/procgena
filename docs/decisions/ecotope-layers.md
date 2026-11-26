@@ -167,3 +167,5 @@ Whether `cover` runs on the CPU or the GPU is the algorithm's business
   `EntryPlacement`.
 - The fate of the `.tree_scatter.yml` files and the asset-level Scatter
   APIs (the user, 2026-11-26: "not yet").
+- Whether a layer may read the copies of the layers above it as
+  attractors, not only as footprints that exclude it (ROADMAP "Later").
