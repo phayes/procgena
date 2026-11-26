@@ -84,7 +84,11 @@ are the ones most worth a look.
   `terrain/tin_canonical.md`, is under way: TIN build cost out to
   placement range, memory, cost per metre of travel, and what reads the
   TIN. ARCHITECTURE and D6b are not rewritten until the decision is
-  final.
+  final. **Update (user):** implementation is deferred. For now, placement
+  may move when a chunk's TIN is built, which is today's D6b behaviour.
+  The user accepts a cold build of about 10 s for a mountains disc out to
+  placement range ("a bunch up front to save a lot later" on the GPU), so
+  the feasibility study drops to low priority.
 - **`H*` stays as is.** Most work moves to the GPU via the TIN, and `H*`
   may be revisited later. The GPU plan is being revised to be TIN-centred.
 
