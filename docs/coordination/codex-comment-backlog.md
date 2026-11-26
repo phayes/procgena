@@ -625,6 +625,16 @@ in these files (`git show <commits> -- <file>` shows which).
   `World::biomes`, `Choice`, `Mode`), `src/selection/{mod,sampling,suitability,compatibility,relaxation}.rs`
   (every item), `tests/selection.rs` (module docs), `examples/large_world.rs`
   (module docs, `Args::selection`).
+- **W0d.1** (commit `03786e3`): `world/crates/procgena_world/src/world.rs`
+  (`Choice::graph`, `World::region_at`, `World::pin_region_at`,
+  `World::pin_region`), `src/selection/relaxation.rs`
+  (`lattice_neighbours`); `terrain/crates/procgena_terrain/src/graph.rs`
+  (`RegionKey::lattice_neighbours`, `RegionGraphOptions::jitter`,
+  `RegionGraph`, `Layout`, `MAX_CORNER_DRIFT`, `EdgePolicy`, `Edges`,
+  `RegionGraph::lattice`, `with_edge_policy`, `site_jitter`, `warps`,
+  `outline_at`, `outline_holding`, `Local::drift`), `src/hash.rs`
+  (`GRAPH_CORNER_DRIFT`), `src/world.rs`
+  (`WorldTerrain::with_lattice_regions`).
 
 ## procgena_terrain (RB4 canonical road network, 2026-11-25)
 

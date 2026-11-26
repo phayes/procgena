@@ -788,8 +788,8 @@ algorithm may replace it):
   example `--example large_world`; see world_plan.md, "W0 as built", for
   what it shows and what is left.
 - **Weighted selection (2026-11-25, plan
-  `docs/procgena-world-generation-plan.md`): W0a–W0d done, W0e/W0f in
-  part, W0d.1 waiting on the user's answers.** An optional, versioned
+  `docs/procgena-world-generation-plan.md`): W0a–W0d.1, W0e and W0f
+  done; the terrain fast path of W0d.1, W0f.1 and W0g left.** An optional, versioned
   `biome_selection` in `WorldOptions` (absent: the first-match rules, as
   before) draws each unpinned region's Biome from field suitability
   (prevalence and Gaussian preferences) and a symmetric affinity table, then
@@ -800,18 +800,26 @@ algorithm may replace it):
   edges stay straight, only cross-Biome edges are warped, and corners may
   drift by a capped amount that never changes which hexes touch, so
   selection never depends on geometry it sets). W0d.1 decided by the user
-  2026-11-25: corners always drift by a seed-only offset; point pins and
-  `region_at` use that straight, Biome-independent outline; an edge stays
-  straight when both sides share a Biome preset key; version 1 takes the
-  new geometry in place, and rule-based worlds keep today's. One
+  2026-11-25: corners always drift by a seed-only offset; point pins use
+  that straight, Biome-independent outline (`World::pin_region_at`),
+  while `region_at` and `biome_at` give the region whose land is there;
+  an edge stays straight when both sides share a Biome preset key;
+  version 1 takes the new geometry in place, and rule-based worlds keep
+  today's. Built as `RegionGraph::lattice` (sites on the lattice, corners
+  drifting up to a quarter of a lattice edge at full `jitter`), an
+  `EdgePolicy` for which edges warp, `RegionGraph::outline_at`,
+  `RegionKey::lattice_neighbours` and `WorldTerrain::with_lattice_regions`. One
   selector serves `World::biome`, the batch `World::biomes` and the
   terrain source, with its own graph and E (no cycle, no land built).
   Random access matches a whole-patch simulation. Cost: about 28 µs per
   single query at K = 3 and 2 µs per region in a batch; no cache needed.
-  Left: building W0d.1 (lattice sites, drifting corners and a per-edge
-  warp policy from the World: a `procgena_terrain` graph change, not yet
-  approved), the `world.meta.yml` entries and the
-  Studio editor (W0f.1), and tuning the draft settings (W0g).
+  `large_world` draws weighted maps (`--weighted`, `--iterations`,
+  `--temperature`, `--strength`) through one `World::biomes` batch and
+  reports patch sizes and lone regions. Left: skipping border negotiation
+  on same-Biome borders (a speed-up only; regions still differ in their
+  local choices, so it needs a proof and measurements first), the
+  `world.meta.yml` entries and the Studio editor (W0f.1), and tuning the
+  draft settings (W0g).
 
 ### Cover track
 
