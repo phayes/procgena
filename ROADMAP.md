@@ -799,14 +799,18 @@ algorithm may replace it):
   unjittered lattice point (decided by the user 2026-11-25: same-Biome
   edges stay straight, only cross-Biome edges are warped, and corners may
   drift by a capped amount that never changes which hexes touch, so
-  selection never depends on geometry it sets; whether corners drift
-  always or only between different Biomes is open, W0d.1). One
+  selection never depends on geometry it sets). W0d.1 decided by the user
+  2026-11-25: corners always drift by a seed-only offset; point pins and
+  `region_at` use that straight, Biome-independent outline; an edge stays
+  straight when both sides share a Biome preset key; version 1 takes the
+  new geometry in place, and rule-based worlds keep today's. One
   selector serves `World::biome`, the batch `World::biomes` and the
   terrain source, with its own graph and E (no cycle, no land built).
   Random access matches a whole-patch simulation. Cost: about 28 µs per
   single query at K = 3 and 2 µs per region in a batch; no cache needed.
-  Left: W0d.1 (straight same-Biome edges, drifting corners: a
-  `procgena_terrain` graph change), the `world.meta.yml` entries and the
+  Left: building W0d.1 (lattice sites, drifting corners and a per-edge
+  warp policy from the World: a `procgena_terrain` graph change, not yet
+  approved), the `world.meta.yml` entries and the
   Studio editor (W0f.1), and tuning the draft settings (W0g).
 
 ### Cover track
