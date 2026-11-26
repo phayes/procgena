@@ -73,14 +73,11 @@ impl Grid {
     /// height and no clearance, and `height` is never called for them, so a
     /// narrow `keep` makes the grid much cheaper to build. Cell size and
     /// layout match [`Grid::with_cell`] for the same `polygon` and `cell`.
-    ///
-    /// With the `rayon` feature, cells are worked out in parallel; the grid
-    /// is the same either way.
     pub(crate) fn with_cell_where(
         polygon: &[DVec2],
-        height: impl Fn(DVec2) -> f32 + Sync,
+        height: impl Fn(DVec2) -> f32,
         cell: f64,
-        keep: impl Fn(DVec2) -> bool + Sync,
+        keep: impl Fn(DVec2) -> bool,
     ) -> Self {
         // Bounding box and cell size.
         let (min, max) = polygon
@@ -105,28 +102,24 @@ impl Grid {
             clearance: Vec::new(),
             heights: Vec::new(),
         };
-        let cells: Vec<usize> = (0..width * depth).collect();
-        let data = crate::batch::map(&cells, |&i| {
-            let p = grid.centre(i);
-            if keep(p) && boundary.contains(p) {
-                (true, boundary.distance_to_border(p), height(p))
-            } else {
-                (false, 0.0, f32::NAN)
-            }
-        });
-        (grid.inside, grid.clearance, grid.heights) = data.into_iter().fold(
-            (
-                Vec::with_capacity(cells.len()),
-                Vec::with_capacity(cells.len()),
-                Vec::with_capacity(cells.len()),
-            ),
-            |(mut inside, mut clearance, mut heights), (i, c, h)| {
-                inside.push(i);
-                clearance.push(c);
-                heights.push(h);
-                (inside, clearance, heights)
-            },
+        let count = width * depth;
+        let (mut inside, mut clearance, mut heights) = (
+            Vec::with_capacity(count),
+            Vec::with_capacity(count),
+            Vec::with_capacity(count),
         );
+        for i in 0..count {
+            let p = grid.centre(i);
+            let kept = keep(p) && boundary.contains(p);
+            inside.push(kept);
+            clearance.push(if kept {
+                boundary.distance_to_border(p)
+            } else {
+                0.0
+            });
+            heights.push(if kept { height(p) } else { f32::NAN });
+        }
+        (grid.inside, grid.clearance, grid.heights) = (inside, clearance, heights);
         grid
     }
 

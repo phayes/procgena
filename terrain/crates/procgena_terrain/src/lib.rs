@@ -81,10 +81,9 @@
 //! origin. [`HeightTile`] samples a grid of heights on the world lattice, so
 //! separately sampled tiles agree exactly where they share points.
 //!
-//! The default `rayon` feature samples tiles on several threads; the results
-//! are the same without it.
+//! Everything here runs on the calling thread: the crate starts no threads
+//! of its own.
 
-mod batch;
 mod border;
 mod calibration;
 mod carve;

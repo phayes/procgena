@@ -66,10 +66,7 @@ fn main() {
     .expect("the default world options are valid");
     let bare = GroundStack::bare(seed, 1.0);
     let tier = FeatureTier::Fine;
-    println!(
-        "preset {preset}, seed {seed}, {chunks} chunks per level, rayon {}",
-        cfg!(feature = "rayon")
-    );
+    println!("preset {preset}, seed {seed}, {chunks} chunks per level");
 
     // Time each level: a row of chunks along x from the origin.
     println!(

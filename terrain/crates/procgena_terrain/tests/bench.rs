@@ -187,7 +187,7 @@ fn cold_region_planning() {
     eprintln!("  whole plan        {}", quantiles(&mut plan.clone()));
     eprintln!("  without roads     {}", quantiles(&mut far.clone()));
     eprintln!(
-        "  whole world ÷ regions (with negotiation and threads) {}",
+        "  whole world ÷ regions (with negotiation) {}",
         quantiles(&mut whole)
     );
     eprintln!("  load after: {}", load());
@@ -259,7 +259,7 @@ fn warm_sampling() {
 #[ignore]
 fn warm_tiles() {
     eprintln!(
-        "Warm tiles of 64 × 64 samples, per tile, in ms (rayon threads); load {}:",
+        "Warm tiles of 64 × 64 samples, per tile, in ms; load {}:",
         load()
     );
     for step in [1.0, 8.0] {
@@ -301,7 +301,7 @@ fn chunks() {
     use std::sync::Arc;
 
     eprintln!(
-        "Chunks of 64 × 64 cells, per chunk, in ms (rayon threads); load {}:",
+        "Chunks of 64 × 64 cells, per chunk, in ms; load {}:",
         load()
     );
 

@@ -125,10 +125,7 @@ fn main() {
         .iter()
         .find(|s| s.key == scale_key)
         .unwrap_or_else(|| panic!("--scale: one of small, medium_small, medium, large, real_life"));
-    println!(
-        "scale {scale_key}, seeds 1..={seeds}, {regions} regions per world, repeat {repeat}, rayon {}",
-        cfg!(feature = "rayon")
-    );
+    println!("scale {scale_key}, seeds 1..={seeds}, {regions} regions per world, repeat {repeat}");
     println!(
         "{:<16} {:>4} {:>8} {:>9} {:>9} {:>6} {:>8}",
         "preset", "seed", "region", "rough ms", "roads ms", "lines", "length m"

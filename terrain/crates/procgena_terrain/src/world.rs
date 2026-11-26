@@ -3,7 +3,6 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -500,48 +499,46 @@ impl WorldTerrain {
         nearest_border.expect("there are candidates").1
     }
 
-    /// Resolves ownership in small parallel batches, then holds each
-    /// terrain once while sampling all points. Failed regions remain
-    /// missing for the whole batch, just as in the point-at-a-time API.
-    pub(crate) fn sample_batch<T: Send>(
+    /// Finds every point's region, then holds each region's terrain once
+    /// while sampling all points. Failed regions remain missing for the
+    /// whole batch, just as in the point-at-a-time API.
+    pub(crate) fn sample_batch<T>(
         &self,
         points: &[DVec2],
         tier: FeatureTier,
-        sample: impl Fn(Option<&Terrain>, DVec2) -> T + Sync,
+        sample: impl Fn(Option<&Terrain>, DVec2) -> T,
     ) -> Vec<T> {
-        let batches: Vec<_> = points.chunks(256).collect();
-        let owners: Vec<RegionKey> = crate::batch::map(&batches, |points| {
-            let mut regions = HashMap::new();
-            let mut sites = HashMap::new();
-            points
-                .iter()
-                .map(|&p| {
-                    let near = self.graph.cell_near(p);
-                    let nearby = sites.entry(near).or_insert_with(|| self.nearby_sites(near));
-                    self.owner_using(p, nearby, |key| {
-                        regions
-                            .entry(key)
-                            .or_insert_with(|| self.region_of(key))
-                            .clone()
-                    })
+        // Each point's owner, reusing the regions and nearby sites already
+        // looked up for the batch.
+        let mut regions = HashMap::new();
+        let mut sites = HashMap::new();
+        let owners: Vec<RegionKey> = points
+            .iter()
+            .map(|&p| {
+                let near = self.graph.cell_near(p);
+                let nearby = sites.entry(near).or_insert_with(|| self.nearby_sites(near));
+                self.owner_using(p, nearby, |key| {
+                    regions
+                        .entry(key)
+                        .or_insert_with(|| self.region_of(key))
+                        .clone()
                 })
-                .collect::<Vec<_>>()
-        })
-        .into_iter()
-        .flatten()
-        .collect();
-        let keys: Vec<_> = owners
+            })
+            .collect();
+
+        // Each owner's terrain once, in region order, then every sample.
+        let terrains: HashMap<RegionKey, Option<Arc<Terrain>>> = owners
             .iter()
             .copied()
             .collect::<BTreeSet<_>>()
             .into_iter()
+            .map(|key| (key, self.terrain_tier(key.id(), tier).ok()))
             .collect();
-        let terrains: HashMap<_, _> =
-            crate::batch::map(&keys, |&key| (key, self.terrain_tier(key.id(), tier).ok()))
-                .into_iter()
-                .collect();
-        let located: Vec<_> = points.iter().zip(&owners).collect();
-        crate::batch::map(&located, |&(p, key)| sample(terrains[key].as_deref(), *p))
+        points
+            .iter()
+            .zip(&owners)
+            .map(|(&p, key)| sample(terrains[key].as_deref(), p))
+            .collect()
     }
 
     /// Region `key` from the graph, kept.
@@ -792,113 +789,14 @@ impl Ground for WorldTerrain {
     }
 }
 
-/// One kept value, built once by whichever thread claims it first, while
-/// the others wait for that build (single flight).
+/// One kept value, built once by whichever thread asks first, while any
+/// other thread asking waits for that build.
 ///
-/// No lock is held while the value builds, and a build never runs on a
-/// Rayon worker. A worker waiting on Rayon work inside a build picks up
-/// other queued jobs on top of it, and if one of those waits for a value
-/// whose build needs the build buried below, nothing moves again. So a
-/// worker that claims a build hands it to a thread of its own, which keeps
-/// the value as soon as it is built; that thread waits for its own Rayon
-/// work without picking up other jobs. A worker waiting for a value helps
-/// with queued Rayon work meanwhile, so the builds always have workers.
-///
-/// Rayon work inside a build must not read the world's caches: it may
-/// run on a worker that is waiting for a value lower down its stack.
-struct Slot<T> {
-    /// The value, once built.
-    value: OnceLock<Result<Arc<T>, WorldError>>,
-    /// Whether a thread is building the value. Cleared again if the build
-    /// panics, so another thread can try.
-    claimed: AtomicBool,
-}
-
-impl<T> Default for Slot<T> {
-    fn default() -> Self {
-        Self {
-            value: OnceLock::new(),
-            claimed: AtomicBool::new(false),
-        }
-    }
-}
-
-impl<T: Send + Sync> Slot<T> {
-    /// The value, built with `build` if no thread has claimed it yet, else
-    /// waited for.
-    fn get(
-        &self,
-        build: impl FnOnce() -> Result<T, WorldError> + Send,
-    ) -> Result<Arc<T>, WorldError> {
-        let mut build = Some(build);
-        loop {
-            if let Some(value) = self.value.get() {
-                return value.clone();
-            }
-            // Claim the build, or wait for the thread that has.
-            if self
-                .claimed
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                // The building thread keeps the value itself, so it is
-                // ready as soon as it is built, whatever the claiming
-                // thread is doing by then.
-                let build = build.take().expect("only the claiming thread builds");
-                off_worker(|| {
-                    let unclaim = Unclaim(&self.claimed);
-                    let value = build().map(Arc::new);
-                    let _ = self.value.set(value);
-                    std::mem::forget(unclaim);
-                });
-                return self.value.get().expect("kept by the build").clone();
-            }
-            wait_until(|| self.value.get().is_some() || !self.claimed.load(Ordering::Acquire));
-        }
-    }
-}
-
-/// Runs `build`, on a thread of its own if this is a Rayon worker (see
-/// [`Slot`]), helping with Rayon work while it runs. A panic in `build`
-/// carries on in this thread.
-fn off_worker(build: impl FnOnce() + Send) {
-    #[cfg(feature = "rayon")]
-    if rayon::current_thread_index().is_some() {
-        std::thread::scope(|scope| {
-            let builder = scope.spawn(build);
-            wait_until(|| builder.is_finished());
-            builder
-                .join()
-                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
-        });
-        return;
-    }
-    build();
-}
-
-/// Clears a slot's claim if its build panics.
-struct Unclaim<'a>(&'a AtomicBool);
-
-impl Drop for Unclaim<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
-    }
-}
-
-/// Waits until `done` holds. A Rayon worker helps with queued Rayon work
-/// meanwhile (see [`Slot`]); any other thread sleeps between looks, a
-/// little longer each time.
-fn wait_until(done: impl Fn() -> bool) {
-    let mut nap = Duration::from_micros(20);
-    while !done() {
-        #[cfg(feature = "rayon")]
-        if matches!(rayon::yield_now(), Some(rayon::Yield::Executed)) {
-            continue;
-        }
-        std::thread::sleep(nap);
-        nap = (nap * 2).min(Duration::from_millis(1));
-    }
-}
+/// A build runs on the thread that asked first and may read other values
+/// from the caches, but only values that come before it (regions and
+/// settings, then plans, then each tier in order), so no wait ever closes
+/// a cycle. If a build panics, the next thread to ask builds the value.
+type Slot<T> = Arc<OnceLock<Result<Arc<T>, WorldError>>>;
 
 /// Values kept per region, at most `capacity` of them, dropping the one
 /// used longest ago.
@@ -911,10 +809,10 @@ struct CacheState<T> {
     /// Counts every use, to find the one used longest ago.
     clock: u64,
     /// Each region's slot and when it was last used.
-    slots: HashMap<RegionKey, (u64, Arc<Slot<T>>)>,
+    slots: HashMap<RegionKey, (u64, Slot<T>)>,
 }
 
-impl<T: Send + Sync> Cache<T> {
+impl<T> Cache<T> {
     fn new(capacity: usize) -> Self {
         Self {
             capacity,
@@ -929,17 +827,16 @@ impl<T: Send + Sync> Cache<T> {
     fn peek(&self, key: RegionKey) -> Option<Arc<T>> {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let (_, slot) = state.slots.get(&key)?;
-        slot.value.get()?.as_ref().ok().cloned()
+        slot.get()?.as_ref().ok().cloned()
     }
 
     /// The value for `key`, built once with `build` if it isn't kept.
-    /// Threads asking for the same key while it builds wait for that build.
-    /// A build may read other keys first and then run Rayon work, but that
-    /// Rayon work must not read the caches (see [`Slot`]).
+    /// Threads asking for the same key while it builds wait for that build
+    /// (see [`Slot`]).
     fn get(
         &self,
         key: RegionKey,
-        build: impl FnOnce() -> Result<T, WorldError> + Send,
+        build: impl FnOnce() -> Result<T, WorldError>,
     ) -> Result<Arc<T>, WorldError> {
         // Find or make the slot, without holding the lock while building.
         let slot = {
@@ -950,7 +847,7 @@ impl<T: Send + Sync> Cache<T> {
                 *used = now;
                 slot.clone()
             } else {
-                let slot = Arc::new(Slot::default());
+                let slot = Slot::default();
                 state.slots.insert(key, (now, slot.clone()));
                 if state.slots.len() > self.capacity {
                     let oldest = state
@@ -964,18 +861,15 @@ impl<T: Send + Sync> Cache<T> {
                 slot
             }
         };
-        slot.get(build)
+        slot.get_or_init(|| build().map(Arc::new)).clone()
     }
 }
 
-#[cfg(all(test, feature = "rayon"))]
+#[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicU64;
-    use std::sync::mpsc;
-    use std::time::Duration;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use glam::IVec2;
-    use rayon::prelude::*;
 
     use super::*;
 
@@ -984,66 +878,9 @@ mod tests {
         RegionKey(IVec2::new(i, 0))
     }
 
-    /// Builds value `i` the way region stages build: it first reads the
-    /// values it depends on (`i + 1` to `i + 3`, below `n`) from the same
-    /// cache, then runs Rayon work of its own on them, slowly enough that
-    /// other threads ask for the same keys meanwhile. Counts each build in
-    /// `builds`.
-    fn value(cache: &Cache<u64>, builds: &AtomicU64, i: i32, n: i32) -> Arc<u64> {
-        cache
-            .get(key(i), || {
-                builds.fetch_add(1, Ordering::Relaxed);
-                let below: Vec<u64> = (i + 1..(i + 4).min(n))
-                    .map(|j| *value(cache, builds, j, n))
-                    .collect();
-                let sum: u64 = (0..8u64)
-                    .into_par_iter()
-                    .map(|k| {
-                        std::thread::sleep(Duration::from_micros(300));
-                        below.get(k as usize).copied().unwrap_or(0)
-                    })
-                    .sum();
-                Ok(sum + 1)
-            })
-            .expect("builds")
-    }
-
-    #[test]
-    fn builds_that_use_rayon_never_wait_on_each_other_forever() {
-        // Many Rayon jobs ask for overlapping keys at once, each build
-        // running Rayon work of its own: a thread waiting inside a build
-        // can pick up another job that needs a key still being built.
-        let (done, finished) = mpsc::channel();
-        std::thread::spawn(move || {
-            for round in 0..20 {
-                let n = 40;
-                let (cache, builds) = (Cache::new(1000), AtomicU64::new(0));
-                let mut order: Vec<i32> = (0..n).collect();
-                order.rotate_left(round * 7 % n as usize);
-                let sums: Vec<u64> = order
-                    .par_iter()
-                    .map(|&i| *value(&cache, &builds, i, n))
-                    .collect();
-                // Each key is built once, and every value agrees with one
-                // built on a single thread.
-                assert_eq!(builds.load(Ordering::Relaxed), n as u64);
-                let (single, count) = (Cache::new(1000), AtomicU64::new(0));
-                for (&i, &sum) in order.iter().zip(&sums) {
-                    assert_eq!(sum, *value(&single, &count, i, n));
-                }
-            }
-            done.send(()).unwrap();
-        });
-        assert!(
-            finished.recv_timeout(Duration::from_secs(120)).is_ok(),
-            "the cache deadlocked"
-        );
-    }
-
     #[test]
     fn a_cold_batch_read_builds_every_region_stage_once() {
-        // Batch reads build regions on Rayon workers; every stage of every
-        // region still starts exactly once.
+        // A batch read builds each region stage it needs once.
         let started: Arc<Mutex<HashMap<(RegionId, RegionStage), usize>>> = Arc::default();
         let hook: ProgressHook = {
             let started = Arc::clone(&started);
@@ -1083,9 +920,7 @@ mod tests {
 
     #[test]
     fn other_threads_share_one_build_per_key() {
-        use std::sync::atomic::AtomicUsize;
-
-        // Eight plain threads ask for the same few keys at once; each key
+        // Eight threads ask for the same few keys at once; each key
         // is built once and all get that value.
         let cache = Cache::new(100);
         let builds = AtomicUsize::new(0);

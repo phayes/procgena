@@ -317,7 +317,10 @@ impl GroundGrid {
     /// no effect.
     pub fn paint(&self, painter: &(impl GroundPainter + ?Sized)) -> GroundWeights {
         let located: Vec<_> = self.points.iter().zip(&self.sites).collect();
-        let mixes = crate::batch::map(&located, |&(p, site)| painter.paint(*p, site));
+        let mixes: Vec<_> = located
+            .iter()
+            .map(|&(p, site)| painter.paint(*p, site))
+            .collect();
         GroundWeights::from_mixes(self.size, &mixes, painter.catalogue())
     }
 

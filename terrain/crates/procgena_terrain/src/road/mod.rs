@@ -231,14 +231,15 @@ pub(crate) fn route(
         grade: 1.0,
         max_grade: 1.0,
     };
-    let cells: Vec<usize> = (0..grid.heights.len()).collect();
-    let cell_grades: Vec<RoadGrades> = crate::batch::map(&cells, |&i| {
-        if allowed[i] {
-            grades(grid.centre(i))
-        } else {
-            unused
-        }
-    });
+    let cell_grades: Vec<RoadGrades> = (0..grid.heights.len())
+        .map(|i| {
+            if allowed[i] {
+                grades(grid.centre(i))
+            } else {
+                unused
+            }
+        })
+        .collect();
     let rivers = waters.rivers;
     let river = water(grid, rivers);
     let bridges = Bridges::new(grid, rivers);
@@ -340,12 +341,14 @@ pub(crate) fn route(
             // to the network's level where the road joins it. Over a river
             // gap the ground doesn't count: there the level only keeps to
             // its grade, along a straight target from bank to bank.
-            let heights: Vec<f32> = crate::batch::map(&points, |&p| ground(p));
+            let heights: Vec<f32> = points.iter().map(|&p| ground(p)).collect();
             let middles: Vec<DVec2> = (0..points.len())
                 .map(|i| points[i].lerp(points[i.saturating_sub(1)], 0.5))
                 .collect();
-            let steepest: Vec<f64> =
-                crate::batch::map(&middles, |&p| f64::from(grades(p).max_grade));
+            let steepest: Vec<f64> = middles
+                .iter()
+                .map(|&p| f64::from(grades(p).max_grade))
+                .collect();
             let end_level = joined.map(|(_, _, _, level)| level);
             let mut target = smooth(&heights);
             let mut across = across_road(&points, &heights, f64::from(start.width) / 2.0, ground);

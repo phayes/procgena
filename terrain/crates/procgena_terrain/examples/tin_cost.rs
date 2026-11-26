@@ -61,9 +61,8 @@ fn main() {
         ..TinTolerance::GENERAL
     };
     println!(
-        "seed {seed}, {n} × {n} chunks{}, tolerance {tolerance:?}, rayon {}",
+        "seed {seed}, {n} × {n} chunks{}, tolerance {tolerance:?}",
         if along_river { " along a river" } else { "" },
-        cfg!(feature = "rayon")
     );
     println!(
         "{:<16} {:>6} {:>6} {:>5} {:>18} {:>25} {:>13} {:>18} {:>18} {:>7} {:>7}",

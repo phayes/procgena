@@ -14,8 +14,8 @@
 //! jump about the block; "along a line" points follow a path a metre
 //! apart, as a moving object or a road would ask. The terrain's own
 //! ground is read one point at a time (`ChunkSource::surface`) and in one
-//! batch (`ChunkSource::surfaces`, on every thread with the `rayon`
-//! feature). Times are on a world whose regions and chunks are already
+//! batch (`ChunkSource::surfaces`). Times are on a world whose regions and
+//! chunks are already
 //! built; building them is `tin_cost`'s measure.
 
 use std::sync::Arc;
@@ -41,10 +41,7 @@ fn main() {
     let seed: u32 = option("--seed").map_or(1, |s| s.parse().expect("--seed <n>"));
     let n: i64 = option("--chunks").map_or(4, |s| s.parse().expect("--chunks <n>"));
     let count: usize = option("--points").map_or(200_000, |s| s.parse().expect("--points <n>"));
-    println!(
-        "seed {seed}, {n} × {n} chunks, {count} points, rayon {}",
-        cfg!(feature = "rayon")
-    );
+    println!("seed {seed}, {n} × {n} chunks, {count} points");
     println!(
         "{:<16} {:>10} {:>14} {:>14} {:>14} {:>14} {:>14} {:>14}",
         "preset",

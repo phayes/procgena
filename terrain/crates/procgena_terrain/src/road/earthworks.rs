@@ -281,29 +281,31 @@ pub(crate) fn earthworks(
 fn segment(carved: &CarvedLine<'_>, ground: &(dyn Fn(DVec2) -> f64 + Sync)) -> SegmentEarthworks {
     let line = carved.line;
     let n = line.points.len();
-    let indices: Vec<usize> = (0..n).collect();
-    let stations: Vec<StationSection> = crate::batch::map(&indices, |&i| {
-        // Across the road: square to the line through the neighbours.
-        let (prev, next) = (
-            line.points[i.saturating_sub(1)],
-            line.points[(i + 1).min(n - 1)],
-        );
-        let across = (next - prev).normalize_or_zero().perp();
-        let (level, half_width, shape) = (line.levels[i], 0.5 * line.widths[i], carved.sections[i]);
-        let sides = [0, 1].map(|side| {
-            let sign = if side == 0 { 1.0 } else { -1.0 };
-            let at = |d: f64| ground(line.points[i] + across * (sign * d));
-            side_section(level, half_width, shape, &at)
-        });
-        StationSection {
-            position: line.points[i],
-            across,
-            level,
-            half_width,
-            shape,
-            sides,
-        }
-    });
+    let stations: Vec<StationSection> = (0..n)
+        .map(|i| {
+            // Across the road: square to the line through the neighbours.
+            let (prev, next) = (
+                line.points[i.saturating_sub(1)],
+                line.points[(i + 1).min(n - 1)],
+            );
+            let across = (next - prev).normalize_or_zero().perp();
+            let (level, half_width, shape) =
+                (line.levels[i], 0.5 * line.widths[i], carved.sections[i]);
+            let sides = [0, 1].map(|side| {
+                let sign = if side == 0 { 1.0 } else { -1.0 };
+                let at = |d: f64| ground(line.points[i] + across * (sign * d));
+                side_section(level, half_width, shape, &at)
+            });
+            StationSection {
+                position: line.points[i],
+                across,
+                level,
+                half_width,
+                shape,
+                sides,
+            }
+        })
+        .collect();
 
     // Volumes by the mean of neighbouring areas.
     let (mut cut_volume, mut fill_volume) = (0.0, 0.0);

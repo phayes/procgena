@@ -193,8 +193,7 @@ impl StitchedWorld {
         let agreements =
             negotiate_edges(&regions, &generators, &traces, &index, &corners, elevation)?;
 
-        // Build each terrain with the agreements for its edges, on several
-        // threads with the `rayon` feature (the results are the same).
+        // Build each terrain with the agreements for its edges.
         let build = |((generator, region), trace): ((TerrainGenerator, Region), RiverTrace)| {
             let mine: Vec<_> = region
                 .edges
@@ -209,15 +208,6 @@ impl StitchedWorld {
         };
         let pairs: Vec<((TerrainGenerator, Region), RiverTrace)> =
             generators.into_iter().zip(regions).zip(traces).collect();
-        #[cfg(feature = "rayon")]
-        let terrains = {
-            use rayon::prelude::*;
-            pairs
-                .into_par_iter()
-                .map(build)
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        #[cfg(not(feature = "rayon"))]
         let terrains = pairs
             .into_iter()
             .map(build)

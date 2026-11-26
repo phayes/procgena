@@ -170,7 +170,7 @@ pub trait GroundSource: Sync {
     /// [`site`](Self::site). The default samples points independently;
     /// worlds reuse their region boundaries and terrains for the batch.
     fn sites(&self, points: &[DVec2], tier: FeatureTier) -> Vec<GroundSite> {
-        crate::batch::map(points, |&p| self.site(p, tier))
+        points.iter().map(|&p| self.site(p, tier)).collect()
     }
 
     /// Samples world position `p` (x and z, metres) at `tier`, requesting
@@ -194,7 +194,10 @@ pub trait GroundSource: Sync {
         tier: FeatureTier,
         detail: SampleDetail,
     ) -> Vec<GroundSite> {
-        crate::batch::map(points, |&p| self.site_at(p, tier, detail))
+        points
+            .iter()
+            .map(|&p| self.site_at(p, tier, detail))
+            .collect()
     }
 }
 

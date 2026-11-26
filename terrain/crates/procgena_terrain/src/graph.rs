@@ -266,7 +266,9 @@ const MAX_CORNER_DRIFT: f64 = 0.25;
 /// It must give the same answer every time it is asked about the same
 /// pair, from any thread. It is always asked with the smaller id first, so
 /// both regions on an edge get the same edge. It never changes which
-/// regions are neighbours or where corners lie.
+/// regions are neighbours or where corners lie. Given to a
+/// [`WorldTerrain`](crate::WorldTerrain), it runs inside that world's
+/// region builds, so it must not ask the world for regions or terrain.
 ///
 /// Any `Fn(RegionId, RegionId) -> bool` closure that is `Send + Sync` is a
 /// policy.

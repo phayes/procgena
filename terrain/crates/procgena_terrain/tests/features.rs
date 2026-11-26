@@ -597,11 +597,10 @@ fn network_hashes(world: &StitchedWorld) -> Vec<(u64, u64)> {
         .collect()
 }
 
-/// A world's road networks hash the same however many threads build it.
-/// Run with and without the `rayon` feature, `--nocapture` prints the
-/// hashes, which must also match between the two builds.
+/// A world's road networks hash the same every time it is built.
+/// `--nocapture` prints the hashes, to compare across machines.
 #[test]
-fn road_networks_are_the_same_on_any_number_of_threads() {
+fn road_networks_are_the_same_every_build() {
     let build = || {
         RIVER_SEEDS
             .iter()
@@ -620,18 +619,6 @@ fn road_networks_are_the_same_on_any_number_of_threads() {
         "the river worlds should have road networks with crossings"
     );
     assert_eq!(build(), hashes, "a second build should hash the same");
-    #[cfg(feature = "rayon")]
-    for threads in [1, 3, 8] {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .expect("a thread pool");
-        assert_eq!(
-            pool.install(build),
-            hashes,
-            "on {threads} threads the networks should hash the same"
-        );
-    }
 }
 
 /// The first pair of edges of the closed outline `outline` that cross, by

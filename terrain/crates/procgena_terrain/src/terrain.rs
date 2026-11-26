@@ -1186,13 +1186,12 @@ fn moved(before: &Terrain, after: &Terrain, lines: &[FeatureLine]) -> f32 {
     const MARGIN: f32 = 1.0;
     const SCALE: f32 = 1.1;
 
-    // Each point of each line, measured on its own (in parallel with the
-    // `rayon` feature): across the line at its centre, edges and beyond.
-    let points: Vec<(&FeatureLine, usize)> = lines
+    // Each point of each line, measured on its own: across the line at its
+    // centre, edges and beyond.
+    let points = lines
         .iter()
-        .flat_map(|line| (0..line.points.len()).map(move |i| (line, i)))
-        .collect();
-    let moves = crate::batch::map(&points, |&(line, i)| {
+        .flat_map(|line| (0..line.points.len()).map(move |i| (line, i)));
+    let moves = points.map(|(line, i): (&FeatureLine, usize)| {
         let p = line.points[i];
         let next = line
             .points
@@ -1393,14 +1392,7 @@ impl HeightTile {
                 .map(|i| at(DVec2::new((origin.x + i64::from(i)) as f64 * step, z)))
                 .collect()
         };
-        #[cfg(feature = "rayon")]
-        let rows: Vec<Vec<T>> = {
-            use rayon::prelude::*;
-            (0..size.y).into_par_iter().map(row).collect()
-        };
-        #[cfg(not(feature = "rayon"))]
-        let rows: Vec<Vec<T>> = (0..size.y).map(row).collect();
-        rows.into_iter().flatten().collect()
+        (0..size.y).flat_map(row).collect()
     }
 
     /// The height at sample `(i, j)`.

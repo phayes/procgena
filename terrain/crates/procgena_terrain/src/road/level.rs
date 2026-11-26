@@ -60,16 +60,17 @@ pub(super) fn across_road(
     ground: &(dyn Fn(DVec2) -> f32 + Sync),
 ) -> Vec<(f32, f32)> {
     let last = points.len() - 1;
-    let indices: Vec<usize> = (0..points.len()).collect();
-    crate::batch::map(&indices, |&i| {
-        let along = points[(i + 1).min(last)] - points[i.saturating_sub(1)];
-        let side = along.perp().normalize_or_zero() * half_width;
-        let (left, right) = (ground(points[i] + side), ground(points[i] - side));
-        (
-            centre[i].min(left).min(right),
-            centre[i].max(left).max(right),
-        )
-    })
+    (0..points.len())
+        .map(|i| {
+            let along = points[(i + 1).min(last)] - points[i.saturating_sub(1)];
+            let side = along.perp().normalize_or_zero() * half_width;
+            let (left, right) = (ground(points[i] + side), ground(points[i] - side));
+            (
+                centre[i].min(left).min(right),
+                centre[i].max(left).max(right),
+            )
+        })
+        .collect()
 }
 
 /// Road levels along `points`, starting at `start` and, if given, ending at

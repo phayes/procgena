@@ -401,7 +401,7 @@ pub trait ChunkSource: Sync {
     /// [`surface`](Self::surface). Worlds reuse region boundaries and
     /// terrains across the batch; other sources may use the default.
     fn surfaces(&self, points: &[DVec2], tier: FeatureTier) -> Vec<SurfacePoint> {
-        crate::batch::map(points, |&p| self.surface(p, tier))
+        points.iter().map(|&p| self.surface(p, tier)).collect()
     }
 
     /// The tier [`surface`](Self::surface) gives when asked for `tier`.
