@@ -2611,6 +2611,36 @@ in a `tin` module of `procgena_terrain`.
   chunk. Until then, the demo walks on colliders built from the drawn
   chunk meshes.
 
+#### CT-T: The TIN is the only ground (tentative, deferred)
+
+Tentative decision by the user, 2026-11-26: "H* becomes only the generator
+the TIN samples, and everything reads the TIN." This would revise D6b to
+its option (a). Implementation is deferred. Until then, placement may move
+when a chunk's TIN is built, as today.
+
+- **Covers, in stages:**
+  1. **Everything reads the TIN.** Placement height and slope (from
+     smoothed vertex normals), labels and measures, collision, and drawing
+     all read it. The canonical TIN is built out to the largest place
+     range, about 2 km. The user accepts a cold build of about 10 s on
+     mountains up front, so that later work can move to the GPU.
+  2. **One label definition, evaluated two ways.** The same rules and
+     thresholds on the TIN, in exact integer centimetres, are evaluated
+     both as a point query (placement, now on the CPU and later on the
+     GPU) and as a dense GPU raster (the segmentation that Biome paint, BP,
+     reads). The two agree exactly. Paint may add visual-only channels on
+     top.
+  3. **Shading normals come purely from the TIN.** Border normals are
+     carried in the edge contract, so seams stay exact without `H*`.
+  4. **Only if TIN building is still too slow:** move `H*` sampling and
+     TIN building to the GPU. That requires an integer, fixed-point `H*`
+     that gives bit-identical results on the CPU and the GPU, designed
+     together with D6a's pinned maths.
+- **Needs:** CT-A (done) and CT5. The feasibility numbers will be in
+  `terrain/tin_canonical.md` once measured (low priority).
+- **Done when:** the user confirms the decision, ARCHITECTURE and D6b are
+  revised, and the stages land.
+
 #### Later in the track
 
 - **Cheaper road edits, revisit after RB4** (kept by the user
