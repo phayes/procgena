@@ -2528,10 +2528,15 @@ largest place range).
      the ground), through TF. These replace the Rough, Mid and Fine
      feature tiers, and promotion goes: every drawn chunk is its own
      TIN (decided by the user 2026-11-26). Defaults: roads edges to level 1, carving to 2;
-     rivers and ponds edges to 2, carving at all levels. Measured
-     (`--example tin_levels`): cost per chunk stays about flat, from
-     0.3–4.5 ms at level 0 to 0.4–7.7 ms at level 6 (plains to
-     mountains, one thread).
+     rivers and ponds edges to 2, carving at all levels. Measured on
+     real level builds (`--example tin_levels`): cost per chunk stays
+     about flat, 0.3–4.7 ms at level 0 and 0.5–8.4 ms at levels 4–6
+     (plains to mountains, one thread).
+     **Status:** built for feature-free ground (`3cb431d`; step 0,
+     `ChunkSource` by `FeatureLevel`, in `69e9067`). Every level up to
+     `MAX_CHUNK_LEVEL` builds canonically, level 0 bit-identical; above
+     level 0 no feature line is kept and no water band applies (waits
+     for TF).
   2. **One label definition, evaluated two ways.** The same rules and
      thresholds on the TIN, in exact integer centimetres, are evaluated:
      - as a point query, for placement (on the CPU now, on the GPU later);
@@ -2574,6 +2579,8 @@ largest place range).
   5. **Shading normals come purely from the TIN.** Border normals are
      carried in the edge contract, so seams stay exact without `H*`
      (since `34e10a7` interior vertices already use the TIN's own faces).
+     **Status:** built (`9f3f9d4`): `shading_normals_with` reads no
+     ground; the stream adopts it in `TinRead::build`.
   6. **Only if TIN building is still too slow:** move `H*` sampling and
      TIN building to the GPU. That requires an integer, fixed-point `H*`
      that gives bit-identical results on the CPU and the GPU, designed

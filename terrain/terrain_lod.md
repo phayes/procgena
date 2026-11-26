@@ -32,8 +32,8 @@ default" were chosen by the coordinator on the user's instruction
   placement level.
 - **It's affordable:**
   - Cost per chunk is about flat across levels: at `GENERAL` × 2^L, a
-    level-6 chunk (4 km wide) costs about what a level-0 chunk does, 0.4 ms
-    on plains and 4.5–7.7 ms on mountains, on one thread.
+    level-6 chunk (4 km wide) costs about what a level-0 chunk does, 0.3–0.5 ms
+    on plains and 4.5–8.4 ms on mountains, on one thread.
   - The default build radii come to about 365 chunks: about 0.15 s cold on
     plains and 1.6–2.8 s on mountains.
   - Frame-time E4 found that triangle count, not chunk count, drives render
@@ -114,29 +114,44 @@ canonical level 0 out to 20 km would be about 307,000 chunks.
 
 ## Cost
 
-Measured with `--example tin_levels`. It builds a level-`L` chunk as a
-level-0 chunk over the world shrunk by 2^L, which samples the same points
-within the same scaled tolerance. Setup: seed 1, 3 × 3 chunks round the
-origin, regions already built, fastest of 3 builds, one thread, load
-average about 30.
+Measured with `--example tin_levels`, which builds each level's chunks
+for real (`build_chunk_with`, a fresh contract cache per chunk, so the
+four edge contracts and their border normals are built with it). Setup:
+the shipped presets on the default world, seed 1, 3 × 3 chunks round the
+origin, `GENERAL`, regions already built, fastest of 3 builds, one
+thread, load average 4–8. Reads are heights read from `H*` per build;
+errors are against `H*` at 256 × 256 points per chunk.
 
 | Level | Preset | Triangles | Reads | Build | Error p50 / p95 / max |
 |---|---|---|---|---|---|
-| 0 | plains | 26 | 352 | 0.30 ms | 0.03 / 0.11 / 0.34 m |
-| | rolling hills | 98 | 2,244 | 1.68 ms | 0.07 / 0.24 / 0.54 m |
-| | mountains | 468 | 4,034 | 4.47 ms | 0.13 / 0.36 / 0.92 m |
-| 3 | plains | 27 | 335 | 0.38 ms | 0.21 / 0.70 / 1.58 m |
-| | rolling hills | 142 | 3,584 | 3.61 ms | 0.71 / 2.21 / 5.18 m |
-| | mountains | 1,208 | 3,775 | 6.35 ms | 0.93 / 3.24 / 12.4 m |
-| 6 | plains | 24 | 309 | 0.43 ms | 1.0 / 3.2 / 6.3 m |
-| | rolling hills | 41 | 2,465 | 2.61 ms | 5.7 / 15.5 / 36.6 m |
-| | mountains | 1,349 | 3,900 | 7.67 ms | 7.7 / 27.9 / 96 m |
+| 0 | plains | 26 | 402 | 0.34 ms | 0.03 / 0.11 / 0.34 m |
+| | rolling hills | 98 | 2,322 | 1.70 ms | 0.07 / 0.24 / 0.54 m |
+| | mountains | 468 | 4,212 | 4.65 ms | 0.13 / 0.36 / 0.92 m |
+| 1 | plains | 24 | 401 | 0.33 ms | 0.06 / 0.21 / 0.72 m |
+| | rolling hills | 112 | 3,023 | 2.17 ms | 0.16 / 0.53 / 1.08 m |
+| | mountains | 573 | 3,744 | 4.46 ms | 0.22 / 0.69 / 2.07 m |
+| 2 | plains | 23 | 410 | 0.39 ms | 0.12 / 0.41 / 0.93 m |
+| | rolling hills | 121 | 3,315 | 3.07 ms | 0.34 / 1.09 / 2.19 m |
+| | mountains | 828 | 3,851 | 5.58 ms | 0.42 / 1.44 / 5.84 m |
+| 3 | plains | 27 | 385 | 0.41 ms | 0.21 / 0.69 / 1.60 m |
+| | rolling hills | 144 | 3,719 | 3.74 ms | 0.70 / 2.22 / 5.19 m |
+| | mountains | 1,220 | 4,017 | 6.68 ms | 0.92 / 3.21 / 12.4 m |
+| 4 | plains | 26 | 360 | 0.42 ms | 0.35 / 1.08 / 2.72 m |
+| | rolling hills | 155 | 3,903 | 4.37 ms | 1.5 / 4.8 / 10.0 m |
+| | mountains | 1,342 | 4,171 | 7.94 ms | 1.9 / 6.7 / 23.9 m |
+| 5 | plains | 24 | 360 | 0.47 ms | 0.57 / 1.81 / 4.01 m |
+| | rolling hills | 154 | 3,695 | 4.49 ms | 3.2 / 9.6 / 23.8 m |
+| | mountains | 1,513 | 4,261 | 8.43 ms | 4.3 / 14.0 / 51.3 m |
+| 6 | plains | 23 | 357 | 0.48 ms | 1.0 / 3.3 / 6.3 m |
+| | rolling hills | 44 | 2,610 | 2.81 ms | 5.6 / 15.3 / 39.2 m |
+| | mountains | 1,376 | 4,171 | 7.88 ms | 7.6 / 27.7 / 96.3 m |
 
-- **Cost per chunk stays about flat:** plains go from 0.3 to 0.4 ms, hills
-  from 1.7 to 2.6–3.6 ms, mountains from 4.5 to 7.7 ms. Reads stay under
-  about 4,100, and triangles under the vertex budget.
-- **Error stays within each level's tolerance at p95** (0.5 m, 4 m and
-  32 m). The worst case exceeds it on rough ground, by up to 3×, because a
+- **Cost per chunk stays about flat:** plains 0.33–0.48 ms, hills
+  1.7–4.5 ms, mountains 4.5–8.4 ms, across levels 0–6. Reads stay under
+  about 4,300 (including about 4 per contract vertex for the border
+  normals), and triangles under the vertex budget.
+- **Error stays within each level's tolerance at p95** (0.5 m × 2^L).
+  The worst case exceeds it on rough ground, by up to 3×, because a
   level can't see relief finer than its lattice step. Placement on a
   coarse level accepts coarse ground.
 - **Reads cost a little more on coarse levels:** 0.34 µs at level 0 and
