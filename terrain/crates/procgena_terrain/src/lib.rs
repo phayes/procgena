@@ -102,7 +102,6 @@ mod feature;
 pub mod fixtures;
 mod graph;
 mod grid;
-pub mod ground;
 mod gully;
 mod hash;
 mod label;

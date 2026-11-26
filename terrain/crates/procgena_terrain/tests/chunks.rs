@@ -789,12 +789,12 @@ fn a_world_gives_provisional_and_canonical_chunks() {
 
 /// Wherever a world says a later tier changes nothing about a chunk, the
 /// chunk read at the roughest tier is that later read, bit for bit: its
-/// mesh and every ground site a painter reads, at the highest detail.
+/// mesh, and the ground's labels and measures on a grid over it.
 /// Somewhere in the block the later tier does change chunks, so the test
 /// checks both answers.
 #[test]
 fn a_chunk_the_later_tier_leaves_alone_reads_the_same_at_rough() {
-    use procgena_terrain::ground::{GroundGrid, SiteDetail};
+    use procgena_terrain::SampleDetail;
 
     // Medium fixtures with rivers and roads switched on.
     let featured = |id: RegionId, _: DVec2, _: &Elevation| {
@@ -817,8 +817,17 @@ fn a_chunk_the_later_tier_leaves_alone_reads_the_same_at_rough() {
             .unwrap()
             .mesh(Transitions::NONE, 0.0);
         let mesh = format!("{mesh:?}").replacen(&format!("tier: {tier:?}"), "tier: _", 1);
-        let sites = GroundGrid::chunk(&world, key, tier, SiteDetail::Labels).unwrap();
-        format!("{mesh}\n{:?}", sites.sites())
+        let step = key.size() / f64::from(2 * CHUNK_CELLS);
+        let labelled: Vec<_> = (0..=2 * CHUNK_CELLS)
+            .flat_map(|j| (0..=2 * CHUNK_CELLS).map(move |i| (i, j)))
+            .map(|(i, j)| {
+                let p = key.min_corner() + DVec2::new(f64::from(i), f64::from(j)) * step;
+                let terrain = world.terrain_tier(world.region_at(p), tier).unwrap();
+                let sample = terrain.query(p, SampleDetail::Labels);
+                (sample.measures, sample.labels)
+            })
+            .collect();
+        format!("{mesh}\n{labelled:?}")
     };
 
     let (mut same, mut changed) = (0, 0);

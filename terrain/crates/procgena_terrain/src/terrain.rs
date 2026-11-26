@@ -1089,14 +1089,6 @@ impl Terrain {
         (measures, water_kind)
     }
 
-    /// The measures at `p` that come from the nearby features alone, where
-    /// the carved ground is `height` high: the same values
-    /// [`query`](Self::query) gives at [`SampleDetail::Measures`], without
-    /// reading the curvature's heights.
-    pub(crate) fn nearby_measures(&self, p: DVec2, height: f32) -> NearbyMeasures {
-        self.nearby(p, height).0
-    }
-
     /// The nearby measures at `p`, and what the nearest water within their
     /// reach is.
     fn nearby(&self, p: DVec2, height: f32) -> (NearbyMeasures, Option<FeatureKind>) {

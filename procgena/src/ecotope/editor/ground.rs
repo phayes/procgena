@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::ecotope::ground_layers::GroundLayer;
 use bevy::feathers::constants::icons;
 use bevy::feathers::controls::{
     ButtonVariant, FeathersButton, FeathersSelect, OptionIndex, list_rows_from_strings,
@@ -18,7 +19,6 @@ use bevy::prelude::*;
 use bevy::scene::Scene;
 use bevy::ui_widgets::{Activate, ValueChange};
 use procgena_core::ChildKey;
-use procgena_terrain::ground::GroundLayer;
 
 use super::{EcotopeEdited, EcotopeEditor};
 use crate::ecotope::ground_params::{MAX_ORDER, layer_sections, new_influence};

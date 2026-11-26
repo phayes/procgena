@@ -2,18 +2,18 @@
 //! the stack and strength, the patches that break it up, the slope and
 //! height it keeps to, and how it follows a Scatter.
 
-use procgena_core::ChildKey;
-use procgena_terrain::ground::{
+use super::ground_layers::{
     Condition, GroundLayer, GroundNoise, HeightRule, Ramp, Reach, ScatterInfluence,
 };
+use procgena_core::ChildKey;
 
 use crate::params::{Group, Param, Section, count, number};
 
 /// Highest order the Order control reaches.
 pub const MAX_ORDER: u32 = 1000;
 
-/// The materials a layer can be made of: the keys of the standard ground
-/// material catalogue, in its order.
+/// The materials a layer can be made of, by key, in the order the picker
+/// lists them.
 pub const MATERIALS: [&str; 12] = [
     "bare_dirt",
     "cliff_rock",
@@ -370,19 +370,8 @@ pub fn new_influence(scatter: ChildKey) -> ScatterInfluence {
 
 #[cfg(test)]
 mod tests {
-    use procgena_terrain::ground::MaterialCatalogue;
-
     use super::*;
     use crate::params::checks;
-
-    #[test]
-    fn the_materials_are_the_standard_catalogue() {
-        let standard: Vec<String> = MaterialCatalogue::standard()
-            .iter()
-            .map(|(_, key, _)| key.to_string())
-            .collect();
-        assert_eq!(standard, MATERIALS);
-    }
 
     #[test]
     fn layer_controls_have_unique_keys_and_keep_the_layer_valid() {

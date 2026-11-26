@@ -2,25 +2,18 @@
 //!
 //! `cargo run --release -p procgena_terrain --example batch_cost`
 //! Region construction is warmed up before timing. Times include ownership
-//! and sampling, but exclude mesh construction and painting the returned sites.
+//! and sampling, but exclude mesh construction.
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use glam::DVec2;
-use procgena_terrain::ground::{GroundSite, GroundSource};
 use procgena_terrain::{
     ChunkSource, Elevation, FeatureTier, RegionId, SurfacePoint, TerrainPreset, WorldTerrain,
     WorldTerrainOptions,
 };
 
 struct Pointwise<'a>(&'a WorldTerrain);
-
-impl GroundSource for Pointwise<'_> {
-    fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite {
-        GroundSource::site(self.0, p, tier)
-    }
-}
 
 impl ChunkSource for Pointwise<'_> {
     fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
@@ -58,11 +51,6 @@ fn main() {
                 &format!("{name} {tier:?} surfaces"),
                 || pointwise.surfaces(&points, tier),
                 || world.surfaces(&points, tier),
-            );
-            compare(
-                &format!("{name} {tier:?} sites"),
-                || pointwise.sites(&points, tier),
-                || world.sites(&points, tier),
             );
         }
     }

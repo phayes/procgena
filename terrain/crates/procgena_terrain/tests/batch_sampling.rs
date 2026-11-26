@@ -1,9 +1,8 @@
-//! Batched world reads preserve point ownership, sample order and drawing.
+//! Batched world reads preserve point ownership, sample order and meshes.
 
 use std::sync::Arc;
 
-use glam::{DVec2, Vec2};
-use procgena_terrain::ground::{GroundSite, GroundSource, GroundStack, GroundWeights};
+use glam::DVec2;
 use procgena_terrain::{
     ChunkError, ChunkKey, ChunkSamples, ChunkSide, ChunkSource, Elevation, FeatureTier, RegionId,
     SurfacePoint, Transitions, WorldTerrain, fixtures,
@@ -11,12 +10,6 @@ use procgena_terrain::{
 
 /// Uses the trait defaults, deliberately doing a world lookup per point.
 struct Pointwise<'a>(&'a WorldTerrain);
-
-impl GroundSource for Pointwise<'_> {
-    fn site(&self, p: DVec2, tier: FeatureTier) -> GroundSite {
-        GroundSource::site(self.0, p, tier)
-    }
-}
 
 impl ChunkSource for Pointwise<'_> {
     fn surface(&self, p: DVec2, tier: FeatureTier) -> SurfacePoint {
@@ -60,21 +53,18 @@ fn batches_match_individual_reads_on_warped_borders_and_corners() {
             world.surfaces(&points, tier),
             pointwise.surfaces(&points, tier)
         );
-        assert_eq!(world.sites(&points, tier), pointwise.sites(&points, tier));
         points.reverse();
     }
-    assert!(world.sites(&[], FeatureTier::Fine).is_empty());
     assert!(world.surfaces(&[], FeatureTier::Fine).is_empty());
 }
 
 #[test]
-fn batch_meshes_and_paint_match_pointwise_across_a_region_border() {
+fn batch_meshes_match_pointwise_across_a_region_border() {
     let world = world();
     let region = world.region(world.region_at(DVec2::ZERO));
     let edge = &region.edges[0];
     let key = ChunkKey::containing(edge.polyline[edge.polyline.len() / 2], 1);
     let pointwise = Pointwise(&world);
-    let paint = GroundStack::bare(3, 1.0);
     for tier in [FeatureTier::Rough, FeatureTier::Fine] {
         let batch = ChunkSamples::sample(&world, key, tier).unwrap();
         let single = ChunkSamples::sample(&pointwise, key, tier).unwrap();
@@ -84,10 +74,6 @@ fn batch_meshes_and_paint_match_pointwise_across_a_region_border() {
         ] {
             assert_eq!(batch.mesh(transitions, 8.0), single.mesh(transitions, 8.0));
         }
-        assert_eq!(
-            GroundWeights::chunk(&paint, &world, key, tier).unwrap(),
-            GroundWeights::chunk(&paint, &pointwise, key, tier).unwrap(),
-        );
     }
 }
 
@@ -103,11 +89,6 @@ fn failed_regions_and_missing_ground_keep_their_error_behavior() {
     )
     .unwrap();
     let points = [DVec2::ZERO, DVec2::new(-2.0, 3.0), DVec2::ZERO];
-    for mut site in world.sites(&points, FeatureTier::Fine) {
-        assert!(site.height.is_nan());
-        site.height = 0.0;
-        assert_eq!(site, GroundSite::new(0.0, Vec2::ZERO));
-    }
     assert!(
         world
             .surfaces(&points, FeatureTier::Fine)
@@ -119,8 +100,4 @@ fn failed_regions_and_missing_ground_keep_their_error_behavior() {
         ChunkSamples::sample(&world, key, FeatureTier::Fine),
         Err(ChunkError::NoGround(_))
     ));
-    assert_eq!(
-        GroundWeights::chunk(&GroundStack::bare(0, 1.0), &world, key, FeatureTier::Fine),
-        Err(ChunkError::NoGround(DVec2::ZERO)),
-    );
 }

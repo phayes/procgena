@@ -3,6 +3,7 @@
 
 mod ground;
 
+use crate::ecotope::ground_layers::GroundLayer;
 use bevy::feathers::constants::icons;
 use bevy::feathers::controls::{
     ButtonVariant, FeathersButton, FeathersNumberInput, FeathersSelect, FeathersTextInput,
@@ -24,7 +25,6 @@ use procgena_mushroom::{
 };
 use procgena_plant_bevy::PlantScatterOptions;
 use procgena_stone::{StoneClass, StoneOptions, StonePreset};
-use procgena_terrain::ground::GroundLayer;
 
 use super::{
     EcotopeView, KINDS, add_scatter, file_text, kind_index, new_scatter, new_stone_class, params,
