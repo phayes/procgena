@@ -42,5 +42,15 @@ with the advisor where needed, for the user to review.
      because both edit `relief.rs`.
    - **The GPU plan's 6 open questions** wait for the user. Nothing that
      depends on them has started.
-5. **CT4 (roads in the TIN) is held** while the focus is loading speed.
+5. **Cheap borders (TB):**
+   - Its "before" numbers are taken after the Rayon removal (TS), so the
+     comparison is like for like.
+   - `Convergence::blend` and `EdgeOptions::roughness` stay as settings
+     that have no effect, documented as such, until a separate removal
+     step.
+   - Border stencils are **not** changed to read the neighbour's height.
+     The architecture decision "Labels at region borders" (2026-11-25)
+     stands. The code review had called this a bug; it's a decision. The
+     user may revisit it.
+6. **CT4 (roads in the TIN) is held** while the focus is loading speed.
    CT3 and RB5 have unblocked it.
