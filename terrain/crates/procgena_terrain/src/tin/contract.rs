@@ -10,7 +10,7 @@ use crate::feature::{FeatureId, FeatureTier};
 use super::mesh::{ConstraintKind, TinVertex};
 use super::numeric::{MM_PER_M, Mm, MmHeight};
 use super::probe::{ProbeAddr, TinError, sample_heights};
-use super::resolve::{Pt, edge_crossing};
+use super::resolve::Pt;
 use super::sampling::STEP_MM;
 use super::tolerance::TinTolerance;
 use super::water::Water;
@@ -178,7 +178,7 @@ impl EdgeContract {
             .pieces()
             .iter()
             .filter_map(|piece| {
-                let at = edge_crossing(piece.a, piece.b, key)?;
+                let at = piece.edge_crossing(key)?;
                 (!water.hidden_at(piece, at)).then_some(EdgeCrossing {
                     at: (Mm(at.0), Mm(at.1)),
                     kind: piece.kind,

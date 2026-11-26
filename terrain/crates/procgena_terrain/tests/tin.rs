@@ -847,6 +847,32 @@ fn rivers_carrying_on_into_each_other_near_an_edge() {
 }
 
 #[test]
+fn edges_and_chunks_listing_different_rivers_agree_on_crossings() {
+    // As above, over many bends and joints: where the edge x = 0 sees only
+    // the second river (so its water starts with a round end) and the
+    // chunks see it carry on from the first (so it starts at a bend), its
+    // water's edges still cross x = 0 at the contract's vertices, and no
+    // piece is dropped.
+    for joint_x in [-5.3, -4.5, -3.7] {
+        for step in -9..=9 {
+            let bend = f64::from(step) * 0.1;
+            let joint = (joint_x, 10.0 + f64::from(step) * 0.013);
+            let end = (
+                joint.0 + 60.0 * f64::cos(bend),
+                joint.1 + 60.0 * f64::sin(bend),
+            );
+            check_listed(
+                vec![
+                    river(1, &[(-60.0, 10.0), joint], 6.0),
+                    river(2, &[joint, end], 6.0),
+                ],
+                0.0,
+            );
+        }
+    }
+}
+
+#[test]
 fn a_river_ending_in_a_pond_on_a_corner() {
     check_features(vec![
         river(1, &[(-50.0, 40.0), (-20.0, 20.0), (-3.0, 2.0)], 5.0),

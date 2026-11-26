@@ -23,24 +23,52 @@ pub(crate) struct Piece {
     pub feature: FeatureId,
     pub a: Pt,
     pub b: Pt,
+    /// Two points, smaller first, on the straight line the piece lies on:
+    /// its own ends, or the ends of the longer straight edge it was cut
+    /// from. Where the piece crosses a chunk edge is measured on this line
+    /// (see [`edge_crossing`](Self::edge_crossing)).
+    pub line: (Pt, Pt),
 }
 
 impl Piece {
     /// The piece from `a` to `b`, either way round, or `None` if they are
     /// the same point.
     pub(crate) fn new(kind: ConstraintKind, feature: FeatureId, a: Pt, b: Pt) -> Option<Self> {
+        Self::on_line(kind, feature, a, b, (a, b))
+    }
+
+    /// The piece from `a` to `b` (either way round) of the straight edge
+    /// through the two points of `line`, or `None` if `a` and `b` are the
+    /// same point. Pieces cut from one straight edge in different ways (for
+    /// example where it starts depends on what water lies beside it) then
+    /// cross chunk edges at the same points.
+    pub(crate) fn on_line(
+        kind: ConstraintKind,
+        feature: FeatureId,
+        a: Pt,
+        b: Pt,
+        line: (Pt, Pt),
+    ) -> Option<Self> {
         (a != b).then(|| Self {
             kind,
             feature,
             a: a.min(b),
             b: a.max(b),
+            line: (line.0.min(line.1), line.0.max(line.1)),
         })
     }
 
-    /// The same kind and feature from `a` to `b`, or `None` if they are
-    /// the same point.
+    /// The same kind, feature and line from `a` to `b`, or `None` if they
+    /// are the same point.
     fn with_ends(self, a: Pt, b: Pt) -> Option<Self> {
-        Self::new(self.kind, self.feature, a, b)
+        Self::on_line(self.kind, self.feature, a, b, self.line)
+    }
+
+    /// Where the piece meets chunk edge `edge` (see [`edge_crossing`]),
+    /// with a crossing strictly between its ends measured on its
+    /// [`line`](Self::line).
+    pub(crate) fn edge_crossing(&self, edge: ChunkEdgeKey) -> Option<Pt> {
+        edge_crossing(self.a, self.b, self.line, edge)
     }
 
     /// Whether the piece meets the box from `lo` to `hi` (edges included),
@@ -119,8 +147,15 @@ fn strictly_on(a: Pt, b: Pt, c: Pt) -> bool {
 /// An end of the segment on the edge is that end; otherwise the crossing is
 /// rounded along the edge, halves away from zero. Crossings rounded beyond
 /// the edge's corners belong to no edge. The answer depends only on the
-/// segment and the edge, so the chunks either side of the edge agree.
-pub(crate) fn edge_crossing(a: Pt, b: Pt, edge: ChunkEdgeKey) -> Option<Pt> {
+/// segment, its carrier and the edge, so the chunks either side of the
+/// edge agree.
+///
+/// The segment lies on the straight line through `carrier`'s two points
+/// (pass `(a, b)` for the segment's own line). Whether it meets the edge,
+/// and an end on the edge, are judged by its own ends; a crossing strictly
+/// between them is measured on `carrier`, so segments cut from one carrier
+/// in different ways cross the edge at the same point.
+fn edge_crossing(a: Pt, b: Pt, carrier: (Pt, Pt), edge: ChunkEdgeKey) -> Option<Pt> {
     let (a, b) = (a.min(b), a.max(b));
     // Work with `u` across the edge's line and `v` along it: the edge is
     // `u = line`, from `v = lo` for one chunk's width.
@@ -148,9 +183,17 @@ pub(crate) fn edge_crossing(a: Pt, b: Pt, edge: ChunkEdgeKey) -> Option<Pt> {
     } else if sa == sb {
         return None;
     } else {
-        // From the smaller end, whichever way the segment was given.
-        let num = i128::from(vb - va) * i128::from(line - ua);
-        va + i64::try_from(round_div(num, i128::from(ub - ua))).expect("fits")
+        // On the carrier (the segment itself if the carrier runs along the
+        // edge), from its smaller end, whichever way it was given.
+        let (c, d) = (carrier.0.min(carrier.1), carrier.0.max(carrier.1));
+        let ((uc, vc), (ud, vd)) = (split(c), split(d));
+        let ((u0, v0), (u1, v1)) = if uc == ud {
+            ((ua, va), (ub, vb))
+        } else {
+            ((uc, vc), (ud, vd))
+        };
+        let num = i128::from(v1 - v0) * i128::from(line - u0);
+        v0 + i64::try_from(round_div(num, i128::from(u1 - u0))).expect("fits")
     };
     (lo..=lo + CHUNK_MM).contains(&v).then(|| join(line, v))
 }
@@ -211,7 +254,7 @@ const MAX_ROUNDS: usize = 16;
 
 /// Cuts `pieces` to the chunk `square` and at every crossing between them.
 ///
-/// A piece crossing the border is cut there by [`edge_crossing`], and kept
+/// A piece crossing the border is cut there by [`Piece::edge_crossing`], and kept
 /// only if that crossing is one of `border` (the vertices of the chunk's
 /// edge contracts) or a corner. Pieces `drop` says to leave out (such as a
 /// water's edge inside other water) are left out after cutting. Where two
@@ -242,11 +285,7 @@ pub(crate) fn resolve_chunk(
         let mut events: Vec<Pt> = [piece.a, piece.b]
             .into_iter()
             .filter(|&p| square.strictly_inside(p))
-            .chain(
-                edges
-                    .iter()
-                    .filter_map(|&e| edge_crossing(piece.a, piece.b, e)),
-            )
+            .chain(edges.iter().filter_map(|&e| piece.edge_crossing(e)))
             .collect();
         sort_along(&mut events, piece.a, piece.b);
         events.dedup();
@@ -400,18 +439,41 @@ mod tests {
             z: 0,
             axis: EdgeAxis::Z,
         };
+        let own = |a: Pt, b: Pt| edge_crossing(a, b, (a, b), edge);
         // Across x = 64 000 mm.
         assert_eq!(
-            edge_crossing((63_000, 10_000), (65_000, 10_001), edge),
+            own((63_000, 10_000), (65_000, 10_001)),
             Some((64_000, 10_001))
         );
-        assert_eq!(
-            edge_crossing((64_000, 5), (65_000, 10_001), edge),
-            Some((64_000, 5))
-        );
+        assert_eq!(own((64_000, 5), (65_000, 10_001)), Some((64_000, 5)));
         // Along the edge: the edge is the constraint.
-        assert_eq!(edge_crossing((64_000, 5), (64_000, 10), edge), None);
+        assert_eq!(own((64_000, 5), (64_000, 10)), None);
         // Beyond the corners.
-        assert_eq!(edge_crossing((63_000, -10), (65_000, -10), edge), None);
+        assert_eq!(own((63_000, -10), (65_000, -10)), None);
+    }
+
+    #[test]
+    fn pieces_of_one_straight_edge_cross_a_chunk_edge_together() {
+        // Two pieces of the edge from (0, 0) to (100 m, 0.4 m), starting at
+        // different rounded points of it, cross x = 64 m where the whole
+        // edge does, wherever they start.
+        let edge = ChunkEdgeKey {
+            x: 1,
+            z: 0,
+            axis: EdgeAxis::Z,
+        };
+        let line = ((0, 0), (100_000, 400));
+        let kind = ConstraintKind::RiverEdge;
+        let feature = FeatureId {
+            kind: crate::carve::FeatureKind::River,
+            key: 1,
+        };
+        let whole = Piece::new(kind, feature, line.0, line.1).unwrap();
+        let at = whole.edge_crossing(edge).unwrap();
+        assert_eq!(at, (64_000, 256));
+        for start in [(40_001, 160), (63_999, 256), (10_000, 39)] {
+            let piece = Piece::on_line(kind, feature, start, (90_000, 360), line).unwrap();
+            assert_eq!(piece.edge_crossing(edge), Some(at), "from {start:?}");
+        }
     }
 }

@@ -315,11 +315,15 @@ impl<'a> River<'a> {
             let end = next
                 .and_then(|next| joint(Some((a, b, hw)), next, side))
                 .unwrap_or(b + n * (side * hw));
-            out.extend(Piece::new(
+            // Measured on the whole segment's edge, so where it crosses a
+            // chunk edge doesn't depend on the rivers listed beside it.
+            let carrier = (mm(a + n * (side * hw)), mm(b + n * (side * hw)));
+            out.extend(Piece::on_line(
                 ConstraintKind::RiverEdge,
                 id,
                 mm(start),
                 mm(end),
+                carrier,
             ));
             // Turning away from this side at the start: round it off.
             if let Some((pa, pb, phw)) = prev {
