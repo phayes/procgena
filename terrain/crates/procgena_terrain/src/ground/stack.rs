@@ -388,11 +388,32 @@ pub trait GroundPainter: Sync {
     /// The mix of materials at world position `p` (x and z, metres), whose
     /// site is `site`.
     fn paint(&self, p: DVec2, site: &GroundSite) -> GroundMix;
+
+    /// The one material to draw everywhere when the ground isn't painted,
+    /// such as grass for bare terrain. The default is the heaviest
+    /// material on flat, dry ground at the origin, the lowest id on a tie.
+    fn plain_material(&self) -> MaterialId {
+        let mix = self.paint(DVec2::ZERO, &GroundSite::new(0.0, glam::Vec2::ZERO));
+        mix.iter()
+            .fold(
+                None,
+                |best: Option<(MaterialId, f32)>, (id, w)| match best {
+                    Some((_, b)) if b >= w => best,
+                    _ => Some((id, w)),
+                },
+            )
+            .map_or(MaterialId(0), |(id, _)| id)
+    }
 }
 
 impl GroundPainter for GroundStack {
     fn layer_stack(&self) -> Option<&GroundStack> {
         Some(self)
+    }
+
+    /// The stack's lowest layer's material, which covers everything.
+    fn plain_material(&self) -> MaterialId {
+        self.layers[0].material
     }
 
     fn detail(&self) -> SiteDetail {

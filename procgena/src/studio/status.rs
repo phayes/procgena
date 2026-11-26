@@ -465,6 +465,8 @@ mod tests {
             wanted: 1200,
             reading: 4,
             failed: 0,
+            sampled: 0,
+            promoted: 0,
             settled: false,
         };
         assert_eq!(

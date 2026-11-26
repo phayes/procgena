@@ -170,9 +170,9 @@ impl Stream {
         self.drawn_generation == self.generation && self.drawn.get(key).is_some()
     }
 
-    /// The tier of the ground drawn, or kept, for `key`, if any.
+    /// The tier the ground drawn, or kept, for `key` stands for, if any.
     pub(crate) fn tier_of(&self, key: ChunkKey) -> Option<FeatureTier> {
-        Some(self.read_of(key)?.geometry.tier())
+        Some(self.read_of(key)?.tier())
     }
 
     /// The ground drawn for `key`: its stand-in if it is drawn as one, or

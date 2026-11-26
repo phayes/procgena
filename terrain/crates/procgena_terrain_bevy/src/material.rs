@@ -12,7 +12,7 @@ use bevy::shader::ShaderRef;
 use procgena_core_bevy::texture::TextureArrays;
 use procgena_terrain::ChunkKey;
 use procgena_terrain::ground::{
-    GroundWeights, MaterialCatalogue, PALETTE_SIZE, Projection, ground_textures,
+    GroundPainter, GroundWeights, MaterialCatalogue, PALETTE_SIZE, Projection, ground_textures,
 };
 
 use crate::textures::{GroundTextureSettings, GroundTextures, texture_layer};
@@ -244,6 +244,33 @@ const NO_TEXTURE: Vec4 = Vec4::new(-1.0, 1.0, 0.0, 0.0);
 
 /// How much colours vary across the ground by default.
 pub const DEFAULT_VARIATION: f32 = 0.3;
+
+/// The two weight images and the surface of ground drawn all in
+/// `painter`'s [plain material](GroundPainter::plain_material): two by two
+/// texels with that one material at full weight.
+pub(crate) fn plain_images(
+    painter: &(impl GroundPainter + ?Sized),
+) -> ([Image; 2], TerrainSurface) {
+    let size = UVec2::splat(2);
+    let image = |texel: [u8; 4]| {
+        let mut image = Image::new_fill(
+            Extent3d {
+                width: size.x,
+                height: size.y,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            &texel,
+            TextureFormat::Rgba8Unorm,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+        image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor::linear());
+        image
+    };
+    let surface =
+        TerrainSurface::from_palette(size, &[painter.plain_material()], painter.catalogue());
+    ([image([255, 0, 0, 0]), image([0; 4])], surface)
+}
 
 /// The two weight images of `weights`, for
 /// [`TerrainExtension::weights_low`] and
