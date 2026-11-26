@@ -1,8 +1,7 @@
 # Demo: the lumberjack and the wind (plan, draft)
 
-**State: draft, waiting on the user's answers to "Questions for the user"
-at the end.** Nothing here is built. Where a choice below says
-"recommended", it is the plan's default until the user answers.
+**State: approved in outline by the user (2026-11-25); see "Decisions"
+at the end.** Nothing here is built.
 
 **It is an experience more than a game** (the user, 2026-11-25: "Its
 more of an experience than a game I guess"; "The works for a small
@@ -23,7 +22,7 @@ wisps of leaves floating, animal calls and whistles, gentle music."*
   like any game: it uses only the public APIs of the terrain, World,
   Ecotope and asset Bevy crates, and adds no code to them. Gaps it finds
   become engine tasks on [ROADMAP.md](../ROADMAP.md), not demo-side
-  patches. It is not part of the studio (question Q1).
+  patches. It is a standalone binary, not part of the studio.
 - **Systems, as Bevy plugins inside the crate:**
 
   | Plugin | Owns | Reads | Writes |
@@ -35,7 +34,7 @@ wisps of leaves floating, animal calls and whistles, gentle music."*
   | `SkyPlugin` | Sun, atmosphere, fog, light shafts, exposure, bloom, the sun's lens flare, grading, time of day | camera, `WindState` (haze) | camera components, sun, flare pass |
   | `LeavesPlugin` | Drifting leaves and seeds (GPU particles) | `WindState`, camera, nearby tree copies | particle effects |
   | `SoundPlugin` | Ambience beds, spatial animal calls, the whistle, wind sound, music | `WindState`, `PlayerMode`, time of day, nearby Ecotope | audio graph |
-  | `ChopPlugin` (if in scope, Q3) | Felling a tree as a small ritual: the swing, the fall, a stump | the copy under the axe | engine edits |
+  | `ChopPlugin` (later: chopping is deferred) | Felling a tree as a small ritual: the swing, the fall, a stump | the copy under the axe | engine edits |
 
 - **Data flow.** `WindState` is the hub: the whistle raises its target,
   the wind eases towards it, and every frame it is copied into the tree
@@ -51,7 +50,7 @@ wisps of leaves floating, animal calls and whistles, gentle music."*
   WorldOptions ─► LandPlugin ─► terrain chunks + Ecotope tiles + colliders ─► PlayerPlugin
   ```
 
-- **Major decisions (recommended, each open to the user):**
+- **Major decisions (agreed by the user, 2026-11-25):**
   1. **A bounded play area first, streaming later.** The first demo plays
      on one square of land, about 1.5 km across, inside a real World. The
      terrain already streams around a camera (`procgena_terrain_bevy`), but
@@ -62,7 +61,7 @@ wisps of leaves floating, animal calls and whistles, gentle music."*
      Ecotope tiles once, with a loading screen, and fades the edge of the
      area into fog and impostors. When S1 lands the demo drops the tiles
      and the edge (milestone L8). Trade-off: a soft wall at the edge of the
-     map until then (Q2).
+     map until then.
   2. **Walking on physics colliders built from near terrain chunks,
      replaced by CT5's collision products later.** Avian (`avian3d` 0.8,
      already an optional dependency of `procgena_plant_bevy`) with the
@@ -80,30 +79,35 @@ wisps of leaves floating, animal calls and whistles, gentle music."*
      real risk is whether procgena's own materials (instanced renderer,
      impostors, grass, terrain) work with all of them: milestone L2 is a
      spike that settles it before the look is tuned.
-  4. **GPU leaves with `bevy_hanabi` 0.20** (Q6). It is the standard
+  4. **GPU leaves with `bevy_hanabi` 0.20.** It is the standard
      Bevy GPU particle crate and already targets Bevy 0.20.
   5. **Audio through `bevy_seedling` 0.9** (Firewheel), for real spatial
-     audio, mixer buses and parameter automation the wind and music need
-     (Q6). `bevy_kira_audio` is the more downloaded alternative but its
+     audio, mixer buses and parameter automation the wind and music need.
+     `bevy_kira_audio` is the more downloaded alternative but its
      spatial audio is only volume and panning.
-  6. **Music as layered stems, mixed by state** (Q5): a few calm loops
-     recorded in layers, faded in and out by time of day, wind and whether
+  6. **Music as Creative Commons stems, mixed by state**: a few calm
+     loops in layers, faded in and out by time of day, wind and whether
      the player is flying. Generative music is a later option.
   7. **A sun lens flare drawn by the demo.** Bevy 0.20 has no lens flare
      and no maintained crate offers one, so the demo adds a small
      screen-space flare pass of its own (see "Atmospherics").
   8. **A ready-made rigged character and animation clips (CC0),** not a
-     procedural or self-made one. Quaternius's Universal Base Characters
-     with the Universal Animation Libraries share one humanoid rig, so
-     their clips play on the character with no retargeting. The few poses
-     no library has (hanging under the glider, the whistle) are authored
-     on that rig. Nothing is downloaded until the user picks from the
-     shortlist (Q9).
+     procedural or self-made one. Quaternius's free packs (base
+     characters, fantasy outfits and both animation libraries) share one
+     65-bone skeleton, checked file by file, so every clip plays on the
+     lumberjack with no retargeting; the second library even has
+     `TreeChopping_Loop`. The lumberjack is the peasant outfit with the
+     base character's head, beard and hair, joined once offline into one
+     GLB. The poses no library has (hanging under the glider, the whistle)
+     are authored on that rig (see the shortlist and "Downloaded and
+     checked").
+  9. **The demo's own presets.** It starts from the built-in World,
+     Ecotope and asset presets and tunes copies of them for its look.
 - **What the demo needs from engine work in flight:** CT5 (collision and
   height products), S1 (streaming cover), W0's selection work only for a
   prettier World, ED (fast first placement), IX (how near impostors can
   come: it decides the frame budget from a glider), the "One wind" rule
-  (ARCHITECTURE.md, rule 9) and, if chopping is in, R4 and X1. None of them
+  (ARCHITECTURE.md, rule 9) and, for chopping later, R4 and X1. None of them
   blocks the first walkable slice. See "What the demo needs from engine
   work", and "Roadmap requests" for the changes in order the demo asks
   the user for.
@@ -139,10 +143,14 @@ its block in ROADMAP; this list says only what the demo can use.
 - `src/land.rs`, `src/player.rs`, `src/glider.rs`, `src/wind.rs`,
   `src/sky.rs`, `src/leaves.rs`, `src/sound/` (beds, calls, whistle,
   music), `src/chop.rs` (if in scope).
-- `presets/`: the demo's own `.world.yml`, Ecotope presets and a
-  `demo.yml` with tunables (wind curve, glider polar, mix levels), read
-  through `procgena_core::preset` so the studio can open the World and
-  Ecotope presets.
+- `presets/`: the demo's own presets, made for its look (the user,
+  2026-11-25: "you can make your own presets"): a `.world.yml`, the forest
+  Ecotope and its tree, plant, stone, dead wood and mushroom Scatter
+  presets, each starting from a built-in one (F3's `base` + differences)
+  and tweaked in the studio until the reference shots look right; plus a
+  `demo.yml` with tunables (wind curve, glider polar, mix levels). All are
+  read through `procgena_core::preset`, so the studio opens and edits
+  them.
 - `assets/`: only small files the demo's licence lets it commit; sound and
   music come through a manifest and a download step, like the textures
   (see "Art and audio assets").
@@ -415,6 +423,9 @@ short recording, and a "Done when". Numbers are on the reference machine
 - Tuned atmosphere, light shafts, exposure, grading, time of day, the
   sun's lens flare, motion blur and the rest of the post, leaves and
   motes with hanabi, birds and butterflies, foot IK.
+- The demo's World, Ecotope and Scatter presets tuned in the studio
+  against the reference shots (tree shapes and colours, density of
+  undergrowth, clearings for light, dead wood and mushrooms near paths).
 - **Done when:** the user signs off a set of reference shots (deep forest
   with shafts and the sun flaring through a gap, meadow at golden hour,
   ridge in strong wind with leaves, the view from the glider) and the
@@ -428,20 +439,21 @@ short recording, and a "Done when". Numbers are on the reference machine
   or clicks, calls come from believable places, the wind audio follows
   the visuals, and every file's licence is in the asset manifest.
 
-### L7: Gentle purpose (scope set by Q3)
+### L7: Gentle purpose
 
-An experience, not a game: no score, no inventory, no failure.
+An experience, not a game: no score, no inventory, no failure. Chopping
+is deferred by the user; it joins this milestone later.
 
-- Recommended: a few quiet invitations rather than goals. Cairns on far
+- A few quiet invitations rather than goals. Cairns on far
   ridges that the glider reaches (each one a view and a music cue);
   birds that answer the whistle and lead somewhere; a cabin to return to
-  at dusk. And, if chopping is in, felling a tree as a small ritual: a
+  at dusk. Later, felling a tree as a small ritual: a
   few swings, the creak, the fall through the canopy, a stump left
   behind. Felling needs engine edits (see "Roadmap requests").
 - **Done when:** a first-time player, given no instructions, finds the
-  whistle, flies, and reaches a cairn within ten minutes; and, if
-  chopping is in, a felled tree stays felled from near and far within the
-  session.
+  whistle, flies, and reaches a cairn within ten minutes; and, once
+  chopping is added, a felled tree stays felled from near and far within
+  the session.
 
 ### L8: Streaming world (after S1)
 
@@ -465,15 +477,16 @@ Status lives in each ROADMAP block; this says what the demo needs and when.
 | [IX](../ROADMAP.md#ix-experiment-lean-heavily-on-impostors): impostors | How close impostors can come, and the frame budget from the glider; impostor sway in wind is an ask | L4, L5 |
 | "One wind" (ARCHITECTURE.md, asset alignment rule 9) | One wind resource for trees, grass and clumps | Nice for L3; the demo maps both until then |
 | [GM5](../ROADMAP.md#gm5-far-grass-and-forest-tints) | Far forest tint beyond the play area | L5 |
-| [R4](../ROADMAP.md#r4-promotion-and-bevy-queries-everywhere) and [X1](../ROADMAP.md#x1-edits-interaction-core-queries-hooks-and-meshscatter) | Promoting the tree under the axe, removing and replacing copies (felled tree, stump), colliders from `game_level` (deferred by IX) | L7, only if chopping is in |
+| [R4](../ROADMAP.md#r4-promotion-and-bevy-queries-everywhere) and [X1](../ROADMAP.md#x1-edits-interaction-core-queries-hooks-and-meshscatter) | Promoting the tree under the axe, removing and replacing copies (felled tree, stump), colliders from `game_level` (deferred by IX) | L7, once chopping is added |
 | [FF](../ROADMAP.md#ff-the-far-field-drawn-to-the-horizon-later) | Forest to the horizon from the glider | After L8 |
 
 ## Roadmap requests
 
 The user allows the demo to ask for changes in the order of engine work
-(2026-11-25). These are requests for the user to decide; this plan does
-not edit ROADMAP. They are ordered by how much they matter to the
-experience.
+(2026-11-25). This plan does not edit ROADMAP; the agreed requests are
+applied there by its owner. They are ordered by how much they matter to
+the experience. **The user's answers (2026-11-25):** R1, R2, R4, R5, R8
+approved; R6 and R7 approved for later; R3 deferred.
 
 | # | Milestone | What the demo needs | Proposed change | Why | What it would delay |
 |---|-----------|---------------------|-----------------|-----|---------------------|
@@ -483,7 +496,7 @@ experience.
 | R4 | [ED](../ROADMAP.md#ed-ecotope-draw-speed) | Fast first placement of the play area's tiles, and no shader-compile stalls after the loading screen | **Un-defer** the pipeline warm-up as an API a game can call behind a loading screen | 0.3–1.6 s stalls in the first minute are the first thing a player notices; a studio can live with them, an experience can't | Small; ED's other items unchanged |
 | R5 | [GM5](../ROADMAP.md#gm5-far-grass-and-forest-tints) | Far forest tint beyond the play area | **Move earlier**, ahead of L5 | Until S1, everything outside the play area is bare land; from the glider the tint is what makes it read as forest to the horizon | Whatever GM5 currently follows in the ground materials track |
 | R6 | [S1](../ROADMAP.md#s1-streaming) | Cover streaming around the player | **Cut down to a demo-sized slice**: single-Biome streaming over one Terrain on CPU placement, which S1 already lists as able to start earlier (needs B1, G6, R2, I2), ahead of GP | Ends the play area's edge, so the player can glide anywhere | GP and R3's GPU building for deadwood, mushroom and tree move later |
-| R7 | [R4](../ROADMAP.md#r4-promotion-and-bevy-queries-everywhere) and [X1](../ROADMAP.md#x1-edits-interaction-core-queries-hooks-and-meshscatter) | Promote the tree under the axe; Remove and Replace edits for tree copies (felled tree, stump) | **Only if chopping is in (Q3):** **cut down** to a demo slice: promotion and Remove/Replace edits for tree copies in one Ecotope, in session memory (no saving) | Chopping as a ritual needs only these two edits | C2's remaining work and X1's queries and hooks, if the slice jumps ahead of them |
+| R7 | [R4](../ROADMAP.md#r4-promotion-and-bevy-queries-everywhere) and [X1](../ROADMAP.md#x1-edits-interaction-core-queries-hooks-and-meshscatter) | Promote the tree under the axe; Remove and Replace edits for tree copies (felled tree, stump) | **For chopping, later:** **cut down** to a demo slice: promotion and Remove/Replace edits for tree copies in one Ecotope, in session memory (no saving) | Chopping as a ritual needs only these two edits | C2's remaining work and X1's queries and hooks, if the slice jumps ahead of them |
 | R8 | [CT5](../ROADMAP.md#ct5-products-and-streaming) | Collision that matches the drawn ground | **No change.** Ask only that CT5's collision product be easy for a game to turn into a physics collider per chunk | L1 works on chunk-mesh colliders until then | Nothing |
 
 ## What can run in parallel with the engine work
@@ -515,7 +528,7 @@ web search on 2026-11-25: **verify each at its source before use.**
 | Ambience beds, wind, foley, footsteps | Sonniss GDC bundles; Freesound (CC0 and CC-BY only); Kenney audio packs | Sonniss: royalty-free, embedded use only, no standalone redistribution, no AI training (verify the current EULA). Freesound: per file, avoid CC-BY-NC. Kenney: CC0. |
 | Animal calls | Freesound CC0/CC-BY; Sonniss nature sets; commissioned or own field recordings | xeno-canto licences are per recording and mostly non-commercial (CC BY-NC-SA): ideas and reference only unless the recordist agrees. Use calls of real species with care, or stylised, made-up calls (fits a fantasy forest). |
 | Whistle | Record it (any phone, a quiet room) or synthesise | Own recording: no licence issue. |
-| Music | Commission three or four stem-based pieces; CC0 music; CC-BY music with credit | Commissioned music: get the stems and a licence to redistribute in the download. |
+| Music (decided: Creative Commons stems) | CC0 or CC-BY pieces released with stems or separable layers (for example on Freesound, OpenGameArt or ccMixter), credited in the manifest | Avoid NC and ND licences: ND forbids remixing stems into a new mix. |
 | Textures | Already handled by the asset crates' `textures.yml` | — |
 | Character and movements | See "The lumberjack: character and animation shortlist" | CC0 preferred; Mixamo's licence allows use in a game but not redistribution of the raw files |
 | Glider, axe | Simple, original models made for the demo (glTF), or procedural meshes | Original only, no look borrowed from an existing game. |
@@ -523,10 +536,10 @@ web search on 2026-11-25: **verify each at its source before use.**
 
 ### The lumberjack: character and animation shortlist
 
-Read from each source's page on 2026-11-25. **Nothing is downloaded
-until the user picks (Q9).** Approved files go into `demo/assets/`
-(ignored by git through its own `.gitignore`), and each file's source and
-licence is then recorded in this section.
+Read from each source's page on 2026-11-25. The user approved
+downloading all the free ones (2026-11-25); they are in `demo/assets/`,
+which git ignores through its own `.gitignore`. Paid sets and Mixamo were
+not downloaded. What was found is under "Downloaded and checked" below.
 
 | # | Candidate | Source | Licence | Files and sizes | Rig and clips | Account |
 |---|-----------|--------|---------|-----------------|---------------|---------|
@@ -536,17 +549,77 @@ licence is then recorded in this section.
 | D | **Mixamo** characters and animations (alternative) | mixamo.com (Adobe) | Adobe's Mixamo terms: free use in games, raw files not redistributable (verify at source) | One FBX per character or clip, chosen on the site (sizes not checked) | Large clip library on one Mixamo skeleton (axe swings, hanging and falling poses to check after sign-in); not glTF, so each file is converted once in Blender. Quaternius's libraries say they are compatible with Mixamo rigs | **Yes, the user's own Adobe sign-in.** The user signs in and downloads; I never enter credentials |
 | E | **Kenney Animated Characters** (fallback) | [kenney.nl](https://kenney.nl/assets/animated-characters-1) | CC0 | One free zip (size not listed) | Simple, blocky style with a few basic clips; would clash with procgena's realistic-leaning look | No |
 
+| F | **Quaternius Modular Character Outfits – Fantasy**, Standard (found while downloading) | [itch.io](https://quaternius.itch.io/modular-character-outfits-fantasy) | CC0 | `Modular Character Outfits - Fantasy[Standard].zip`, 294 MB, free (peasant and ranger outfits, male and female) | Same skeleton as A; made for A's heads | No |
+
 No CC0 rigged *lumberjack* model was found ready-made; the paid
 lumberjack models on CGTrader and similar stores are "royalty free" with
-terms to read one by one. The recommendation is **A + B (+ C)**: all
-free, CC0, one rig, about 154 MB together. Missing from all of them:
-the glider hang, the whistle and, in the free sets, an axe chop. These
-are authored on the rig (see "The lumberjack's body and movements"), or
-the chop comes from B's Pro set ($9.99) or from Mixamo (retargeted once
-in Blender). Buying a paid set is the user's call.
+terms to read one by one.
 
-**Art style** (Q8): the procgena assets are realistic-leaning PBR. The
-recommendation is a painterly-realistic look by grading, light and
+#### Downloaded and checked (2026-11-25)
+
+| Pack | File (in `demo/assets/downloads/`) | Size | Licence (its own `License*.txt`) |
+|------|-----------------------------------|------|----------------------------------|
+| A Universal Base Characters, Standard | `universal-base-characters/Universal Base Characters[Standard].zip` | 129 MB | CC0 1.0, by Quaternius |
+| B Universal Animation Library, Standard | `universal-animation-library/Universal Animation Library[Standard].zip` | 16 MB | CC0 1.0, by Quaternius |
+| C Universal Animation Library 2, Standard | `universal-animation-library-2/Universal Animation Library 2[Standard].zip` | 19 MB | CC0 1.0, by Quaternius |
+| F Modular Character Outfits – Fantasy, Standard | `modular-character-outfits-fantasy/Modular Character Outfits - Fantasy[Standard].zip` | 294 MB | CC0 1.0, by Quaternius |
+| E Kenney Animated Characters Protagonists 1.1 | `kenney-animated-characters-protagonists/kenney_animated-characters-protagonists.zip` | 0.6 MB | CC0 1.0, by Kenney |
+
+What the files hold, read from their glTF:
+
+- **One skeleton everywhere.** A's two base characters (only the
+  "Superhero" male and female are free), its rigged hair, F's four
+  outfits and B's and C's mannequins all use the same 65 joints with the
+  same names and order (`root`, `pelvis`, `spine_01`…). Clips are
+  shared with no retargeting, as Bevy needs.
+- **Clips (43 each, `_RM` files with root motion).** B: `Idle_Loop`,
+  `Walk_Loop`, `Jog_Fwd_Loop`, `Sprint_Loop`, `Jump_Start`, `Jump_Loop`,
+  `Jump_Land`, `Roll`, `Crouch_*`, `Swim_*`, `Sitting_*`, `Interact`,
+  `PickUp_Table`, `Push_Loop`, `Idle_Talking_Loop`, `Idle_Torch_Loop`,
+  `Dance_Loop` and combat clips. C: **`TreeChopping_Loop`**,
+  `Walk_Carry_Loop`, `ClimbUp_1m`, `Idle_FoldArms_Loop`,
+  `Idle_Lantern_Loop`, `Idle_Rail_Call`, `NinjaJump_Start/Idle_Loop/Land`,
+  `Slide_*`, `Consume`, `Yes`, farming and combat clips. Judged by name
+  only, not yet watched: `Idle_Rail_Call` may start the whistle, and the
+  `NinjaJump` set the glider launch and landing. Still missing: the glider hang and the whistle proper.
+- **Kenney (E)** is FBX only, three clips (idle, run, jump), blocky and
+  cartoonish: it does not fit the painterly-realistic look. Dropped.
+- **The look.** A test render in Blender under daylight (script and
+  images in `demo/assets/previews/`, not committed) of F's male peasant
+  outfit with A's head, beard, eyebrows and hair, posed with B's idle and
+  walk and C's tree chopping. It reads as a grey-bearded woodsman,
+  softly stylised: heavier proportions than procgena's realistic-leaning
+  assets, but close enough to sit in the scene under the painterly
+  grading. The ranger outfit (green hood, buckles, a pauldron) reads as
+  a fantasy ranger rather than a lumberjack.
+
+**Recommended: A + F's male peasant + B + C**, all free and CC0. The
+peasant shirt can be repainted as a plaid flannel and the hair tinted
+(the hair textures are greyscale, tinted by material).
+
+**Preparing the lumberjack** is an offline step, a Blender script in the
+demo crate's tools, rerun whenever the sources change:
+
+- Keep only the head and neck of A's superhero male: its body is
+  bulkier than F's outfits and pokes through them. The outfits come
+  without a head, and the free set has no "Regular" body; the test
+  render cut the body by bone weights (head and neck kept) and the seam
+  hides under the collar.
+- Fix two texture names A's glTF gets wrong (`T_Hair_1_Normal_png.png`
+  and `T_Eye_Normal_png.png` are referenced; the files are named without
+  `_png`), and point the rigged hair at its textures, which ship only
+  beside the base characters.
+- Join the outfit, head, hair, beard and eyebrows into one skinned mesh,
+  add an axe and a folded glider as props on bones, and write one
+  `lumberjack.glb` with the chosen clips from B and C copied in.
+- Check the result headless in Bevy (every clip moves the model, no
+  missing textures) before L1 relies on it.
+
+If the head cut shows, the paid A Source set ($19.99) has the "Regular"
+bodies and rigged `.blend` files; buying it is the user's call.
+
+**Art style** (decided: painterly-realistic): the procgena assets are
+realistic-leaning PBR, and the look comes from grading, light and
 atmosphere alone, not a new stylised shading model.
 
 ## Performance targets
@@ -557,6 +630,7 @@ Proposed, to be confirmed against "Test machines and performance budgets"
 - **Reference machine**: an M1 Max at 1440p (the machine the D2 spike
   used). Target 60 fps walking, 60 fps gliding at 300 m above ground, no
   frame over 33 ms after loading.
+- **Platform**: macOS only for now (decided).
 - **Low machine** (if one is named): 30 fps at 1080p on the lowest quality
   level, with volumetric fog at half resolution or off.
 - **Loading**: under 30 s to play in release; whistle-to-wind under 2 s.
@@ -589,43 +663,36 @@ all-time / last 90 days.
 No sky or fog crate: `bevy_atmosphere` (last release May 2025) is
 superseded by Bevy's own `Atmosphere`.
 
-## Questions for the user
+## Decisions
 
-- **Q1. Standalone binary or part of the studio?** Recommended: a
-  standalone binary crate, so the demo is a true consumer and the studio
-  stays an editor. The studio can still open the demo's presets.
-- **Q2. Bounded play area now, or wait for streaming (S1)?** Recommended:
-  a 1.5 km area now, with a soft edge, replaced by S1 later.
-- **Q3. How much purpose in the experience, and is chopping in?** It is an
-  experience, so there is no score or failure in any option. Chopping
-  needs promotion and edits from the engine (roadmap request R7), so it
-  lands late unless that slice moves up. Options: (a) pure wandering and
-  flying, with a cabin and a day passing; (b) (a) plus gentle invitations:
-  cairns on far ridges reached by glider, birds that answer the whistle
-  and lead somewhere (recommended); (c) (b) plus felling a tree as a
-  small ritual, no logs or inventory (recommended too if R7's slice is
-  acceptable); (d) a fuller lumberjack loop with logs and building.
-- **Q4. First-person or third-person?** Recommended: third-person with a
-  first-person toggle.
-- **Q5. Music: stems or generative?** Recommended: commissioned or sourced
-  stems mixed by state; generative (with `fundsp`) as a later experiment.
-- **Q6. New dependencies.** Recommended set: `avian3d` with `bevy-tnua`,
-  `bevy_hanabi`, `bevy_seedling`, `bevy_enhanced_input`. Alternatives are
-  in the table above. Which are acceptable?
-- **Q7. Target platforms and hardware?** Recommended: macOS (Apple
-  silicon) first, then Windows and Linux desktop; no web build (volumetric
-  fog and hanabi need WebGPU). Which machine is the reference, and is a
-  low-end machine available?
-- **Q8. Art style?** Recommended: painterly-realistic by light and grading
-  on today's assets.
-- **Q9. Which character and animation files may I download?** Recommended:
-  A, B and C from the shortlist (all CC0 and free, about 154 MB, into a
-  git-ignored `demo/assets/`). Paid sets (B Pro at $9.99 for an axe chop
-  and 120+ clips) and Mixamo (your own Adobe sign-in) only if you want
-  them.
-- **Q10. Roadmap requests R1–R8:** which may go ahead? Recommended: R1,
-  R2, R4 now; R3 and R5 before L5; R6 and R7 when the user sets the
-  experience's scope.
+Decided by the user, 2026-11-25:
+
+- **Form:** a standalone binary, not part of the studio.
+- **World:** a bounded play area now, moved to streaming when S1 comes.
+- **Chopping:** deferred; it comes later. Until then the experience is
+  wandering, flying and the gentle invitations of L7 (cairns, birds
+  answering the whistle, the cabin).
+- **Camera:** third-person, with a first-person toggle.
+- **Music:** Creative Commons stems, mixed by state.
+- **Dependencies:** the recommended set is approved: `avian3d` with
+  `bevy-tnua` and `bevy-tnua-avian3d`, `bevy_hanabi`, `bevy_seedling`,
+  `bevy_enhanced_input` (added through the coordinator in one batch).
+- **Platform:** macOS only for now.
+- **Art style:** painterly-realistic, by light and grading on today's
+  assets.
+- **Character:** download all the free packs and choose by which fits
+  the art style best (see the shortlist).
+- **Roadmap requests:** R1, R2, R4, R5 and R8 approved; R6 and R7 approved
+  for later; R3 deferred (the wind need not be consistent between trees
+  and grass at first).
+
+Still open:
+
+- **The reference machine** and whether a low-end Mac is available (for
+  "Performance targets"; ROADMAP's "Test machines and performance
+  budgets").
+- **Paid or signed-in assets** (Quaternius Pro or Source sets, Mixamo):
+  only if the free sets fall short.
 
 ## Follow-ups for the coordinator
 
