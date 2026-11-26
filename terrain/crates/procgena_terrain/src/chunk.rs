@@ -54,7 +54,8 @@ use procgena_core::chain::ViewScale;
 
 use crate::{
     CURVATURE_STEP, ChunkLevels, ChunkLevelsError, FeatureId, FeatureLine, FeatureShape,
-    FeatureTier, MEASURE_REACH, Pond, SampleDetail, Terrain, TerrainFeature, WorldTerrain,
+    FeatureTier, MEASURE_REACH, Pond, RegionId, SampleDetail, Terrain, TerrainFeature,
+    WorldTerrain,
 };
 
 /// Width in metres of a chunk at level 0. Each level up doubles it.
@@ -542,27 +543,8 @@ impl ChunkSource for WorldTerrain {
     /// river or road crossing their border) is listed once. Regions that
     /// can't be built add nothing.
     fn lines_within(&self, min: DVec2, max: DVec2, tier: FeatureTier) -> Vec<ChunkFeature> {
-        // The regions reaching into the box: the one at its centre, then
-        // each neighbour across a border edge that passes through the box.
-        let mut regions = BTreeSet::from([self.region_at((min + max) * 0.5)]);
-        let mut next: Vec<_> = regions.iter().copied().collect();
-        while let Some(id) = next.pop() {
-            for edge in &self.region(id).edges {
-                let Some(neighbour) = edge.neighbor else {
-                    continue;
-                };
-                let crosses = edge
-                    .polyline
-                    .windows(2)
-                    .any(|w| segment_meets_box(w[0], w[1], min, max));
-                if crosses && regions.insert(neighbour) {
-                    next.push(neighbour);
-                }
-            }
-        }
-
         let mut features = Vec::new();
-        for id in regions {
+        for id in regions_reaching(self, min, max) {
             if let Ok(terrain) = self.terrain_tier(id, tier) {
                 features.extend(terrain.lines_within(min, max, tier));
             }
@@ -570,20 +552,53 @@ impl ChunkSource for WorldTerrain {
         sorted_features(features)
     }
 
-    /// Whether any feature near chunk `key` differs between the tiers:
-    /// the rivers, ponds and roads within reach of anything the chunk's
-    /// read samples, at `from` against `to`. A later tier only adds and
-    /// reshapes roads, and a point's ground and site come from its region's
-    /// features near it, so equal features mean an equal read. Builds the
-    /// regions reaching the chunk at both tiers.
+    /// Whether, in any region holding a point that chunk `key`'s read
+    /// samples, a feature within reach of those points differs between the
+    /// tiers. A point's ground and site come only from its own region's
+    /// features near it, and a later tier only adds and reshapes roads, so
+    /// equal features mean an equal read. Builds those regions, and only
+    /// those, at both tiers, as the read itself would.
     fn tier_changes(&self, key: ChunkKey, from: FeatureTier, to: FeatureTier) -> bool {
         if from == to {
             return false;
         }
+        let ring = DVec2::splat(2.0 * key.step());
         let reach = DVec2::splat(read_reach(key));
         let (min, max) = (key.min_corner() - reach, key.max_corner() + reach);
-        self.lines_within(min, max, from) != self.lines_within(min, max, to)
+        regions_reaching(self, key.min_corner() - ring, key.max_corner() + ring)
+            .into_iter()
+            .any(
+                |id| match (self.terrain_tier(id, from), self.terrain_tier(id, to)) {
+                    (Ok(a), Ok(b)) => {
+                        a.lines_within(min, max, from) != b.lines_within(min, max, to)
+                    }
+                    _ => true,
+                },
+            )
     }
+}
+
+/// Every region of `world` reaching into the box from `min` to `max`: the
+/// one at its centre, then each neighbour across a border edge that passes
+/// through the box.
+fn regions_reaching(world: &WorldTerrain, min: DVec2, max: DVec2) -> BTreeSet<RegionId> {
+    let mut regions = BTreeSet::from([world.region_at((min + max) * 0.5)]);
+    let mut next: Vec<_> = regions.iter().copied().collect();
+    while let Some(id) = next.pop() {
+        for edge in &world.region(id).edges {
+            let Some(neighbour) = edge.neighbor else {
+                continue;
+            };
+            let crosses = edge
+                .polyline
+                .windows(2)
+                .any(|w| segment_meets_box(w[0], w[1], min, max));
+            if crosses && regions.insert(neighbour) {
+                next.push(neighbour);
+            }
+        }
+    }
+    regions
 }
 
 /// Whether the segment from `a` to `b` touches the box from `min` to `max`
