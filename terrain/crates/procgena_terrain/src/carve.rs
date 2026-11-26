@@ -7,6 +7,8 @@ use glam::DVec2;
 use crate::feature::{FeatureId, FeatureIndex, FeatureShape, Part, TerrainFeature, feature_keys};
 use crate::gully;
 use crate::ports::BANK_REACH;
+use crate::road::SectionShape;
+use crate::road::section::{Band, Grad, ROAD_BLEND, RoadView};
 use crate::seam::{smootherstep, smootherstep_slope};
 
 /// How steeply a river or pond bank, and a river's valley wall, rises, as
@@ -20,20 +22,6 @@ const VALLEY_SPARE: f64 = 1.5;
 /// The furthest a river's valley reaches from the water's edge, in metres.
 pub(crate) const MAX_VALLEY_REACH: f64 = 300.0;
 
-/// How far a road may sit above or below the ground beneath it before its
-/// banks start, in metres.
-const ROAD_TOLERANCE: f64 = 0.25;
-
-/// How steeply road cuttings and embankments start on gentle ground, as
-/// rise over run (about 31°).
-pub(crate) const ROAD_BANK: f64 = 0.6;
-
-/// How many times steeper than the natural ground a road's banks start.
-const BANK_FACTOR: f64 = 2.0;
-
-/// The steepest a road's banks start, as rise over run (about 87°).
-const MAX_BANK: f64 = 20.0;
-
 /// The slope, as rise over run, from which a road cutting's face is a
 /// bluff: 45°.
 const BLUFF_SLOPE: f64 = 1.0;
@@ -46,10 +34,6 @@ const CLIFF_SLOPE: f64 = 2.144_506_920_509_559_5;
 /// cut edge is rounded instead of creased, so the ground's slope stays
 /// continuous.
 const RIVER_BLEND: f64 = 0.5;
-
-/// How softly road cuts and fills meet the ground, in metres of height.
-/// Smaller than the road's tolerance band.
-const ROAD_BLEND: f64 = 0.2;
 
 /// How much further off than the nearest water, in metres, another water's
 /// surface still counts towards [`Nearby::water_level`].
@@ -215,9 +199,8 @@ pub(crate) struct Features {
     pub roads: Vec<FeatureLine>,
     /// For each river, its valley's shape at each point.
     river_valleys: Vec<Vec<ValleyShape>>,
-    /// For each road, how steeply its banks start at each point, as rise
-    /// over run.
-    road_banks: Vec<Vec<f32>>,
+    /// For each road, its shape across at each point.
+    road_sections: Vec<Vec<SectionShape>>,
     /// For each road, whether its start and its end are open: the road
     /// stops there (at a river bank) and holds no ground beyond.
     road_open: Vec<[bool; 2]>,
@@ -305,44 +288,48 @@ fn segment_slopes(line: &FeatureLine, segment: usize, p: DVec2) -> (DVec2, DVec2
     (distance, along)
 }
 
+/// How softly a road's values are mixed between segments that are nearly
+/// equally near a point, in metres of distance: a segment this much
+/// further off than the nearest counts a factor e less.
+const MIX_DISTANCE: f64 = 0.1;
+
+/// The smallest weight a road segment's values count with when mixed;
+/// lighter ones are left out.
+const MIX_FLOOR: f64 = 1e-12;
+
 /// How many times faster the distance from a road grows past an open end
 /// (see [`Features::new`]) than across the road: the road's hold on the
 /// ground ends within a tenth of [`BANK_REACH`] past the end.
 const OPEN_END: f64 = 10.0;
 
-/// For `p` beyond an open end of segment `segment` of road `line` (`open`
-/// says which ends are open), the distance to the road with the part along
-/// the road counted [`OPEN_END`] times over, and its gradient. `None` if
-/// `p` is not beyond an open end of this segment.
-fn past_open_end(
-    line: &FeatureLine,
-    segment: usize,
-    open: [bool; 2],
-    p: DVec2,
-) -> Option<(f64, DVec2)> {
-    let last = line.points.len() - 2;
-    let (a, b) = (line.points[segment], line.points[segment + 1]);
-    let direction = (b - a).normalize_or_zero();
-    if direction == DVec2::ZERO {
-        return None;
+/// `d`, the distance from `p` to one segment of road `line`, stretched
+/// where `p` lies past an open end of the line (`open` says which ends are
+/// open): the part of the way past the end's square is counted
+/// [`OPEN_END`] times over, so every segment of the road lets go of the
+/// ground a few metres past the end. Unchanged where `p` is not past an
+/// open end.
+fn past_open_ends(line: &FeatureLine, open: [bool; 2], p: DVec2, d: Grad) -> Grad {
+    let n = line.points.len();
+    let mut d = d;
+    for (k, is_open) in open.into_iter().enumerate() {
+        if !is_open || n < 2 {
+            continue;
+        }
+        // The end, and which way "past" it points.
+        let (end, inner) = if k == 0 {
+            (line.points[0], line.points[1])
+        } else {
+            (line.points[n - 1], line.points[n - 2])
+        };
+        let outward = (end - inner).normalize_or_zero();
+        let past = (p - end).dot(outward);
+        if outward == DVec2::ZERO || past <= 0.0 {
+            continue;
+        }
+        let past = Grad::new(past, outward);
+        d = (d * d + past * past * (OPEN_END * OPEN_END - 1.0)).sqrt();
     }
-    // How far past the end, and which way "past" points.
-    let (end, outward) = if open[0] && segment == 0 && (p - a).dot(direction) < 0.0 {
-        (a, -direction)
-    } else if open[1] && segment == last && (p - b).dot(direction) > 0.0 {
-        (b, direction)
-    } else {
-        return None;
-    };
-    let past = (p - end).dot(outward);
-    let across = (p - end).perp_dot(direction);
-    let d = across.hypot(OPEN_END * past);
-    let slope = if d > 0.0 {
-        (-direction.perp() * across + outward * (OPEN_END * OPEN_END * past)) / d
-    } else {
-        DVec2::ZERO
-    };
-    Some((d, slope))
+    d
 }
 
 /// The gradients of [`smooth_min`]'s result by `a` and by `b`.
@@ -631,73 +618,29 @@ pub(crate) fn valley_reach(cut: f64, floor: f64, wall: f64) -> f64 {
     (floor + VALLEY_SPARE * cut.max(0.0) / wall).clamp(BANK_REACH, MAX_VALLEY_REACH)
 }
 
-/// How far a road lets the ground differ from its level at distance `d`
-/// from its centre line, or `None` beyond its cuttings and embankments.
-/// `bank` is the slope of its banks, as rise over run: a flat face at that
-/// slope, steepening only close to [`BANK_REACH`] so that every bank meets
-/// the ground within it.
-fn road_tolerance(d: f64, half_width: f64, bank: f64) -> Option<f64> {
-    let x = d - half_width;
-    if x <= 0.0 {
-        return Some(ROAD_TOLERANCE);
-    }
-    (x < BANK_REACH).then(|| ROAD_TOLERANCE + bank * x / (1.0 - (x / BANK_REACH).powi(8)))
-}
-
-/// The gradient of [`road_tolerance`] at `x` metres beyond the road's
-/// edge, given the gradients of `x` and of `bank`.
-fn road_tolerance_slope(x: f64, bank: f64, x_slope: DVec2, bank_slope: DVec2) -> DVec2 {
-    if x <= 0.0 || x >= BANK_REACH {
-        return DVec2::ZERO;
-    }
-    let u8 = (x / BANK_REACH).powi(8);
-    let fall = 1.0 - u8;
-    let fall_slope = x_slope * (-8.0 * u8 / x);
-    bank_slope * (x / fall) + (x_slope * fall - fall_slope * x) * (bank / (fall * fall))
-}
-
-/// The slope, as rise over run, of a road's cutting or embankment bank at
-/// distance `d` from its centre line, or `None` on the road itself or
-/// beyond its banks. It is the slope of [`road_tolerance`] with the same
-/// `bank`.
-fn bank_slope(d: f64, half_width: f64, bank: f64) -> Option<f64> {
-    let x = d - half_width;
-    if x <= 0.0 || x >= BANK_REACH {
-        return None;
-    }
-    let u8 = (x / BANK_REACH).powi(8);
-    Some(bank * (1.0 + 7.0 * u8) / (1.0 - u8).powi(2))
-}
-
-/// How steeply a road's banks start, as rise over run, where the natural
-/// ground around it has slope `ground`: twice as steep, so the bank always
-/// meets the ground, and never gentler than [`ROAD_BANK`] or steeper than
-/// [`MAX_BANK`].
-pub(crate) fn bank_for(ground: f64) -> f64 {
-    (BANK_FACTOR * ground).clamp(ROAD_BANK, MAX_BANK)
-}
-
 impl Features {
     /// Gathers features and builds the spatial index.
     ///
     /// `river_valleys` gives, for each of `rivers`, its valley's shape at
-    /// each of its points; `road_banks` gives, for each of `roads`, how
-    /// steeply its banks start at each of its points (see [`bank_for`]);
-    /// `road_open`, for each road, whether it stops short at its start and
-    /// at its end, holding no ground beyond (a few metres past such an end
-    /// the ground is left as it is).
+    /// each of its points; `road_sections` gives, for each of `roads`, its
+    /// shape across at each of its points; `road_open`, for each road,
+    /// whether it stops short at its start and at its end, holding no
+    /// ground beyond (a few metres past such an end the ground is left as
+    /// it is).
+    ///
+    /// Where roads overlap (at a junction), the one listed first wins.
     ///
     /// # Panics
     ///
     /// If `river_valleys` doesn't have one shape per river point,
-    /// `road_banks` one value per road point, or `road_open` one entry per
-    /// road.
+    /// `road_sections` one shape per road point, or `road_open` one entry
+    /// per road.
     pub(crate) fn new(
         rivers: Vec<FeatureLine>,
         river_valleys: Vec<Vec<ValleyShape>>,
         ponds: Vec<Pond>,
         roads: Vec<FeatureLine>,
-        road_banks: Vec<Vec<f32>>,
+        road_sections: Vec<Vec<SectionShape>>,
         road_open: Vec<[bool; 2]>,
         points_of_interest: Vec<PointOfInterest>,
     ) -> Self {
@@ -714,8 +657,8 @@ impl Features {
             "one valley shape per river point"
         );
         assert!(
-            matches(&road_banks, &roads),
-            "one bank steepness per road point"
+            matches(&road_sections, &roads),
+            "one shape across per road point"
         );
         let parts = Self::parts(&rivers, &river_valleys, &ponds, &roads);
         let mut bounds: BTreeMap<FeatureId, ([DVec2; 2], u32)> = BTreeMap::new();
@@ -728,7 +671,7 @@ impl Features {
             river_valleys,
             ponds,
             roads,
-            road_banks,
+            road_sections,
             road_open,
             points_of_interest,
             bounds,
@@ -852,42 +795,68 @@ impl Features {
         self.index.near(lo, hi).into_iter().collect()
     }
 
-    /// Segment `segment` of road `line` seen from `p`: the distance to it,
-    /// the road's half width, and its level and bank steepness at the
-    /// closest point. Past an open end the distance grows
-    /// [`OPEN_END`] times faster along the road than across it.
-    fn road_at(&self, line: u32, segment: u32, p: DVec2) -> (f64, f64, f64, f64) {
-        let (road, banks) = (&self.roads[line as usize], &self.road_banks[line as usize]);
-        let s = segment as usize;
-        let (mut d, t) = segment_position(road, s, p);
-        if let Some((open, _)) = past_open_end(road, s, self.road_open[line as usize], p) {
-            d = open;
-        }
-        let lerp = |a: f32, b: f32| f64::from(a) + (f64::from(b) - f64::from(a)) * t;
-        (
-            d,
-            0.5 * lerp(road.widths[s], road.widths[s + 1]),
-            lerp(road.levels[s], road.levels[s + 1]),
-            lerp(banks[s], banks[s + 1]),
-        )
-    }
+    /// Road `line` seen from `p` through `segments`, the segments whose
+    /// reach covers `p`: the distance to its centre line, and its half
+    /// width, level and shape across there. Where two segments are nearly
+    /// equally near (inside a bend), their values are mixed by how near
+    /// each is, so the result has no step. Past an open end the distance
+    /// grows [`OPEN_END`] times faster along the road than across it.
+    fn road_view(&self, line: u32, segments: &[u32], p: DVec2) -> RoadView {
+        let road = &self.roads[line as usize];
+        let sections = &self.road_sections[line as usize];
+        let open = self.road_open[line as usize];
 
-    /// The gradients of [`road_at`](Self::road_at)'s distance, half width,
-    /// level and bank steepness.
-    fn road_slopes(&self, line: u32, segment: u32, p: DVec2) -> [DVec2; 4] {
-        let (road, banks) = (&self.roads[line as usize], &self.road_banks[line as usize]);
-        let s = segment as usize;
-        let (mut distance, t) = segment_slopes(road, s, p);
-        if let Some((_, slope)) = past_open_end(road, s, self.road_open[line as usize], p) {
-            distance = slope;
+        // Each segment's distance, and its values at its closest point.
+        let seen: Vec<(Grad, [Grad; 6])> = segments
+            .iter()
+            .map(|&s| {
+                let s = s as usize;
+                let (d, t) = segment_position(road, s, p);
+                let (d_slope, t_slope) = segment_slopes(road, s, p);
+                let distance = past_open_ends(road, open, p, Grad::new(d, d_slope));
+                let t = Grad::new(t, t_slope);
+                let lerp = |a: f32, b: f32| t * (f64::from(b) - f64::from(a)) + f64::from(a);
+                let (a, b) = (sections[s].values(), sections[s + 1].values());
+                let values = [
+                    lerp(road.widths[s], road.widths[s + 1]) * 0.5,
+                    lerp(road.levels[s], road.levels[s + 1]),
+                    lerp(a[0], b[0]),
+                    lerp(a[1], b[1]),
+                    lerp(a[2], b[2]),
+                    lerp(a[3], b[3]),
+                ];
+                (distance, values)
+            })
+            .collect();
+
+        // The nearest distance, and the values mixed by nearness.
+        let nearest = seen
+            .iter()
+            .map(|(d, _)| *d)
+            .reduce(Grad::min)
+            .expect("a road seen from a point has a segment there");
+        let mut total = Grad::constant(0.0);
+        let mut sums = [Grad::constant(0.0); 6];
+        for (d, values) in &seen {
+            let weight = ((Grad::constant(nearest.v) - *d) / MIX_DISTANCE).exp();
+            if weight.v < MIX_FLOOR {
+                continue;
+            }
+            total = total + weight;
+            for (sum, &value) in sums.iter_mut().zip(values) {
+                *sum = *sum + weight * value;
+            }
         }
-        let change = |a: f32, b: f32| t * (f64::from(b) - f64::from(a));
-        [
-            distance,
-            change(road.widths[s], road.widths[s + 1]) * 0.5,
-            change(road.levels[s], road.levels[s + 1]),
-            change(banks[s], banks[s + 1]),
-        ]
+        let [half_width, level, shoulder, crossfall, cut, fill] = sums.map(|s| s / total);
+        RoadView {
+            distance: nearest,
+            half_width,
+            level,
+            shoulder,
+            crossfall,
+            cut,
+            fill,
+        }
     }
 
     /// Carves ground of height `h` at `p`: rivers and ponds cut it down,
@@ -895,6 +864,24 @@ impl Features {
     #[cfg(test)]
     pub(crate) fn apply(&self, p: DVec2, h: f32) -> Carved {
         self.carve(p, h, None).0
+    }
+
+    /// The ground of height `h` at `p` with rivers and ponds cut in, but
+    /// not roads: the natural ground roads are carved into.
+    pub(crate) fn before_roads(&self, p: DVec2, h: f32) -> f32 {
+        let parts: Vec<Part> = self
+            .index
+            .at(p)
+            .iter()
+            .filter(|part| part.id.kind != FeatureKind::Road)
+            .copied()
+            .collect();
+        self.carve_parts(p, h, None, &parts).0.height
+    }
+
+    /// For each road, its shape across at each point.
+    pub(crate) fn road_sections(&self) -> &[Vec<SectionShape>] {
+        &self.road_sections
     }
 
     /// [`apply`](Self::apply), with the gradient of the carved ground when
@@ -1009,37 +996,30 @@ impl Features {
 
         // Roads near here: gullies keep away from them, then they hold the
         // ground to their level.
-        let road_items: Vec<(u32, u32)> = parts
+        let mut road_segments: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for part in parts
             .iter()
             .filter(|part| part.id.kind == FeatureKind::Road)
-            .map(|part| (part.index, part.segment))
-            .collect();
-        let roads: Vec<(f64, f64, f64, f64)> = road_items
+        {
+            road_segments
+                .entry(part.index)
+                .or_default()
+                .push(part.segment);
+        }
+        // Each road near here, seen from `p`, in list order.
+        let roads: Vec<RoadView> = road_segments
             .iter()
-            .map(|&(line, segment)| self.road_at(line, segment, p))
+            .map(|(&line, segments)| self.road_view(line, segments, p))
             .collect();
-        let road_slopes: Vec<[DVec2; 4]> = if track {
-            road_items
-                .iter()
-                .map(|&(line, segment)| self.road_slopes(line, segment, p))
-                .collect()
-        } else {
-            Vec::new()
-        };
         let road_gap = roads
             .iter()
-            .map(|&(d, half_width, _, _)| d - half_width)
-            .fold(f64::INFINITY, f64::min);
-        let road_fade = smootherstep((road_gap - GULLY_ROAD_CLEARANCE) / GULLY_ROAD_FADE);
-        let road_fade_slope = if track && road_gap.is_finite() {
-            // The nearest road's gap, as `fold` picks it.
-            let nearest = roads
-                .iter()
-                .position(|&(d, half_width, _, _)| d - half_width == road_gap)
-                .expect("the gap is one road's");
-            let [distance, half_width, _, _] = road_slopes[nearest];
-            let t = (road_gap - GULLY_ROAD_CLEARANCE) / GULLY_ROAD_FADE;
-            (distance - half_width) * (smootherstep_slope(t) / GULLY_ROAD_FADE)
+            .map(RoadView::gap)
+            .reduce(Grad::min)
+            .unwrap_or(Grad::constant(f64::INFINITY));
+        let road_fade = smootherstep((road_gap.v - GULLY_ROAD_CLEARANCE) / GULLY_ROAD_FADE);
+        let road_fade_slope = if track && road_gap.v.is_finite() {
+            let t = (road_gap.v - GULLY_ROAD_CLEARANCE) / GULLY_ROAD_FADE;
+            road_gap.g * (smootherstep_slope(t) / GULLY_ROAD_FADE)
         } else {
             DVec2::ZERO
         };
@@ -1199,58 +1179,44 @@ impl Features {
                 }
             }
         }
-        let mut height = (f64::from(h) - lowering) as f32;
-        let mut height_slope = h_slope - lowering_slope;
+        let height = (f64::from(h) - lowering) as f32;
+        let height_slope = h_slope - lowering_slope;
 
-        // Roads: hold the ground within reach of the road's level.
+        // Roads: hold the ground to their cross-sections, the road listed
+        // first last, so it wins where roads overlap.
         let uncut = f64::from(height);
-        for (i, &(d, half_width, level, bank)) in roads.iter().enumerate() {
-            if let Some(e) = road_tolerance(d, half_width, bank) {
-                let held = smooth_min(f64::from(height), level + e, ROAD_BLEND);
-                if track {
-                    let [d_slope, width_slope, level_slope, bank_slope] = road_slopes[i];
-                    let e_slope = road_tolerance_slope(
-                        d - half_width,
-                        bank,
-                        d_slope - width_slope,
-                        bank_slope,
-                    );
-                    let (by_ground, by_top) =
-                        smooth_min_slopes(f64::from(height), level + e, ROAD_BLEND);
-                    let held_slope = height_slope * by_ground + (level_slope + e_slope) * by_top;
-                    let (by_held, by_bottom) = smooth_max_slopes(held, level - e, ROAD_BLEND);
-                    height_slope = held_slope * by_held + (level_slope - e_slope) * by_bottom;
-                }
-                height = smooth_max(held, level - e, ROAD_BLEND) as f32;
-            }
+        let mut ground = Grad::new(uncut, height_slope);
+        let bands: Vec<Option<Band>> = roads.iter().map(RoadView::band).collect();
+        for band in bands.iter().rev().flatten() {
+            ground = band.hold(ground);
         }
+        let height = ground.v as f32;
+        let height_slope = if track { ground.g } else { DVec2::ZERO };
 
         // Tags: the road surface, and banks that are the ground here,
         // cut down or built up, with how steep they are.
         let mut tags = RoadTags::NONE;
-        for &(d, half_width, level, bank) in &roads {
-            if d <= half_width {
+        for (view, band) in roads.iter().zip(&bands) {
+            if view.gap().v <= 0.0 {
                 tags |= RoadTags::ROAD;
                 continue;
             }
-            let (Some(e), Some(slope)) = (
-                road_tolerance(d, half_width, bank),
-                bank_slope(d, half_width, bank),
-            ) else {
+            let Some(band) = band.filter(|b| b.beyond.v > 0.0) else {
                 continue;
             };
-            let on = |edge: f64| (f64::from(height) - edge).abs() <= ROAD_BLEND;
-            if uncut > level + e && on(level + e) {
-                tags |= RoadTags::CUT;
-            } else if uncut < level - e && on(level - e) {
-                tags |= if slope >= CLIFF_SLOPE {
-                    RoadTags::RETAINING_WALL
-                } else {
-                    RoadTags::EMBANKMENT
-                };
+            let on = |edge: Grad| (f64::from(height) - edge.v).abs() <= ROAD_BLEND;
+            let (kind, slope) = if uncut > band.high.v && on(band.high) {
+                (RoadTags::CUT, band.rise)
+            } else if uncut < band.low.v && on(band.low) {
+                (RoadTags::EMBANKMENT, band.fall)
             } else {
                 continue;
-            }
+            };
+            tags |= if band.wall {
+                RoadTags::RETAINING_WALL
+            } else {
+                kind
+            };
             if slope >= CLIFF_SLOPE {
                 tags |= RoadTags::CLIFF;
             } else if slope >= BLUFF_SLOPE {
@@ -1314,6 +1280,16 @@ mod tests {
         }
     }
 
+    /// The default road shape across, with cuttings and embankments both
+    /// at `slope`.
+    fn sloped(slope: f32) -> SectionShape {
+        SectionShape {
+            cut: slope,
+            fill: slope,
+            ..SectionShape::PIECE
+        }
+    }
+
     #[test]
     fn rivers_cut_a_bed_and_hold_water() {
         let features = Features::new(
@@ -1356,7 +1332,7 @@ mod tests {
             vec![vec![ValleyShape::even(BANK_REACH); 2]],
             vec![pond],
             vec![road],
-            vec![vec![ROAD_BANK as f32; 2]],
+            vec![vec![SectionShape::PIECE; 2]],
             vec![[false; 2]],
             Vec::new(),
         );
@@ -1433,22 +1409,36 @@ mod tests {
             Vec::new(),
             Vec::new(),
             vec![road],
-            vec![vec![0.6; 2]],
+            vec![vec![SectionShape::PIECE; 2]],
             vec![[false; 2]],
             Vec::new(),
         );
-        let cut = features.apply(DVec2::new(50.0, 0.0), 30.0).height;
-        let fill = features.apply(DVec2::new(50.0, 0.0), 0.0).height;
-        assert!((cut - 9.75).abs() < 1e-4);
-        assert!((fill - 9.25).abs() < 1e-4);
+        // On the crown: exactly the road's level, cutting or filling.
+        let at =
+            |z: f64, ground: f32| f64::from(features.apply(DVec2::new(50.0, z), ground).height);
+        assert!((at(0.0, 30.0) - 9.5).abs() < 1e-5);
+        assert!((at(0.0, 0.0) - 9.5).abs() < 1e-5);
+        // At the shoulder's edge, 4 m out: fallen 2.5% from the crown.
+        let edge = 9.5 - 0.025 * (4.0 - crate::road::section::CROWN / 2.0);
+        assert!((at(4.0, 30.0) - edge).abs() < 1e-5);
+        assert!((at(-4.0, 0.0) - edge).abs() < 1e-5);
+        // Beyond: the 1:1 cutting and the 1:1.5 embankment.
+        assert!((at(10.0, 30.0) - (edge + 6.0)).abs() < 1e-4);
+        assert!((at(10.0, 0.0) - (edge - 6.0 / 1.5)).abs() < 1e-4);
     }
 
     #[test]
     fn a_road_holds_no_ground_a_few_metres_past_an_open_end() {
+        // Stations every 2 m, as planned roads have, so segments short of
+        // the end are near points past it too.
         let road = FeatureLine {
             kind: FeatureKind::Road,
+            points: (0..=50)
+                .map(|i| DVec2::new(2.0 * f64::from(i), 0.0))
+                .collect(),
+            levels: (0..=50).map(|i| 10.0 - 0.02 * i as f32).collect(),
+            widths: vec![6.0; 51],
             depth: 0.0,
-            ..river()
         };
         let carve = |open: [bool; 2], p: DVec2| {
             let features = Features::new(
@@ -1456,7 +1446,7 @@ mod tests {
                 Vec::new(),
                 Vec::new(),
                 vec![road.clone()],
-                vec![vec![0.6; 2]],
+                vec![vec![SectionShape::PIECE; 51]],
                 vec![open],
                 Vec::new(),
             );
@@ -1464,7 +1454,8 @@ mod tests {
         };
         // On the road near its end, filled to its level either way.
         let on = DVec2::new(99.0, 0.0);
-        assert!((carve([false, true], on) - 8.76).abs() < 0.05);
+        assert!((carve([false, true], on) - 9.01).abs() < 1e-4);
+        assert!((carve([false, false], on) - 9.01).abs() < 1e-4);
         // Five metres past the end: an open end leaves the ground alone,
         // a closed one still holds it up.
         let past = DVec2::new(105.0, 0.0);
@@ -1501,7 +1492,11 @@ mod tests {
                 ..road.clone()
             })
             .collect();
-        let banks = vec![vec![0.6; 2], vec![1.5; 2], vec![3.0; 2]];
+        let banks = vec![
+            vec![sloped(0.6); 2],
+            vec![sloped(1.5); 2],
+            vec![sloped(3.0); 2],
+        ];
         let features = Features::new(
             Vec::new(),
             Vec::new(),
@@ -1511,8 +1506,8 @@ mod tests {
             vec![[false; 2]; 3],
             Vec::new(),
         );
-        // 5 m out from a road's edge (3 m from its centre), on high ground
-        // (cut) or low ground (fill).
+        // 4 m out from a road's shoulder (8 m from its centre), on high
+        // ground (cut) or low ground (fill).
         let tags = |z: f64, ground: f32| features.apply(DVec2::new(50.0, z + 8.0), ground).tags;
         let (cut, fill) = (1000.0, -1000.0);
         assert_eq!(tags(0.0, cut), RoadTags::CUT);
@@ -1520,14 +1515,23 @@ mod tests {
         assert_eq!(tags(2000.0, cut), RoadTags::CUT | RoadTags::CLIFF);
         assert_eq!(tags(0.0, fill), RoadTags::EMBANKMENT);
         assert_eq!(tags(1000.0, fill), RoadTags::EMBANKMENT | RoadTags::BLUFF);
-        assert_eq!(
-            tags(2000.0, fill),
-            RoadTags::RETAINING_WALL | RoadTags::CLIFF
-        );
-        // The road itself, and ground the bank doesn't reach.
+        assert_eq!(tags(2000.0, fill), RoadTags::EMBANKMENT | RoadTags::CLIFF);
+        // Near the end of the reach, slopes that never met the ground end
+        // in retaining walls.
+        let walled = |ground: f32| {
+            let z = 3.0 + BANK_REACH - 1.5;
+            features.apply(DVec2::new(50.0, z), ground).tags
+        };
+        assert_eq!(walled(cut), RoadTags::RETAINING_WALL | RoadTags::CLIFF);
+        assert_eq!(walled(fill), RoadTags::RETAINING_WALL | RoadTags::CLIFF);
+        // The road itself, its shoulder, and ground the bank doesn't reach.
         assert_eq!(
             features.apply(DVec2::new(50.0, 1.0), cut).tags,
             RoadTags::ROAD
+        );
+        assert_eq!(
+            features.apply(DVec2::new(50.0, 3.5), cut).tags,
+            RoadTags::NONE
         );
         assert_eq!(tags(2000.0, 9.5), RoadTags::NONE);
         assert_eq!(
@@ -1663,7 +1667,7 @@ mod tests {
             ],
             vec![pond],
             vec![road],
-            vec![vec![0.8, 1.5]],
+            vec![vec![sloped(0.8), sloped(1.5)]],
             // Its far end stops short, as at a river bank.
             vec![[false, true]],
             Vec::new(),
@@ -1876,14 +1880,32 @@ mod tests {
 
     #[test]
     fn steep_banks_are_flat_faces() {
-        // A bank keeps its slope, within 5%, out to half its reach.
-        for bank in [0.6, 2.0, 20.0] {
-            let near = bank_slope(3.0 + 1.0, 3.0, bank).unwrap();
-            let far = bank_slope(3.0 + 0.5 * BANK_REACH, 3.0, bank).unwrap();
-            assert!(
-                (far / near - 1.0).abs() < 0.05,
-                "bank {bank}: {near} then {far}"
+        // A cutting into ground far above keeps its slope exactly from the
+        // shoulder's edge out to where its retaining wall starts.
+        for slope in [0.6, 2.0, 20.0] {
+            let road = FeatureLine {
+                kind: FeatureKind::Road,
+                depth: 0.0,
+                ..river()
+            };
+            let features = Features::new(
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                vec![road],
+                vec![vec![sloped(slope); 2]],
+                vec![[false; 2]],
+                Vec::new(),
             );
+            let at = |z: f64| f64::from(features.apply(DVec2::new(50.0, z), 5000.0).height);
+            let wall_start = 4.0 + BANK_REACH - 1.0 - crate::road::section::WALL;
+            for z in [6.0, 10.0, 20.0, wall_start - 1.0] {
+                let rise = (at(z + 0.5) - at(z - 0.5)) / 1.0;
+                assert!(
+                    (rise / f64::from(slope) - 1.0).abs() < 1e-3,
+                    "slope {slope} at {z}: {rise}"
+                );
+            }
         }
     }
 

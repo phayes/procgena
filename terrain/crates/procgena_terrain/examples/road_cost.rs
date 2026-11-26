@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 use glam::DVec2;
 use procgena_terrain::{
     BorderWarp, Elevation, FeatureTier, RegionGraphOptions, RegionId, RoadQuality, RouteStats,
-    TerrainPreset, WorldScale, WorldTerrain, WorldTerrainOptions, road_quality,
+    Terrain, TerrainPreset, WorldScale, WorldTerrain, WorldTerrainOptions, road_quality,
 };
 
 /// One World scale class, as `procgena_world`'s presets set it.
@@ -222,6 +222,7 @@ fn main() {
                             fine.road_stats(FeatureTier::Mid).unwrap_or_default(),
                             fine.road_stats(FeatureTier::Fine).unwrap_or_default(),
                             quality,
+                            check_earthworks(&fine),
                         ));
                     }
                 }
@@ -236,11 +237,13 @@ fn main() {
                     median(&mut rough),
                     roads_ms,
                 );
-                if let Some((outline, fine, quality)) = detail {
+                if let Some((outline, fine, quality, earthworks)) = detail {
                     print_stats("outline", &outline);
                     print_stats("fine", &fine);
                     print_quality(&quality);
+                    earthworks.print();
                     summary.add(&outline, &fine, &quality);
+                    summary.earthworks.add(&earthworks);
                 }
                 preset_roads.push(roads_ms);
             }
@@ -354,6 +357,141 @@ struct Summary {
     total_ms: Vec<f64>,
     peak_bytes: usize,
     quality: Vec<RoadQuality>,
+    earthworks: EarthworkCheck,
+}
+
+/// What a region's road earthworks came to, and how many of them break
+/// RB5's rules.
+#[derive(Default)]
+struct EarthworkCheck {
+    ms: f64,
+    segments: usize,
+    cut: f64,
+    fill: f64,
+    walls: usize,
+    junctions: usize,
+    breaklines: usize,
+    /// Segment footprints that cross themselves.
+    bad_footprints: usize,
+    /// Breaklines that cross themselves.
+    tangled: usize,
+    /// Points between a crossing's banks, more than 5 m from each, where
+    /// the roads changed the ground, out of those looked at.
+    touched: usize,
+    looked: usize,
+    /// The largest of those changes, in metres.
+    most: f64,
+}
+
+impl EarthworkCheck {
+    /// Adds another region's.
+    fn add(&mut self, o: &Self) {
+        self.ms += o.ms;
+        self.segments += o.segments;
+        self.cut += o.cut;
+        self.fill += o.fill;
+        self.walls += o.walls;
+        self.junctions += o.junctions;
+        self.breaklines += o.breaklines;
+        self.bad_footprints += o.bad_footprints;
+        self.tangled += o.tangled;
+        self.touched += o.touched;
+        self.looked += o.looked;
+        self.most = self.most.max(o.most);
+    }
+
+    /// Prints it on one line.
+    fn print(&self) {
+        println!(
+            "    earthworks {:.0} ms: segments {} cut {:.0} m³ fill {:.0} m³ walls {} junctions {} \
+             breaklines {}; bad footprints {} tangled breaklines {} crossings touched {}/{} (at most {:.1e} m)",
+            self.ms,
+            self.segments,
+            self.cut,
+            self.fill,
+            self.walls,
+            self.junctions,
+            self.breaklines,
+            self.bad_footprints,
+            self.tangled,
+            self.touched,
+            self.looked,
+            self.most,
+        );
+    }
+}
+
+/// Works out `terrain`'s road earthworks, timed, and checks them.
+fn check_earthworks(terrain: &Terrain) -> EarthworkCheck {
+    let started = Instant::now();
+    let e = terrain.road_earthworks();
+    let ms = started.elapsed().as_secs_f64() * 1000.0;
+    let mut check = EarthworkCheck {
+        ms,
+        segments: e.segments.len(),
+        cut: e.cut_volume,
+        fill: e.fill_volume,
+        walls: e.walls,
+        junctions: e.junctions.len(),
+        breaklines: e.breaklines.len(),
+        ..EarthworkCheck::default()
+    };
+    check.bad_footprints = e
+        .segments
+        .iter()
+        .filter(|s| crosses_itself(&s.footprint(), true))
+        .count();
+    check.tangled = e
+        .breaklines
+        .iter()
+        .filter(|b| {
+            let line: Vec<DVec2> = b.points.iter().map(|p| DVec2::new(p.x, p.z)).collect();
+            crosses_itself(&line, false)
+        })
+        .count();
+    let network = terrain.road_network();
+    for crossing in &network.crossings {
+        let [a, b] = crossing
+            .banks
+            .map(|id| network.node(id).expect("bank").position);
+        let span = a.distance(b);
+        let steps = (span / 0.5).ceil() as usize;
+        for k in 0..=steps {
+            let along = span * k as f64 / steps.max(1) as f64;
+            if along < 5.0 || along > span - 5.0 {
+                continue;
+            }
+            let p = a.lerp(b, along / span);
+            check.looked += 1;
+            let change = f64::from((terrain.height(p) - terrain.height_before_roads(p)).abs());
+            if change > 0.0 {
+                check.touched += 1;
+                check.most = check.most.max(change);
+            }
+        }
+    }
+    check
+}
+
+/// Whether the line `points` (closed if `closed`) crosses itself.
+fn crosses_itself(points: &[DVec2], closed: bool) -> bool {
+    let n = points.len();
+    let edges = if closed { n } else { n.saturating_sub(1) };
+    let side = |p: DVec2, q: DVec2, r: DVec2| (q - p).perp_dot(r - p);
+    let cross = |a: DVec2, b: DVec2, c: DVec2, d: DVec2| {
+        side(c, d, a) * side(c, d, b) < 0.0 && side(a, b, c) * side(a, b, d) < 0.0
+    };
+    (0..edges).any(|i| {
+        (i + 2..edges).any(|j| {
+            !(closed && i == 0 && j == n - 1)
+                && cross(
+                    points[i],
+                    points[(i + 1) % n],
+                    points[j],
+                    points[(j + 1) % n],
+                )
+        })
+    })
 }
 
 impl Summary {
@@ -417,6 +555,8 @@ impl Summary {
             w.crowded_points,
             w.length,
         );
+        print!("  all regions:");
+        self.earthworks.print();
     }
 }
 

@@ -13,6 +13,7 @@ use super::network::{
     Alignment, RiverCrossing, RoadId, RoadNetwork, RoadNode, RoadNodeId, RoadNodeKind, RoadSegment,
     RoadStation,
 };
+use super::section::SectionShape;
 
 /// How far beyond a river's water a road stops for a crossing, in metres.
 const CROSSING_MARGIN: f64 = 6.0;
@@ -72,8 +73,8 @@ pub(super) struct Planned {
     pub points: Vec<DVec2>,
     pub levels: Vec<f32>,
     pub widths: Vec<f32>,
-    /// How steeply its banks start at each station.
-    pub banks: Vec<f32>,
+    /// Its shape across at each station.
+    pub sections: Vec<SectionShape>,
     /// The river gaps, in order along the road.
     pub gaps: Vec<Gap>,
     /// The road it joins and how far along that road, or `None` for the
@@ -95,9 +96,9 @@ impl Planned {
         }
     }
 
-    /// The point, level, width and bank `a` metres along the road,
+    /// The point, level, width and shape across `a` metres along the road,
     /// interpolated between its stations.
-    fn at(&self, a: f64) -> (DVec2, f32, f32, f32) {
+    fn at(&self, a: f64) -> (DVec2, f32, f32, SectionShape) {
         let i = self
             .along
             .partition_point(|&s| s <= a)
@@ -113,7 +114,7 @@ impl Planned {
             self.points[i - 1].lerp(self.points[i], t),
             lerp(&self.levels),
             lerp(&self.widths),
-            lerp(&self.banks),
+            self.sections[i - 1].lerp(self.sections[i], t as f32),
         )
     }
 }
@@ -337,11 +338,13 @@ pub(super) fn nearest_on(roads: &[Planned], p: DVec2) -> Option<(usize, f64, DVe
 }
 
 /// A road's piece to carve: one segment of the network as a line, with
-/// its banks, and whether each end stops at a river bank (and so must not
-/// carve beyond it).
+/// its shape across at each point, and whether each end stops at a river
+/// bank (and so must not carve beyond it).
 pub(crate) struct CarvedRoad {
     pub line: FeatureLine,
-    pub banks: Vec<f32>,
+    pub sections: Vec<SectionShape>,
+    /// The network segment the line is.
+    pub segment: RoadId,
     pub open: [bool; 2],
 }
 
@@ -474,12 +477,13 @@ pub(super) fn assemble(
             }
             let (segment, line) = cut(road, a0, a1, n0, n1, &mut taken);
             let open = [n0, n1].map(|n| nodes[&n].kind == RoadNodeKind::RiverBank);
-            segments.push(segment);
             carved.push(CarvedRoad {
-                banks: line.1,
+                segment: segment.id,
+                sections: line.1,
                 line: line.0,
                 open,
             });
+            segments.push(segment);
         }
     }
 
@@ -500,8 +504,8 @@ pub(super) fn assemble(
 }
 
 /// The part of `road` from `a0` to `a1` metres along it, between nodes
-/// `n0` and `n1`: as a segment, and as a line to carve with its banks.
-/// `taken` holds the segment ids given out so far.
+/// `n0` and `n1`: as a segment, and as a line to carve with its shape
+/// across. `taken` holds the segment ids given out so far.
 fn cut(
     road: &Planned,
     a0: f64,
@@ -509,18 +513,18 @@ fn cut(
     n0: RoadNodeId,
     n1: RoadNodeId,
     taken: &mut HashSet<RoadId>,
-) -> (RoadSegment, (FeatureLine, Vec<f32>)) {
+) -> (RoadSegment, (FeatureLine, Vec<SectionShape>)) {
     // Stations: the two ends, and every station between.
     let mut stations = Vec::new();
-    let mut banks = Vec::new();
-    let mut push = |a: f64, (position, level, width, bank): (DVec2, f32, f32, f32)| {
+    let mut sections = Vec::new();
+    let mut push = |a: f64, (position, level, width, section): (DVec2, f32, f32, SectionShape)| {
         stations.push(RoadStation {
             along: a - a0,
             position,
             level,
             width,
         });
-        banks.push(bank);
+        sections.push(section);
     };
     push(a0, road.at(a0));
     for (i, &a) in road.along.iter().enumerate() {
@@ -529,7 +533,7 @@ fn cut(
                 road.points[i],
                 road.levels[i],
                 road.widths[i],
-                road.banks[i],
+                road.sections[i],
             );
             push(a, station);
         }
@@ -557,6 +561,6 @@ fn cut(
             alignment: road.alignment.between(a0, a1),
             stations,
         },
-        (line, banks),
+        (line, sections),
     )
 }

@@ -2,17 +2,25 @@
 
 mod align;
 mod assemble;
+mod earthworks;
 mod level;
 mod network;
 mod quality;
 mod search;
+pub(crate) mod section;
 
 pub(crate) use assemble::CarvedRoad;
+pub use earthworks::{
+    BreaklineKind, Earthwork, JunctionFootprint, RoadBreakline, RoadEarthworks, SegmentEarthworks,
+    SideSection, StationSection,
+};
+pub(crate) use earthworks::{CarvedLine, earthworks};
 pub use network::{
     Alignment, AlignmentPiece, RiverCrossing, RoadId, RoadNetwork, RoadNode, RoadNodeId,
     RoadNodeKind, RoadSegment, RoadStation,
 };
 pub use quality::{RoadQuality, road_quality};
+pub use section::SectionShape;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -20,7 +28,7 @@ use std::time::{Duration, Instant};
 
 use glam::DVec2;
 
-use crate::carve::{FeatureLine, PointOfInterest, Pond, bank_for};
+use crate::carve::{FeatureLine, PointOfInterest, Pond};
 use crate::grid::Grid;
 use crate::options::RoadGrades;
 use crate::ports::FEATURE_CLEARANCE;
@@ -41,12 +49,11 @@ const STATION: f64 = 2.0;
 /// before a corner is kept, as a share of the routing grid's cell size.
 const FIT_SHARE: f64 = 0.5;
 
-/// How far around a road point the ground's slope is measured, and how far
-/// along the road it is averaged, for the road's banks, in metres.
+/// How far along the road a road's narrowing is averaged, in metres.
 const SLOPE_RADIUS: f64 = 20.0;
 
-/// Over how many metres from its start a road's banks ease in from the
-/// gentlest.
+/// Over how many metres from its start a road's width and shape across
+/// ease in from those of its border crossing piece.
 const BANK_EASE: f64 = 80.0;
 
 /// How deep a road cuts, in metres, before it starts to narrow.
@@ -81,6 +88,9 @@ pub(crate) struct RoadStart {
     pub min_width: f32,
     /// The tightest bend the road should take, in metres.
     pub min_radius: f32,
+    /// The road's shape across, away from its start: it eases in from
+    /// [`SectionShape::PIECE`] over its first [`BANK_EASE`] metres.
+    pub section: SectionShape,
 }
 
 /// The water roads cross or keep clear of: rivers, and the ponds where
@@ -421,7 +431,7 @@ pub(crate) fn route(
         let road = Planned {
             start: start.node,
             widths: widths(&points, &across, &levels, start.width, start.min_width),
-            banks: banks(&points, ground),
+            sections: sections(&points, start.section),
             alignment: fitted.alignment,
             along,
             points,
@@ -598,26 +608,17 @@ fn distance_to_segment(p: DVec2, a: DVec2, b: DVec2) -> f64 {
     p.distance(a + ab * t)
 }
 
-/// How steeply a road along `points` has its banks start at each point, as
-/// rise over run (see [`bank_for`]), from the slope of `ground` around each
-/// point, averaged along the road. Over its first [`BANK_EASE`] metres the
-/// road eases in from the gentlest banks, which its crossing piece has.
-pub(crate) fn banks(points: &[DVec2], ground: &(dyn Fn(DVec2) -> f32 + Sync)) -> Vec<f32> {
-    // The ground's slope around each point, each point on its own.
-    let slope: Vec<f64> = crate::batch::map(points, |&p| {
-        let (dx, dz) = (DVec2::new(SLOPE_RADIUS, 0.0), DVec2::new(0.0, SLOPE_RADIUS));
-        let gx = f64::from(ground(p + dx) - ground(p - dx)) / (2.0 * SLOPE_RADIUS);
-        let gz = f64::from(ground(p + dz) - ground(p - dz)) / (2.0 * SLOPE_RADIUS);
-        gx.hypot(gz)
-    });
-
-    // Averaged along the road, then eased in from the start.
-    let gentle = bank_for(0.0);
-    eased(
-        points,
-        &along_mean(points, &slope, SLOPE_RADIUS),
-        |mean, ease| (gentle + (bank_for(mean) - gentle) * ease) as f32,
-    )
+/// The road's shape across at each of `points`: `shape`, eased in over its
+/// first [`BANK_EASE`] metres from [`SectionShape::PIECE`], which its
+/// border crossing piece has.
+pub(crate) fn sections(points: &[DVec2], shape: SectionShape) -> Vec<SectionShape> {
+    distance_along(points)
+        .iter()
+        .map(|&along| {
+            let ease = smootherstep((along / BANK_EASE).min(1.0));
+            SectionShape::PIECE.lerp(shape, ease as f32)
+        })
+        .collect()
 }
 
 /// How wide a road along `points` is at each point: `width` where it
@@ -776,6 +777,7 @@ mod tests {
             width: 6.0,
             min_width: 4.0,
             min_radius: 12.0,
+            section: SectionShape::PIECE,
         }
     }
 

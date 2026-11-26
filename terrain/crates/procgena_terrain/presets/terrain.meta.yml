@@ -30,7 +30,7 @@ sections:
     settings: [features.rivers.density, features.rivers.spacing, features.rivers.width, features.rivers.depth, features.rivers.min_length]
   - title: Roads
     part: roads
-    settings: [features.roads.enabled, features.roads.width, features.roads.min_width, features.roads.grade, features.roads.max_grade, features.roads.min_radius]
+    settings: [features.roads.enabled, features.roads.width, features.roads.min_width, features.roads.grade, features.roads.max_grade, features.roads.min_radius, features.roads.shoulder, features.roads.crossfall, features.roads.cut_slope, features.roads.fill_slope]
   - title: Borders
     part: land
     settings: [edges.stiffness, edges.margin, edges.roughness]
@@ -182,6 +182,29 @@ settings:
     description: "The tightest bend a road should take, as the radius of its centre line. Where the ground leaves no room, the road bends tighter and the bend is marked as a sharp bend."
     range: [2, 500]
     step: 1
+  features.roads.shoulder:
+    label: Shoulder
+    unit: m
+    description: "The width of the level strip on each side of the road, before its cutting or embankment starts."
+    range: [0, 5]
+    step: 0.1
+  features.roads.crossfall:
+    label: Crossfall
+    description: "How steeply the road surface falls from its middle to each edge, as fall over run (0.025 is 2.5%)."
+    range: [0, 0.1]
+    step: 0.005
+  features.roads.cut_slope:
+    label: Cutting Slope
+    description: "How steeply cuttings rise from the road to the natural ground, as rise over run (1 is 45°). Cuttings that can't reach the ground end in a retaining wall."
+    range: [0.1, 20]
+    step: 0.05
+    scale: exponential
+  features.roads.fill_slope:
+    label: Embankment Slope
+    description: "How steeply embankments fall from the road to the natural ground, as fall over run. Embankments that can't reach the ground end in a retaining wall."
+    range: [0.1, 20]
+    step: 0.05
+    scale: exponential
   edges.stiffness:
     label: Stiffness
     description: "How strongly this terrain keeps its own shape at a border, compared with its neighbour."

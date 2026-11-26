@@ -91,9 +91,18 @@ fn end_inside(terrain: &Terrain, edge: &RegionEdge, port: &Port) -> DVec2 {
 }
 
 /// Returns true if segments `a`–`b` and `c`–`d` cross (touching ends don't
-/// count).
+/// count, nor do segments lying along one line, whose side tests are only
+/// rounding).
 fn segments_cross(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> bool {
-    let side = |p: DVec2, q: DVec2, r: DVec2| (q - p).perp_dot(r - p);
+    // A point within a nanometre of a line counts as on it.
+    let side = |p: DVec2, q: DVec2, r: DVec2| {
+        let s = (q - p).perp_dot(r - p);
+        if s.abs() <= 1e-9 * (q - p).length() {
+            0.0
+        } else {
+            s
+        }
+    };
     side(c, d, a) * side(c, d, b) < 0.0 && side(a, b, c) * side(a, b, d) < 0.0
 }
 
@@ -623,4 +632,126 @@ fn road_networks_are_the_same_on_any_number_of_threads() {
             "on {threads} threads the networks should hash the same"
         );
     }
+}
+
+/// The first pair of edges of the closed outline `outline` that cross, by
+/// the index of each edge's first point; `None` if it never crosses itself.
+fn first_crossing(outline: &[DVec2]) -> Option<(usize, usize)> {
+    let n = outline.len();
+    (0..n).find_map(|i| {
+        (i + 2..n).find_map(|j| {
+            let crosses = !(i == 0 && j == n - 1)
+                && segments_cross(
+                    outline[i],
+                    outline[(i + 1) % n],
+                    outline[j],
+                    outline[(j + 1) % n],
+                );
+            crosses.then_some((i, j))
+        })
+    })
+}
+
+/// The first pair of edges of the open line `points` that cross, by the
+/// index of each edge's first point; `None` if it never crosses itself.
+fn first_tangle(points: &[DVec2]) -> Option<(usize, usize)> {
+    let n = points.len();
+    (0..n.saturating_sub(1)).find_map(|i| {
+        (i + 2..n - 1).find_map(|j| {
+            segments_cross(points[i], points[i + 1], points[j], points[j + 1]).then_some((i, j))
+        })
+    })
+}
+
+/// Road earthworks keep to their footprints: every segment's swept
+/// footprint and every breakline is free of self-crossings, junction
+/// footprints are convex and counter-clockwise, and between a crossing's
+/// two bank nodes the roads leave the ground (the river's channel and
+/// banks) exactly as it was.
+#[test]
+fn road_earthworks_are_valid_and_leave_crossings_untouched() {
+    let (mut segments, mut junctions, mut crossings, mut checked) = (0, 0, 0, 0);
+    for (w, world) in worlds().iter().enumerate() {
+        for t in world.terrains() {
+            let region = t.region().id.0;
+            let earthworks = t.road_earthworks();
+            for s in &earthworks.segments {
+                segments += 1;
+                let footprint = s.footprint();
+                if let Some((i, j)) = first_crossing(&footprint) {
+                    let n = footprint.len();
+                    let near = |q: DVec2| {
+                        s.stations
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, st)| st.position.distance(q) < 12.0)
+                            .map(|(k, st)| (k, st.position, st.sides.map(|d| d.daylight)))
+                            .collect::<Vec<_>>()
+                    };
+                    panic!(
+                        "world {w}, region {region}: segment {:?}'s footprint crosses itself: \
+                         edge {i} {:?}-{:?} and edge {j} {:?}-{:?} of {n}; stations near: {:?}",
+                        s.segment,
+                        footprint[i],
+                        footprint[(i + 1) % n],
+                        footprint[j],
+                        footprint[(j + 1) % n],
+                        near(footprint[i])
+                    );
+                }
+            }
+            for b in &earthworks.breaklines {
+                let line: Vec<DVec2> = b.points.iter().map(|p| DVec2::new(p.x, p.z)).collect();
+                if let Some((i, j)) = first_tangle(&line) {
+                    panic!(
+                        "world {w}, region {region}: a {:?} breakline of {:?} crosses itself: \
+                         edge {i} {:?}-{:?} and edge {j} {:?}-{:?} of {}",
+                        b.kind,
+                        b.segment,
+                        b.points[i],
+                        b.points[i + 1],
+                        b.points[j],
+                        b.points[j + 1],
+                        line.len()
+                    );
+                }
+            }
+            for j in &earthworks.junctions {
+                junctions += 1;
+                let n = j.outline.len();
+                assert!(n >= 3);
+                assert!((0..n).all(|i| {
+                    let (a, b, c) = (j.outline[i], j.outline[(i + 1) % n], j.outline[(i + 2) % n]);
+                    (b - a).perp_dot(c - b) > 0.0
+                }));
+            }
+
+            // Between the banks, more than a few metres from each, the
+            // ground is as it was before the roads.
+            let network = t.road_network();
+            for crossing in &network.crossings {
+                crossings += 1;
+                let [a, b] = crossing
+                    .banks
+                    .map(|id| network.node(id).expect("bank").position);
+                let span = a.distance(b);
+                let steps = (span / 0.5).ceil() as usize;
+                for k in 0..=steps {
+                    let along = span * k as f64 / steps as f64;
+                    if along < 5.0 || along > span - 5.0 {
+                        continue;
+                    }
+                    let p = a.lerp(b, along / span);
+                    checked += 1;
+                    assert_eq!(
+                        t.height(p),
+                        t.height_before_roads(p),
+                        "world {w}, region {region}: a road changes the ground at {p}, \
+                         between banks {a} and {b}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(segments > 0 && junctions > 0 && crossings > 0 && checked > 0);
 }

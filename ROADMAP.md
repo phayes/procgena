@@ -2248,6 +2248,24 @@ in a `tin` module of `procgena_terrain`.
 - **Needs:** RB4.
 - **Done when:** swept footprints are valid on the corpus, and between a
   crossing's two nodes the river channel and banks are left untouched.
+- **Status: done 2026-11-26.** Decided with the user: the ground is carved
+  from the cross-sections; new `RoadOptions` `shoulder` (1 m), `crossfall`
+  (2.5%), `cut_slope` (1:1) and `fill_slope` (1:1.5); crown only, no
+  banking on curves; a slope that can't meet the ground within reach ends
+  in a retaining wall (tagged and counted). `Terrain::road_earthworks()`
+  gives each station's section and daylight, cut and fill volumes, junction
+  footprints and breaklines (centre, carriageway and shoulder edges, wall
+  starts, crests, toes) for CT4; `Terrain::height_before_roads()` the
+  ground they meet. Corpus (`road_cost --corpus --stats`): 311 segments,
+  no self-crossing footprints or breaklines, 66 junctions, 1,261 walled
+  station sides (about 1%). Between crossing banks the crossing road
+  changes nothing; another road's gully fade moves 5 of 275 samples by at
+  most 0.04 mm. **Shortcuts:** junction footprints are convex hulls, and
+  overlapping roads compose by "first planned wins" rather than one
+  designed junction surface; road levels are still planned against the
+  ground before rivers; shoulders don't widen the routing corridor's
+  clearance. Details in
+  [docs/coordination/rb5-plan.md](docs/coordination/rb5-plan.md).
 
 #### CT4: Roads in the ground
 

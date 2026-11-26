@@ -109,10 +109,39 @@ pub struct RoadOptions {
     /// and the bend is listed as a [`SharpBend`](crate::PoiKind::SharpBend)
     /// point of interest.
     pub min_radius: f32,
+    /// The width of the shoulder on each side of the road, in metres: level
+    /// with the road's edge and falling at its crossfall, before the
+    /// cutting or embankment starts. Zero or more, at most
+    /// [`MAX_ROAD_SHOULDER`].
+    pub shoulder: f32,
+    /// How steeply the road surface falls from its crown to each edge, as
+    /// fall over run (0.025 is 2.5%). Zero or more, at most
+    /// [`MAX_ROAD_CROSSFALL`].
+    pub crossfall: f32,
+    /// How steeply cuttings rise from the shoulder to the natural ground,
+    /// as rise over run (1 is 45°). Above 0, at most
+    /// [`MAX_ROAD_SIDE_SLOPE`]. A cutting that doesn't meet the ground
+    /// within reach of the road ends in a retaining wall.
+    pub cut_slope: f32,
+    /// How steeply embankments fall from the shoulder to the natural
+    /// ground, as fall over run. Above 0, at most [`MAX_ROAD_SIDE_SLOPE`].
+    /// An embankment that doesn't meet the ground within reach of the road
+    /// ends in a retaining wall.
+    pub fill_slope: f32,
 }
 
 /// The largest [`RoadOptions::min_radius`], in metres.
 pub const MAX_ROAD_RADIUS: f32 = 500.0;
+
+/// The largest [`RoadOptions::shoulder`], in metres.
+pub const MAX_ROAD_SHOULDER: f32 = 5.0;
+
+/// The largest [`RoadOptions::crossfall`], as fall over run.
+pub const MAX_ROAD_CROSSFALL: f32 = 0.1;
+
+/// The steepest [`RoadOptions::cut_slope`] and
+/// [`RoadOptions::fill_slope`], as rise over run (about 87°).
+pub const MAX_ROAD_SIDE_SLOPE: f32 = 20.0;
 
 impl RoadOptions {
     /// The road grades.
@@ -170,6 +199,10 @@ impl Default for RoadOptions {
             grade: 0.1,
             max_grade: 0.2,
             min_radius: 12.0,
+            shoulder: 1.0,
+            crossfall: 0.025,
+            cut_slope: 1.0,
+            fill_slope: 1.0 / 1.5,
         }
     }
 }
@@ -541,6 +574,30 @@ impl TerrainOptions {
             |v| v > 0.0 && v <= MAX_ROAD_RADIUS,
             "positive and at most MAX_ROAD_RADIUS",
         )?;
+        check(
+            "features.roads.shoulder",
+            road.shoulder,
+            |v| (0.0..=MAX_ROAD_SHOULDER).contains(&v),
+            "zero or more and at most MAX_ROAD_SHOULDER",
+        )?;
+        check(
+            "features.roads.crossfall",
+            road.crossfall,
+            |v| (0.0..=MAX_ROAD_CROSSFALL).contains(&v),
+            "zero or more and at most MAX_ROAD_CROSSFALL",
+        )?;
+        check(
+            "features.roads.cut_slope",
+            road.cut_slope,
+            |v| v > 0.0 && v <= MAX_ROAD_SIDE_SLOPE,
+            "above 0 and at most MAX_ROAD_SIDE_SLOPE",
+        )?;
+        check(
+            "features.roads.fill_slope",
+            road.fill_slope,
+            |v| v > 0.0 && v <= MAX_ROAD_SIDE_SLOPE,
+            "above 0 and at most MAX_ROAD_SIDE_SLOPE",
+        )?;
         Ok(())
     }
 }
@@ -608,7 +665,7 @@ mod tests {
     #[test]
     fn bad_values_are_rejected() {
         type Case = (&'static str, fn(&mut TerrainOptions));
-        let cases: [Case; 16] = [
+        let cases: [Case; 20] = [
             ("base.elevation", |o| o.base.elevation = f32::NAN),
             ("base.erosion", |o| o.base.erosion = -1.0),
             ("base.swells.height", |o| o.base.swells.height = -1.0),
@@ -638,6 +695,18 @@ mod tests {
             }),
             ("features.roads.min_radius", |o| {
                 o.features.roads.min_radius = 0.0
+            }),
+            ("features.roads.shoulder", |o| {
+                o.features.roads.shoulder = -1.0
+            }),
+            ("features.roads.crossfall", |o| {
+                o.features.roads.crossfall = 0.5
+            }),
+            ("features.roads.cut_slope", |o| {
+                o.features.roads.cut_slope = 0.0
+            }),
+            ("features.roads.fill_slope", |o| {
+                o.features.roads.fill_slope = 30.0
             }),
         ];
         for (field, change) in cases {

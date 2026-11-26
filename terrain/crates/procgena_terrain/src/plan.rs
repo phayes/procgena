@@ -1,10 +1,12 @@
 //! Planning a region's rivers and roads: wishes before negotiation, and the
 //! finished features after it.
 
+use std::sync::OnceLock;
+
 use glam::DVec2;
 
 use crate::carve::{
-    FeatureKind, FeatureLine, PointOfInterest, Pond, ROAD_BANK, ValleyShape, chaikin, valley_reach,
+    FeatureKind, FeatureLine, PointOfInterest, Pond, ValleyShape, chaikin, valley_reach,
 };
 use crate::grid::Grid;
 use crate::hash::{hash2, mix64};
@@ -16,9 +18,9 @@ use crate::region::{Boundary, Region, RegionEdge, point_at, segments};
 use crate::relief::Relief;
 use crate::river::{End, Occupied, Traced, Tracing, trace_inbound, trace_own};
 use crate::road::{
-    AlignmentPiece, RoadId, RoadNetwork, RoadNode, RoadNodeId, RoadNodeKind, RoadSegment,
-    RoadStart, RoadStation, RouteStats, Routes, Waters, along_mean, coarse_routes, distance_along,
-    refined_routes,
+    AlignmentPiece, RoadEarthworks, RoadId, RoadNetwork, RoadNode, RoadNodeId, RoadNodeKind,
+    RoadSegment, RoadStart, RoadStation, RouteStats, Routes, SectionShape, Waters, along_mean,
+    coarse_routes, distance_along, refined_routes,
 };
 use crate::seam::{EdgeAgreement, EdgeSample, smooth};
 
@@ -385,15 +387,19 @@ pub(crate) struct Roads {
     /// The roads to carve: the network's segments, crossing pieces
     /// included.
     pub roads: Vec<FeatureLine>,
-    /// For each road, how steeply its banks start at each point.
-    pub banks: Vec<Vec<f32>>,
+    /// For each road, its shape across at each point.
+    pub sections: Vec<Vec<SectionShape>>,
     /// For each road, whether it stops short at its start and its end.
     pub open: Vec<[bool; 2]>,
+    /// For each road, its segment in `network`.
+    pub segments: Vec<RoadId>,
     pub points_of_interest: Vec<PointOfInterest>,
     /// The roads as a network.
     pub network: RoadNetwork,
     /// What routing the roads took.
     pub stats: RouteStats,
+    /// The roads' earthworks, worked out when first asked for.
+    pub earthworks: OnceLock<RoadEarthworks>,
 }
 
 /// Plans the region's rivers and ponds after negotiation, from its own
@@ -764,6 +770,7 @@ fn road_starts(
                 width: port.width,
                 min_width: options.features.roads.min_width.min(port.width),
                 min_radius: options.features.roads.min_radius,
+                section: SectionShape::of(&options.features.roads),
             });
         }
     }
@@ -788,15 +795,17 @@ fn finish_roads(routes: Routes, region: &Region, agreements: &[(usize, &EdgeAgre
         stats,
         ..
     } = routes;
-    let (mut roads, mut road_banks, mut open) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut roads, mut sections, mut open) = (Vec::new(), Vec::new(), Vec::new());
+    let mut segments = Vec::new();
     for road in carved {
         roads.push(road.line);
-        road_banks.push(road.banks);
+        sections.push(road.sections);
         open.push(road.open);
+        segments.push(road.segment);
     }
 
-    // Crossing pieces keep the gentlest banks, so both sides carve the
-    // same ground at the border.
+    // Crossing pieces have the same shape across in every region, so both
+    // sides carve the same ground at the border.
     for &(index, agreement) in agreements {
         let edge = &region.edges[index];
         for port in agreement.ports.iter().filter(|p| p.kind == PortKind::Road) {
@@ -808,8 +817,8 @@ fn finish_roads(routes: Routes, region: &Region, agreements: &[(usize, &EdgeAgre
                 levels,
                 depth: 0.0,
             };
-            add_piece(&mut network, &line, piece_nodes(edge, port));
-            road_banks.push(vec![ROAD_BANK as f32; line.points.len()]);
+            segments.push(add_piece(&mut network, &line, piece_nodes(edge, port)));
+            sections.push(vec![SectionShape::PIECE; line.points.len()]);
             open.push([false; 2]);
             roads.push(line);
         }
@@ -818,18 +827,20 @@ fn finish_roads(routes: Routes, region: &Region, agreements: &[(usize, &EdgeAgre
     network.segments.sort_by_key(|s| s.id);
     Roads {
         roads,
-        banks: road_banks,
+        sections,
         open,
+        segments,
         points_of_interest,
         network,
         stats,
+        earthworks: OnceLock::new(),
     }
 }
 
 /// Adds the crossing piece `line` to `network`: a straight segment between
 /// border nodes `ends`, and the nodes themselves where the network doesn't
-/// have them yet.
-fn add_piece(network: &mut RoadNetwork, line: &FeatureLine, ends: [RoadNodeId; 2]) {
+/// have them yet. Returns the segment's id.
+fn add_piece(network: &mut RoadNetwork, line: &FeatureLine, ends: [RoadNodeId; 2]) -> RoadId {
     let (first, last) = (line.points[0], line.points[line.points.len() - 1]);
     let heading = (last - first).normalize_or_zero();
     for (k, &id) in ends.iter().enumerate() {
@@ -846,8 +857,9 @@ fn add_piece(network: &mut RoadNetwork, line: &FeatureLine, ends: [RoadNodeId; 2
         }
     }
     let along = distance_along(&line.points);
+    let id = RoadId(mix64(mix64(PIECE_TAG, ends[0].0), ends[1].0));
     network.segments.push(RoadSegment {
-        id: RoadId(mix64(mix64(PIECE_TAG, ends[0].0), ends[1].0)),
+        id,
         origin: ends[0],
         start: ends[0],
         end: ends[1],
@@ -866,6 +878,7 @@ fn add_piece(network: &mut RoadNetwork, line: &FeatureLine, ends: [RoadNodeId; 2
             })
             .collect(),
     });
+    id
 }
 
 /// A smooth wobble between −1 and 1 along a line, `t` in wavelengths:

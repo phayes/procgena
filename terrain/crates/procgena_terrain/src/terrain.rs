@@ -24,7 +24,7 @@ use crate::region::{
     EdgeId, Region, RegionCorner, RegionEdge, RegionId, Segment, point_at, segments,
 };
 use crate::relief::Relief;
-use crate::road::{RoadNetwork, RouteStats};
+use crate::road::{CarvedLine, RoadEarthworks, RoadNetwork, RouteStats, earthworks};
 use crate::scale::WorldScale;
 use crate::seam::{
     CornerOffer, EDGE_STEP, EdgeAgreement, EdgeOffer, EdgeSample, Profile, elevation_samples,
@@ -701,7 +701,7 @@ impl Terrain {
             h.valleys.clone(),
             h.ponds.clone(),
             roads.roads,
-            roads.banks,
+            roads.sections,
             roads.open,
             roads.points_of_interest,
         )
@@ -770,6 +770,44 @@ impl Terrain {
         self.roads
             .as_deref()
             .map_or_else(|| EMPTY.get_or_init(RoadNetwork::default), |r| &r.network)
+    }
+
+    /// The earthworks of the roads in [`road_network`](Self::road_network):
+    /// each station's cross-section and where its cuttings and embankments
+    /// meet the natural ground, cut and fill volumes, junction footprints,
+    /// and the breaklines a ground mesh should keep. Worked out the first
+    /// time it is asked for, which takes a few hundred heights per
+    /// station; empty where the terrain has no roads.
+    pub fn road_earthworks(&self) -> &RoadEarthworks {
+        static EMPTY: std::sync::OnceLock<RoadEarthworks> = std::sync::OnceLock::new();
+        let Some(roads) = self.roads.as_deref() else {
+            return EMPTY.get_or_init(RoadEarthworks::default);
+        };
+        roads.earthworks.get_or_init(|| {
+            let sections = self.features.road_sections();
+            let lines: Vec<CarvedLine<'_>> = self
+                .features
+                .roads
+                .iter()
+                .zip(sections)
+                .zip(&roads.segments)
+                .map(|((line, sections), &segment)| CarvedLine {
+                    line,
+                    sections,
+                    segment,
+                })
+                .collect();
+            earthworks(&roads.network, &lines, &|p| {
+                f64::from(self.height_before_roads(p))
+            })
+        })
+    }
+
+    /// The ground's height at `p` (metres) with rivers and ponds cut in, but
+    /// not roads: the natural ground the roads' cuttings and embankments
+    /// meet. Where no road reaches, the same as [`height`](Self::height).
+    pub fn height_before_roads(&self, p: DVec2) -> f32 {
+        self.features.before_roads(p, self.base_height(p))
     }
 
     /// Diagnostics from planning this terrain's roads at `tier`: the

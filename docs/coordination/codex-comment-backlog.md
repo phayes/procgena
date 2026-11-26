@@ -697,3 +697,26 @@ in these files (`git show <commits> -- <file>` shows which).
 - `tests/tin.rs` (module docs and every item after
   `a_world_chunk_across_a_region_border_tiles_and_ignores_batching`),
   `examples/tin_cost.rs` (every item).
+
+## procgena_terrain (RB5 cross-sections and earthworks, 2026-11-26)
+
+- `terrain/crates/procgena_terrain/src/road/section.rs` (every item),
+  `src/road/earthworks.rs` (every item), `src/road/mod.rs` (`RoadStart::section`,
+  `SLOPE_RADIUS`, `BANK_EASE`, `sections`), `src/road/assemble.rs`
+  (`Planned::sections`, `Planned::at`, `CarvedRoad`, `cut`), `src/carve.rs`
+  (`Features::new`, `Features::road_sections`, `Features::before_roads`,
+  `Features::road_view`, `MIX_DISTANCE`, `MIX_FLOOR`, `past_open_ends`, the
+  road blocks in `carve_parts`, and the tests `sloped`,
+  `roads_cut_and_fill_to_their_level`,
+  `a_road_holds_no_ground_a_few_metres_past_an_open_end`,
+  `road_banks_are_tagged_by_kind_and_steepness`,
+  `steep_banks_are_flat_faces`), `src/plan.rs` (`Roads`, `finish_roads`,
+  `add_piece`), `src/terrain.rs` (`Terrain::road_earthworks`,
+  `Terrain::height_before_roads`), `src/options.rs` (`RoadOptions::shoulder`,
+  `crossfall`, `cut_slope`, `fill_slope`, `MAX_ROAD_SHOULDER`,
+  `MAX_ROAD_CROSSFALL`, `MAX_ROAD_SIDE_SLOPE`), `presets/terrain.meta.yml`
+  (the four road settings), `tests/features.rs` (`segments_cross`,
+  `first_crossing`, `first_tangle`,
+  `road_earthworks_are_valid_and_leave_crossings_untouched`),
+  `examples/road_cost.rs` (`EarthworkCheck`, `check_earthworks`,
+  `crosses_itself`).
