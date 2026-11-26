@@ -71,7 +71,8 @@ pub use ground::{
     EcotopeGroundPatch, EcotopeGroundWeights, GroundPatch, ground_mesh, rolling_hills,
 };
 pub use placing::{
-    EcotopeFinished, EcotopeParams, EcotopePlacing, EcotopePlugin, EcotopeSummary, LayerSummary,
+    EcotopeCopies, EcotopeFinished, EcotopeParams, EcotopePlacing, EcotopePlugin, EcotopeSummary,
+    LayerSummary,
 };
 
 /// Marks the entity that holds an Ecotope drawn by [`spawn_ecotope`]. It

@@ -103,6 +103,37 @@ impl EcotopeParams {
     }
 }
 
+/// The copies an [`EcotopeParams`] entity draws now, for games to read:
+/// every copy's position, scale and kind, such as trunks for colliders or
+/// crowns for leaf emitters.
+///
+/// [`EcotopePlugin`] inserts it on the entity, replacing the old one, each
+/// time a placement succeeds, before [`EcotopeFinished`] is triggered. Read
+/// it from an observer of that event, or with `Changed<EcotopeCopies>`. A
+/// failed placement leaves it as it was. It can't be changed in place:
+/// change the [`EcotopeParams`] instead.
+#[derive(Component, Debug, Clone)]
+#[component(immutable)]
+pub struct EcotopeCopies {
+    placement: EcotopePlacement,
+    area: ScatterArea,
+}
+
+impl EcotopeCopies {
+    /// Every Scatter placed, highest priority first, with its copies.
+    /// Positions are in metres from [`area`](Self::area)'s centre, with
+    /// heights as the ground gives them; the entity's transform then moves
+    /// them, so they are World positions when it is the identity.
+    pub fn placement(&self) -> &EcotopePlacement {
+        &self.placement
+    }
+
+    /// The stretch of ground the copies were placed over.
+    pub fn area(&self) -> ScatterArea {
+        self.area
+    }
+}
+
 /// Present on an [`EcotopeParams`] entity while its Ecotope is being placed.
 /// The copies' own assets may still be generating after it is removed.
 #[derive(Component, Debug, Default)]
@@ -171,25 +202,33 @@ struct Placing {
 #[derive(Component)]
 struct Requested(EcotopeParams);
 
-/// What an entity draws now: the placement and what it was made from, and
-/// the entity of each Scatter's layer.
+/// What an entity draws now: what its placement (in [`EcotopeCopies`]) was
+/// made from, and the entity of each Scatter's layer.
 #[derive(Component)]
 struct Drawn {
     params: EcotopeParams,
-    placement: EcotopePlacement,
     layers: Vec<(ChildKey, Entity)>,
     /// The ground patch's entity, if one is drawn.
     patch: Option<Entity>,
 }
 
 /// An Ecotope entity's params, the last placement started for it, what it
-/// draws now, and whether a placement is running.
+/// draws now and its copies, and whether a placement is running.
 type PlacingState<'a> = (
     Entity,
     &'a EcotopeParams,
     Option<&'a Requested>,
-    Option<&'a Drawn>,
+    Option<(&'a Drawn, &'a EcotopeCopies)>,
     Has<Placing>,
+);
+
+/// An Ecotope entity with a placement running, its params, and what it
+/// draws now and its copies.
+type FinishingState<'a> = (
+    Entity,
+    &'a mut Placing,
+    &'a EcotopeParams,
+    Option<(&'a Drawn, &'a EcotopeCopies)>,
 );
 
 /// Starts placing every Ecotope whose params differ from the last placement
@@ -203,8 +242,8 @@ fn start_placing(mut commands: Commands, ecotopes: Query<PlacingState>) {
         // Reuse what the drawing on screen placed, if it is over the same
         // ground, so an edit places again only what it can change.
         let previous = drawn
-            .filter(|drawn| drawn.params.same_ground(params))
-            .map(|drawn| drawn.placement.clone());
+            .filter(|(drawn, _)| drawn.params.same_ground(params))
+            .map(|(_, copies)| copies.placement.clone());
         let input = params.clone();
         let task = AsyncComputeTaskPool::get().spawn(async move {
             let started = Instant::now();
@@ -245,7 +284,7 @@ fn start_placing(mut commands: Commands, ecotopes: Query<PlacingState>) {
 /// and triggers [`EcotopeFinished`].
 fn finish_placing(
     mut commands: Commands,
-    mut placing: Query<(Entity, &mut Placing, &EcotopeParams, Option<&Drawn>)>,
+    mut placing: Query<FinishingState>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<TerrainMaterial>>,
@@ -274,13 +313,13 @@ fn finish_placing(
 
         // Keep each layer that the previous drawing placed the same way;
         // draw the rest again.
-        let old = drawn;
+        let old = drawn.map(|(old, _)| old);
         let mut layers = Vec::with_capacity(placement.layers().len());
         let mut summaries = Vec::with_capacity(placement.layers().len());
         for index in 0..placement.layers().len() {
             let layer = &placement.layers()[index];
-            let kept = old.and_then(|old| {
-                unchanged(old, &params, &placement, index).then(|| {
+            let kept = drawn.and_then(|drawn @ (old, _)| {
+                unchanged(drawn, &params, &placement, index).then(|| {
                     old.layers
                         .iter()
                         .find(|(key, _)| key == layer.key())
@@ -365,12 +404,15 @@ fn finish_placing(
             (Some(_), None) => {}
         }
 
-        commands.entity(entity).insert(Drawn {
-            params,
-            placement,
-            layers,
-            patch,
-        });
+        let area = params.area;
+        commands.entity(entity).insert((
+            Drawn {
+                params,
+                layers,
+                patch,
+            },
+            EcotopeCopies { placement, area },
+        ));
         commands.trigger(EcotopeFinished {
             entity,
             result: Ok(EcotopeSummary {
@@ -387,19 +429,20 @@ fn finish_placing(
 /// seed are equal, it is placed over the same ground, and the layers above
 /// it leave the same footprints.
 fn unchanged(
-    old: &Drawn,
+    (old, old_copies): (&Drawn, &EcotopeCopies),
     params: &EcotopeParams,
     placement: &EcotopePlacement,
     index: usize,
 ) -> bool {
     let layer = &placement.layers()[index];
     let key = layer.key();
-    let Some(old_index) = old.placement.layers().iter().position(|l| l.key() == key) else {
+    let old_placement = &old_copies.placement;
+    let Some(old_index) = old_placement.layers().iter().position(|l| l.key() == key) else {
         return false;
     };
-    let old_layer = &old.placement.layers()[old_index];
+    let old_layer = &old_placement.layers()[old_index];
     let above = &placement.layers()[..index];
-    let old_above = &old.placement.layers()[..old_index];
+    let old_above = &old_placement.layers()[..old_index];
     old.params.same_ground(params)
         && old_layer.seed() == layer.seed()
         && old.params.ecotope.scatters.get(key) == params.ecotope.scatters.get(key)
@@ -414,7 +457,7 @@ fn unchanged(
 mod tests {
     use bevy::asset::AssetPlugin;
     use bevy::math::DVec2;
-    use procgena_biome::{EcotopePreset, ScatterKind};
+    use procgena_biome::{EcotopePreset, ScatterCopies, ScatterKind};
     use procgena_core::HeightGrid;
     use procgena_terrain::ground::GroundStack;
 
@@ -591,7 +634,11 @@ mod tests {
 
     /// The placement drawn now by the Ecotope entity.
     fn drawn(app: &App, entity: Entity) -> EcotopePlacement {
-        app.world().get::<Drawn>(entity).unwrap().placement.clone()
+        app.world()
+            .get::<EcotopeCopies>(entity)
+            .unwrap()
+            .placement
+            .clone()
     }
 
     /// The keys of the layers of `new` that still hold the same copies as
@@ -670,6 +717,97 @@ mod tests {
         let fourth = drawn(&app, entity);
         assert!(kept(&third, &fourth).is_empty());
         assert!(matches_fresh(&app, entity, &fourth));
+    }
+
+    /// What a game reads from one placement: each Scatter's key and copy
+    /// count, and every tree's position.
+    #[derive(Debug, Clone, PartialEq)]
+    struct Reading {
+        layers: Vec<(String, usize)>,
+        trees: Vec<Vec3>,
+    }
+
+    /// Reads `placement` as a game would.
+    fn reading(placement: &EcotopePlacement) -> Reading {
+        let layers = placement
+            .layers()
+            .iter()
+            .map(|layer| (layer.key().to_string(), layer.copies().len()))
+            .collect();
+        let trees = placement
+            .layers()
+            .iter()
+            .filter_map(|layer| match layer.copies() {
+                ScatterCopies::Tree(trees) => Some(trees.instances()),
+                _ => None,
+            })
+            .flatten()
+            .map(|tree| tree.position)
+            .collect();
+        Reading { layers, trees }
+    }
+
+    /// What a game's observer of [`EcotopeFinished`] read from
+    /// [`EcotopeCopies`], once per finished placement.
+    #[derive(Resource, Default)]
+    struct Read(Vec<Reading>);
+
+    #[test]
+    fn games_read_every_copy_after_each_placement() {
+        // A game system reads the copies whenever a placement finishes.
+        let (mut app, entity) = app();
+        app.init_resource::<Read>().add_observer(
+            |finished: On<EcotopeFinished>,
+             copies: Query<&EcotopeCopies>,
+             mut read: ResMut<Read>| {
+                let copies = copies
+                    .get(finished.entity)
+                    .expect("copies are inserted first");
+                read.0.push(reading(copies.placement()));
+            },
+        );
+
+        // What a fresh placement of the entity's params gives.
+        let fresh = |app: &App| {
+            let params = app.world().get::<EcotopeParams>(entity).unwrap();
+            let input = ScatterInput::new(&*params.ground, params.area, params.seed);
+            reading(&params.ecotope.place(&input).unwrap())
+        };
+
+        // The first placement hands over every copy, over its area.
+        finish(&mut app, 1).expect("the preset places");
+        assert_eq!(app.world().resource::<Read>().0, [fresh(&app)]);
+        assert!(!app.world().resource::<Read>().0[0].trees.is_empty());
+        let area = app.world().get::<EcotopeParams>(entity).unwrap().area;
+        assert_eq!(
+            app.world().get::<EcotopeCopies>(entity).unwrap().area(),
+            area
+        );
+
+        // An edit hands over the new copies.
+        edit(&mut app, entity, |ecotope| {
+            let key = ChildKey::from_static("pines");
+            let ScatterKind::Tree(trees) = &mut ecotope.scatters.get_mut(&key).unwrap().scatter
+            else {
+                panic!("pines are trees");
+            };
+            trees.density_scale *= 0.5;
+        });
+        finish(&mut app, 2).expect("the edit places");
+        let read = &app.world().resource::<Read>().0;
+        assert_eq!(read.len(), 2);
+        assert_eq!(read[1], fresh(&app));
+        assert!(read[1].trees.len() < read[0].trees.len(), "fewer pines");
+
+        // A failed placement keeps the last copies.
+        edit(&mut app, entity, |ecotope| {
+            let key = ChildKey::from_static("logs");
+            ecotope.scatters.get_mut(&key).unwrap().clearance = -1.0;
+        });
+        assert!(finish(&mut app, 3).is_err());
+        let read = &app.world().resource::<Read>().0;
+        assert_eq!(read.len(), 3);
+        assert_eq!(read[2], read[1]);
     }
 
     #[test]
