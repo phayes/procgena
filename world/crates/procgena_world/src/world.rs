@@ -8,8 +8,8 @@ use glam::DVec2;
 use procgena_biome::{BiomeError, BiomePreset, biome_seed};
 use procgena_core::hash::seed_for;
 use procgena_terrain::{
-    DEFAULT_CACHE, Elevation, RegionGraph, RegionId, RegionKey, TerrainOptions, WorldTerrain,
-    WorldTerrainOptions, region_local_seed,
+    DEFAULT_CACHE, Elevation, ProgressHook, RegionGraph, RegionId, RegionKey, TerrainOptions,
+    WorldTerrain, WorldTerrainOptions, region_local_seed,
 };
 
 use crate::options::{BiomeRule, WorldOptions, WorldOptionsError};
@@ -142,7 +142,7 @@ pub struct RegionBiome<'a> {
 pub struct World {
     options: WorldOptions,
     choice: Arc<Choice>,
-    terrain: WorldTerrain,
+    terrain: Arc<WorldTerrain>,
 }
 
 impl fmt::Debug for World {
@@ -399,8 +399,30 @@ impl World {
         Ok(Self {
             options,
             choice,
-            terrain,
+            terrain: Arc::new(terrain),
         })
+    }
+
+    /// This World, telling `hook` whenever a region of its land starts or
+    /// finishes a stage of building, for example to drive a loading
+    /// screen. See [`ProgressHook`] for what the hook may do. Only stages
+    /// started after this call are told.
+    ///
+    /// Call it straight after [`new`](Self::new) or
+    /// [`with_biomes`](Self::with_biomes).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the land is already shared: if a clone of
+    /// [`terrain`](Self::terrain)'s `Arc` is still alive.
+    #[must_use]
+    pub fn with_progress(self, hook: ProgressHook) -> Self {
+        let terrain = Arc::into_inner(self.terrain)
+            .expect("World::with_progress is called before the land is shared");
+        Self {
+            terrain: Arc::new(terrain.with_progress(hook)),
+            ..self
+        }
     }
 
     /// The settings.
@@ -409,8 +431,10 @@ impl World {
     }
 
     /// The land: the region graph, the world elevation E and every
-    /// region's terrain, built on demand.
-    pub fn terrain(&self) -> &WorldTerrain {
+    /// region's terrain, built on demand. Clone the `Arc` to share the
+    /// same land with something else, such as a terrain stream or the
+    /// ground of a Scatter, so each region is built only once.
+    pub fn terrain(&self) -> &Arc<WorldTerrain> {
         &self.terrain
     }
 

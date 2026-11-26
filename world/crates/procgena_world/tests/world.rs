@@ -2,12 +2,13 @@
 //! stable, and the land is the same whatever order it is built in.
 
 use std::borrow::Cow;
+use std::sync::{Arc, Mutex};
 
 use glam::{DVec2, IVec2};
 use procgena_biome::{Biome, BiomePreset, BiomeTerrain};
 use procgena_terrain::{
-    ElevationOptions, FeatureTier, HeightField, NoiseLayer, RegionId, RegionKey, TerrainPreset,
-    fixtures,
+    ElevationOptions, FeatureTier, HeightField, NoiseLayer, RegionId, RegionKey, RegionProgress,
+    TerrainPreset, fixtures,
 };
 use procgena_world::{
     BiomePin, BiomeRule, BiomeRules, FieldRange, World, WorldError, WorldOptions,
@@ -291,7 +292,7 @@ fn the_same_land_in_any_region_build_order() {
 
     // `a` builds as it samples, from the first region; `b` builds the second
     // region first, then both at once on two threads.
-    let cold = height_bits(a.terrain(), p, q, 41);
+    let cold = height_bits(a.terrain().as_ref(), p, q, 41);
     b.terrain().terrain(second).expect("region builds");
     std::thread::scope(|s| {
         for region in [second, first] {
@@ -299,9 +300,74 @@ fn the_same_land_in_any_region_build_order() {
             s.spawn(move || b.terrain().terrain(region).expect("region builds"));
         }
     });
-    let warm = height_bits(b.terrain(), p, q, 41);
+    let warm = height_bits(b.terrain().as_ref(), p, q, 41);
     assert_eq!(cold, warm);
     assert!(cold.iter().all(|&h| f32::from_bits(h).is_finite()));
+}
+
+#[test]
+fn the_land_is_shared_and_its_builds_are_told() {
+    // A World that counts the region stages it starts and finishes.
+    let told = Arc::new(Mutex::new(Vec::new()));
+    let hook = {
+        let told = Arc::clone(&told);
+        Arc::new(move |progress: &RegionProgress| told.lock().unwrap().push(*progress))
+    };
+    let world = World::new(WorldOptions::default())
+        .expect("valid World")
+        .with_progress(hook);
+
+    // A clone of its land builds the same regions it does.
+    let shared = Arc::clone(world.terrain());
+    let region = RegionKey(IVec2::ZERO).id();
+    shared.terrain(region).expect("region builds");
+    assert!(Arc::ptr_eq(&shared, world.terrain()));
+    let p = world.terrain().site(region);
+    assert_eq!(
+        world.terrain().height(p).to_bits(),
+        shared.height(p).to_bits()
+    );
+
+    // Every stage of that region was told starting and then finishing, and
+    // building it again tells nothing more.
+    let stages = |told: &[RegionProgress]| {
+        let mut started = Vec::new();
+        let mut finished = Vec::new();
+        for progress in told {
+            match *progress {
+                RegionProgress::Started { region: r, stage } if r == region => started.push(stage),
+                RegionProgress::Finished {
+                    region: r,
+                    stage,
+                    built,
+                    ..
+                } if r == region => {
+                    assert!(built, "{stage:?} built");
+                    finished.push(stage);
+                }
+                _ => {}
+            }
+        }
+        (started, finished)
+    };
+    let (started, finished) = stages(&told.lock().unwrap());
+    assert!(!started.is_empty());
+    let mut sorted_started = started.clone();
+    sorted_started.sort();
+    let mut sorted_finished = finished.clone();
+    sorted_finished.sort();
+    assert_eq!(sorted_started, sorted_finished);
+    let count = told.lock().unwrap().len();
+    world.terrain().terrain(region).expect("region builds");
+    assert_eq!(told.lock().unwrap().len(), count);
+}
+
+#[test]
+#[should_panic(expected = "before the land is shared")]
+fn progress_is_set_before_the_land_is_shared() {
+    let world = World::new(WorldOptions::default()).expect("valid World");
+    let _shared = Arc::clone(world.terrain());
+    let _ = world.with_progress(Arc::new(|_: &RegionProgress| {}));
 }
 
 #[test]
