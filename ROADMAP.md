@@ -111,12 +111,7 @@ flowchart TD
     S1["S1 Streaming"]
     X1["X1 Edits, interaction, queries, hooks, MeshScatter"]
 
-    GM0["GM0 Ground materials: engine-free model"]
-    GM1["GM1 Ground colours drawn"]
-    GM2["GM2 Ground textures"]
-    GM3["GM3 Ground on measures and labels, Biome base ground"]
-    GM4["GM4 Ground over Ecotope coverage and borders"]
-    GM5["GM5 Far grass and forest tints"]
+    BP["BP Biome ground paint from labels"]
 
     TE1["TE1 Stop wasted terrain work"]
     TE2["TE2 First picture fast"]
@@ -128,7 +123,6 @@ flowchart TD
     TE6["TE6 River speed"]
     TE7["TE7 Intermediate terrain detail levels"]
     GPU1["GPU1 Relief preview on the GPU"]
-    GPU2["GPU2 Ground weights on the GPU"]
 
     D5{{"D5 World and Biome scale"}}
     D6{{"D6 Canonical ground: numeric profile, authority, region constraints"}}
@@ -237,17 +231,8 @@ flowchart TD
     R4 --> X1
     B1 --> X1
 
-    G6 --> GM0
-    GM0 --> GM1
-    GM1 --> GM2
-    GM1 --> GM3
-    G4 --> GM3
-    GM3 --> GM4
-    B1 --> GM4
-    W1 --> GM4
-    GM1 --> GM5
-    R3 --> GM5
-    S1 --> GM5
+    G4 --> BP
+    B1 --> BP
 
     G6 --> TE1
     TE1 --> TE2
@@ -258,8 +243,6 @@ flowchart TD
     TE4a --> TE4b
     G6 --> TE5
     TE2 --> GPU1
-    GM1 --> GPU2
-    G4 --> GPU2
 
     D5 --> G7
     D5 --> W0
@@ -309,7 +292,6 @@ flowchart TD
     ST2 --> ST6
     ST3 --> ST6
     ST4 --> ST6
-    GM1 --> ST6
     ST1 --> ST7a
     IX --> ST7b
     ST0 --> ST7b
@@ -507,9 +489,8 @@ the follow-ups).
 - **Split (decided by the user 2026-11-24, for ground materials):**
   **G4a** adds `Measures` to `Terrain::query` first (water and road
   distance, height above water, curvature, from the feature index), so
-  ground rules (GM3) and Biome rules can use them early. **G4b** adds
-  `Landform`, `Flags` and labelled tiles. See
-  [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md).
+  Biome rules can use them early. **G4b** adds `Landform`, `Flags` and
+  labelled tiles.
 - **Status (2026-11-24): G4a built.** `Terrain::query(p, SampleDetail)`
   gives `Measures` at `SampleDetail::Measures`: slope (sine of the
   angle, from G2's gradient), curvature (4 m stencil on the carved
@@ -600,9 +581,10 @@ the follow-ups).
   streams them around the camera with a slope- and height-coloured
   material, a cull-distance dither and a chunk-level debug overlay, with a
   headless viewer; the studio edits Terrains (presets, `.terrain.yml`
-  save and load, seed, every setting). Labels (G4b) and textures (GM2,
-  which took over Phase 10's textures) are built since. Not done: Phase 6
-  volume patches, parts by label, and exports (Phase 9).
+  save and load, seed, every setting). Labels (G4b) are built since; the
+  ground textures were built and then removed with ground paint (see
+  "Ground paint"). Not done: Phase 6 volume patches, parts by label, and
+  exports (Phase 9).
 
 #### G7: Scale-aware terrain lengths
 
@@ -1409,8 +1391,8 @@ only from the edited Scatter down" were built first; the rest follows.
     screen" (deferred by the user, 2026-11-25).
 - **Needs:** C3a. Its cache and dead wood parts touch only the asset
   Bevy crates. Its re-placing, warm-up and bake parts edit
-  `procgena_biome_bevy` and the studio, so they wait for GM1, plant P2
-  and ST1.
+  `procgena_biome_bevy` and the studio, so they wait for plant P2 and
+  ST1.
 - **Done when:** on a quiet machine, a mushroom-only edit shows in under
   0.3 s, an edit to the top Scatter rebuilds no unchanged specimen, and a
   second open of an Ecotope in the same session has no frame over 100 ms.
@@ -1435,8 +1417,8 @@ R3.
   - `procgena_biome_bevy`'s stone layer spawns pooled stones.
   - The CPU path stays the reference.
   - The footprint measure stays on the CPU, kept across edits.
-- **Needs:** R2. Its `procgena_biome_bevy` part waits for GM1 and plant
-  P2, as ED's does.
+- **Needs:** R2. Its `procgena_biome_bevy` part waits for plant P2, as
+  ED's does.
 - **Done when:** the pine forest floor's stones come from the GPU in the
   studio, matching the CPU meshes within stone's parity tolerance.
 - **Status (2026-11-25): done.** Built 2026-11-24 (`70f01ff`) and checked
@@ -1565,138 +1547,41 @@ R3.
   one Ecotope, kept in session memory. It is approved for when chopping
   comes, not scheduled yet.
 
-### Ground materials
+### Ground paint
 
-Planned with the user 2026-11-24 in
-[docs/decisions/ground-materials.md](docs/decisions/ground-materials.md):
-the terrain crates hold the material catalogue and the bare-terrain look,
-each Biome a base ground, each Ecotope ground layers on top. A pure CPU
-evaluator fills a weight texture per terrain chunk, and GPU2 ports it to
-the GPU. Each step below adds to the one before. GM2 took over G6's
-Phase 10 textures (`terrain/textures.yml`).
+**Removed 2026-11-26 by the user:** "Remove paint entirely. Ground paint
+will be decided at the biome layer using labels / segmentation data.
+Ground paint at the biome layer will happen independently from placement
+and will only depend on label / segmentation." GM0–GM5 (the material
+catalogue, ground layers and stacks, chunk weights, ground textures,
+Ecotope and Biome ground layers, far tints) and GPU2 are gone from the
+code. The terrain, the studio's terrain view and an Ecotope's ground
+patch draw flat grey. The design record is
+[docs/decisions/ground-materials.md](docs/decisions/ground-materials.md),
+now superseded. The demo's request R5 (a far forest tint outside its
+play area) waits for BP.
 
-#### GM0: Engine-free ground model
+#### BP: Biome ground paint from labels and segmentation
 
-- **Covers:** `procgena_terrain::ground` (material catalogue with
-  colours, layers, conditions, compositing, `GroundPainter`, per-chunk
-  weights on G6's `ChunkKey` with an 8-material palette, the default
-  bare-terrain stack with roads and riverbeds) and the Ecotope's `ground`
-  layers in `procgena_biome`, with Scatter influence from footprints,
-  `Ecotope::ground_at` and `.ecotope.yml` support. Image dumps.
-- **Needs:** G6's engine-free chunks (merged). It starts on the proposed
-  answers to "For the user" item 23 unless the user decides otherwise.
-- **Done when:** a top-down image of the pine forest floor shows litter
-  under pines and dirt round boulders, and tests show equal edges between
-  same-level chunks under the cap, build-order independence, file merge
-  and `null` removal, and the default stack matching G6's colours.
-- **Status (2026-11-24): done.** `procgena_terrain::ground` and the
-  Ecotope's `ground` map are built, with image dumps
-  (`--example ground_dump` in both crates) and the tests the done-when
-  names. Not yet: material presets and `.ground_material.yml` files, far
-  (density-field) Scatter influence, coverage, and the relief height
-  (no source fills it yet). See "As built" in the plan.
-
-#### GM1: Ground colours drawn
-
-- **Covers:** `procgena_terrain_bevy` draws any painter's chunk weights in
-  colour, replacing `TerrainSurface`'s fixed rules; the Ecotope tab draws
-  its ground layers (one weight texture over its patch, drawn with the
-  terrain material); the Terrain tab shows the default stack; the
-  level-ring seam is checked; the build cost per chunk is measured.
-- **Needs:** GM0 (G6 is merged).
-- **Done when:** headless screenshots of the terrain viewer and the
-  Ecotope tab show ground colours, and the cost per chunk is recorded.
-- **Status (2026-11-24): done.** Terrain
-  chunks draw any painter's weights (bare terrain by default, with roads
-  and riverbeds), the Ecotope document draws its ground layers over a
-  patch, and the Terrain document shows the default stack. Painting costs
-  about 2.5 to 9 times a chunk's samples in dev. The user accepted the
-  look, the level-ring seam as it is, 0.5 m weights near the camera, and
-  the cost until GM2 and GPU2. See "As built: GM1" and decisions 8 to 11
-  in the plan.
-
-#### GM2: Ground textures
-
-- **Covers:** the shared texture loader in `procgena_core_bevy` (TODO
-  "Shared plumbing"), ground texture arrays, `terrain/textures.yml` as the
-  catalogue's texture list, shared triplanar WESL on steep ground, height
-  blending, the far colour, and budget warnings.
-- **Needs:** GM1.
-- **Done when:** the pine forest floor and a cliff draw with real
-  textures, memory matches the plan's arithmetic, and far ground samples
-  no textures.
-- **Status (2026-11-24): done.**
-  - The pine and the oak and maple forest floors draw with CC0 textures:
-    soil, needles, moss, fresh and decayed leaf litter. Cliffs are
-    triplanar rock.
-  - 6 sets at 512 px measure 6.3 MB, matching the arithmetic. Textures
-    stop at 140 m, and chunk levels 3 and up never read them.
-  - The studio's Ecotope editor edits ground layers.
-  - Left for later: premixed far chunks, a resident cap, and moving clump
-    and stone onto the shared loader.
-  - The `gs://ze_textures/terrain/` upload is the user's.
-  - See "As built: GM2" and decisions 12 and 13 in the plan.
-
-#### GM3: Ground on measures and labels, and the Biome base ground
-
-- **Covers:** water and road distance, height above water and curvature
-  conditions (G4a), then `Landform` and `Flags` conditions (G4b). The
-  Biome's base ground on empty Biomes (B0).
-- **Needs:** GM1, G4 (G4a first, G4b for labels).
-- **Done when:** mud follows river banks and gravel lines roads on a
-  Terrain in an image dump, an empty Biome's base ground replaces the
-  default stack, and a cliff label picks cliff rock.
-- **Status (2026-11-25): done in the engine-free and Bevy crates; not
-  wired into the World or the studio.**
-  - New conditions: `WaterDistance`, `RoadDistance`, `Curvature`,
-    `Landform` (a set) and `Flags` (`FlagRule { any, none }`). They
-    read and write in YAML by name. `GroundSite` carries `labels`.
-  - Each condition, layer, stack, overlay and painter says what it reads
-    (`detail()`: gradient, measures or labels). Chunk sites are read at
-    the painter's detail (`GroundSource::site_at`/`sites_at`,
-    `GroundGrid::chunk(.., detail)`). A stream whose painter needs more
-    detail reads its chunks again.
-  - The GPU weights shader evaluates every new condition, with a
-    parity test covering both known and unknown measures and labels.
-  - `Biome::ground` gives a Biome's base ground (`BiomeGround::Standard`
-    on every empty preset). It is the bare look plus mud on river banks,
-    gravel road shoulders, and cliff rock on cliff labels.
-    `--example base_ground_dump` in `procgena_biome` draws it.
-  - **Cost:** bare terrain now reads measures, since its riverbed reads
-    the height above the nearby water. The Biome base reads labels. In
-    one run of `ground_cost` on a loaded machine, a chunk's sites took
-    45–143 ms at gradient, 65–219 ms with measures, and 79–392 ms with
-    labels.
-  - Left: painting each World region with its Biome's base ground (the
-    world lane), and the studio's Terrain document. The studio overlay
-    reads sites with `site()`; whoever wires the base in must read with
-    `site_at(.., painter.detail())`.
-
-#### GM4: Ground over Ecotope coverage and borders
-
-- **Covers:** the painter over Ecotope coverage, an interim crossfade at
-  region borders, then the Ecotope border agreement inside a Biome (B1)
-  and across Biomes (W1).
-- **Needs:** GM3, B1, W1.
-- **Done when:** a Biome shows its roads and riverbeds under two Ecotopes,
-  with no seam at Ecotope or Biome borders.
-
-#### GM5: Far grass and forest tints
-
-- **Covers:** far grass from plant's far colour (where that function
-  lives, so the terrain crate needn't depend on plant, is settled with the
-  plant-align lane), and TODO "Far forest tint" (S1), as distance-gated
-  tints in the chunk textures.
-- **Needs:** GM1, R3 (plant in an Ecotope), S1 (and density-field masks).
-- **Moved earlier for the demo (the user, 2026-11-25, demo request R5):**
-  before the demo's full-atmospherics step (L5), the forest tint covers
-  the land outside the demo's bounded play area, so from the glider it
-  reads as forest to the horizon before S1 lands. The density masks then
-  come from the play area's Ecotope, not from streaming.
-- **Done when:** grass and forest keep their colour past the last blade
-  and the last impostor, with no seam.
-
-The GPU port of the rules is GPU2, in the terrain editing track below.
+- **Covers:** what the ground is made of, decided at the Biome layer from
+  the terrain's labels and segmentation only, independent of placement
+  (the user, 2026-11-26). No dense raster:
+  - **Vertex attributes:** each TIN vertex carries canonical
+    neighbourhood facts (landform class weights, curvature, the 12 m
+    shape), evaluated from the same label definition placement uses (see
+    CT-T stage 2).
+  - **Fragment shader:** adds per-pixel slope from the interpolated
+    normal, height bands, aspect and world-space noise breakup, and
+    blends the textures.
+  - **A coarse class raster (4–8 m)** only for patterns that follow
+    neither geometry nor simple fields.
+- **Kept for it:** the studio's disconnected "Ground Layers (not drawn
+  yet)" Ecotope editor and its data-only model
+  (`procgena/src/ecotope/ground_layers.rs`), `terrain/textures.yml` and
+  the ground texture assets, and the `procgena_terrain://` texture source
+  with the texture download machinery.
+- **Needs:** CT-T stage 2 (TIN vertex attributes).
+- **Status:** unscheduled; to be designed.
 
 ### Terrain editing track
 
@@ -1711,8 +1596,8 @@ recommendations accepted).
 - **The order:** stop wasted work first, then show a provisional
   preview, then a content-keyed stage cache, and a faster road search
   (TE5). Border negotiation per tier (TE4a and TE4b) is parked.
-- **The GPU:** it takes the per-point drawing work (ground weights and
-  the preview), never the plans.
+- **The GPU:** it takes the per-point drawing work (the preview), never
+  the plans.
 - **Names:** TE (terrain edits), to keep clear of S1 (Streaming).
 
 #### TE1: Stop wasted work
@@ -1722,14 +1607,13 @@ recommendations accepted).
     stages and chunk rows. A cancelled build is never cached. This meets
     ARCHITECTURE's story 5.
   - The stream sets the flag on reset.
-  - The studio sends ground-colour and debug changes to weights and
-    materials without making a new world.
-- **Needs:** G6 (merged). Best after GM1 merges, since both edit
-  `procgena_terrain_bevy` and the studio's terrain scene.
+  - The studio sends debug changes to materials without making a new
+    world.
+- **Needs:** G6 (merged).
 - **Done when:**
   - after an edit, no thread works on the old world beyond one chunk row;
   - a cancelled world caches nothing and rebuilds bit-identically;
-  - a ground-only edit starts no region build.
+  - a debug-only edit starts no region build.
 
 #### TE2: First picture fast
 
@@ -1959,8 +1843,7 @@ features and paint.
     roads on a coarse route, rivers without gully detail), so mid-range
     ground isn't missing features or waiting for the fine build;
   - progressive refinement while loading: coarse, then intermediate,
-    then fine, so a far chunk shown up close sharpens in steps;
-  - ground paint resolution per level, matching the mesh.
+    then fine, so a far chunk shown up close sharpens in steps.
 - **Needs:** TE2 (first picture fast) overlaps on progressive loading;
   TE5 and TE6 make the fine tier cheaper, which reduces how long coarse
   ground is seen up close.
@@ -2125,34 +2008,11 @@ Decided by the user 2026-11-26. The design is in
 
 #### GPU2: Ground weights on the GPU
 
-- **Covers:**
-  - GM0/GM1's layer stack and G4a's measures evaluated per texel on the
-    GPU from each chunk's heights, with the feature index as a buffer.
-  - The CPU painter stays the twin.
-  - Same parity rules as GPU1, with every layer choice quantised. The
-    CPU samples weights only for queries.
-- **Needs:** GM1, G4a. Built first of the two GPU steps if GM1 puts
-  weights on every drawn chunk.
-- **Done when:**
-  - parity tests pass;
-  - a ground-only edit redraws in one frame's work (measured);
-  - weights cost no CPU for drawing.
-- **Status (2026-11-26):**
-  - **GPU2a done:** layers read only the measures they paint by
-    (`ground::SiteDetail`). Bare terrain no longer reads curvature; its
-    paint is bit-identical (`--example ground_fingerprint`).
-  - **Terrain paint off by default** (user, 2026-11-26) until adaptive
-    TIN sampling lands: `TerrainStream::paint` is off in the viewer
-    (`--paint` turns it on), the studio and the demo, and chunks draw
-    their painter's plain material. Then paint on the GPU from the TIN:
-    draw each chunk's TIN into a height and normal texture, and feed the
-    existing GPU layer pass, with no CPU paint sites. Paint is visual
-    only, so it needs no bitwise parity. Take normals from the TIN's own
-    faces (averaged at vertices): `TinChunk::render_mesh`'s shading
-    normals read `H*` four more times per vertex, which painting from
-    the TIN should avoid.
-  - When paint returns, spread weight-image creation across frames:
-    creating 40 chunks' images at once took 1.5–2.1 s in one frame.
+**Removed 2026-11-26 by the user,** with the rest of ground paint (see
+"Ground paint"). Paint returns as BP, from TIN vertex attributes and the
+fragment shader. When it does, take normals from the TIN's own faces
+(averaged at vertices) rather than reading `H*` four more times per
+vertex.
 
 ### Canonical ground and roads track
 
@@ -2548,7 +2408,7 @@ in a `tin` module of `procgena_terrain`.
     `ResidentTins`, which answers only from loaded chunks and never reads
     `H*`.
   - **Render mesh:** `TinChunk::render_mesh` in `ChunkMesh`'s frame, so
-    `TerrainMaterial` and ground paint are unchanged. Shading normals come
+    `TerrainMaterial` is unchanged. Shading normals come
     from `H*` 1 m either side of each vertex, as regular chunks take
     theirs.
   - **Seams:** sides that meet a regular chunk get a vertex every metre,
@@ -2728,7 +2588,7 @@ music).
   CC0 packs, which share one 65-bone skeleton and include a chopping
   clip. The files live in `demo/assets/`, which git ignores.
 - **Needs:** nothing blocking to start. It uses IX (R1), EP (R2), ED's
-  warm-up (R4), GM5's tint (R5), CT5's collision (R8), and later S1's
+  warm-up (R4), a far forest tint (R5, waiting for BP), CT5's collision (R8), and later S1's
   slice (R6) and the chopping slice of R4 and X1 (R7).
 - **Done when:** the plan's milestones are met.
 - **Status (2026-11-26): L0 built; L1 built but not yet done.** The
@@ -2779,7 +2639,7 @@ summary below is for ordering.
 | **ST4** Capture and thumbnails | `procgena_core_bevy::capture`, the impostor bake on it, cached thumbnails | ST0; `procgena_impostor` agreed with fruit D2 and IX; studio half after ST3 |
 | **ST5a** Picking by tags | CPU ray picks to parts, hover, highlight | ST3; R4 for Scatters other than trees |
 | **ST5b** Picking by part paths | D3 part paths for single parts | X1's `part()`, fruit AC1 |
-| **ST6** Texture library | One `TextureCatalogue` shared with GM2, import to BC7 KTX2 with `ctt` | ST2, ST3, ST4; agreement with GM2 |
+| **ST6** Texture library | One `TextureCatalogue` for every crate's texture list, import to BC7 KTX2 with `ctt` | ST2, ST3, ST4 |
 | **ST7a** Problems, overlays, stats | Problems panel, debug overlays, live stats, one Detail and Quality control | ST0, ST1 |
 | **ST7b** Chain preview | IX's chain preview on the view frame: pretend a distance in metres, force the lower mesh or the impostor, and read back the size on screen, the next threshold and the step drawn. The studio shows each preset's `game_level` | IX Step 4's chain preview |
 | **ST8** Export and commands | One Export, screenshot, turntable, command palette, shortcuts | ST0; turntable after ST4 |
@@ -2790,10 +2650,9 @@ summary below is for ordering.
   level forcing honoured by every renderer, with a read-back of the level
   drawn (see the plan's "Viewing distance"). It can be pulled forward on
   its own for ST7b.
-- **GM2 and ST6 share one texture catalogue** in `procgena_core`
-  (decided 2026-11-24); the ground material catalogue stays in the
-  terrain crates and names texture ids from it. Whichever starts first
-  lands the type.
+- **ST6's texture catalogue** lives in `procgena_core` (decided
+  2026-11-24), over every crate's `textures.yml`, the terrain's ground
+  list (kept for BP) included.
 - **A churn window inside ST2, if needed:** moving `Preset` and the
   `catalogue!` macro from `&'static` presets to owned ones rebuilds the
   workspace and runs alone.
@@ -2882,8 +2741,7 @@ document is treated by its class:
     20 ms on the CPU, and building specimens (stones above all) is the
     cost. Specimen pools don't depend on placement, so a chain delays
     only the cheap placement step;
-  - overlap with the Ecotope's ground layers (`under: scatter`), which
-    already follow copies, and with `MushroomGrowth` and `PlantGrowth`.
+  - overlap with `MushroomGrowth` and `PlantGrowth`.
   Ends in a recommendation for the user, and an ARCHITECTURE change if
   accepted.
 - Terrain follow-ups already listed in its plan: hub placement, river
@@ -2898,10 +2756,10 @@ a cell run in order within the wave.
 | Wave | Run together | Notes |
 |------|--------------|-------|
 | 1–7 | Landed | Every milestone in them is done except R3 (plant P1–P3 only), C3, R4, B1, I2 and X1, which carry over to wave 8; D4 is settled by RS. |
-| 8 | C3; R4; B1; I2; X1 (Scatter part); ED; R3a → R3's remaining asset parts (deadwood → mushroom → tree); GP (after C3 and plant P4; D2's owed timing runs any time); W1; S1 (single Biome; see GP's question); GM3; GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8; IX Step 4 and Step 5 | Each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers. ST4 touches `procgena_impostor` and agrees it with IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. R3a works in `stone/` plus one studio feature flag. |
-| 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's chain preview); IX2 and FF (after IX's experiment); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
+| 8 | C3; R4; B1; I2; X1 (Scatter part); ED; R3a → R3's remaining asset parts (deadwood → mushroom → tree); GP (after C3 and plant P4; D2's owed timing runs any time); W1; S1 (single Biome; see GP's question); ST1; ST2; ST4; ST7a; ST8; IX Step 4 and Step 5 | Each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers. ST4 touches `procgena_impostor` and agrees it with IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. R3a works in `stone/` plus one studio feature flag. |
+| 9 | S1 (World-wide); X1 (Biome and World hooks); ST3; ST5a; ST6; ST7b (after IX's chain preview); IX2 and FF (after IX's experiment); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
 | Terrain results (any wave with no other terrain work in flight) | G7 → RS; LK; TE7 | Each changes terrain results everywhere, so each runs in a wave of its own. LK and CT3 share the river, plan and carve files, so they run one at a time. (TE6 is done and left the results bitwise identical.) |
-| TE (from wave 8) | TE1 → TE2 → TE3 → TE3b; GPU2 (after GM1 and G4a); GPU1 (after TE2); TE4a → TE4b parked, only if needed | The terrain editing track, decided 2026-11-24. TE1–TE3 all edit `world.rs`, `procgena_terrain_bevy`'s stream and the studio's terrain scene, so they run one at a time. GPU2 works in new shader and Bevy files beside the CPU painter, so it can run beside TE2 or TE3. |
+| TE (from wave 8) | TE1 → TE2 → TE3 → TE3b; GPU1 (after TE2); TE4a → TE4b parked, only if needed | The terrain editing track, decided 2026-11-24. TE1–TE3 all edit `world.rs`, `procgena_terrain_bevy`'s stream and the studio's terrain scene, so they run one at a time. |
 
 | CR (from now) | RB0 → RB1, with RB3 beside RB1 (done); D6 (decided); CT0 → CT1 → CT2 (done) → CT3, and RB4 → RB5, meeting at CT4 → CT5; RB2 deferred | The canonical ground and roads track (2026-11-25). CT0–CT2 live in new modules, or a new crate if CT0 decides so (added to the workspace members only after its files exist). CT3 shares the river and carve files with TE6, and CT5 shares the Bevy stream with TE1–TE3, so those pairs run one at a time. |
 
@@ -2969,28 +2827,8 @@ where the details are.
     - *Details:* [docs/decisions/D5.md](docs/decisions/D5.md), "Decisions",
       "Scale classes" and "Open questions".
 
-23. **Ground materials: what is still open.**
-    - *Decided by the user 2026-11-24:* three tiers (terrain catalogue and
-      bare-terrain look, Biome base ground, Ecotope layers); the model
-      first, then colours, then textures; CPU weight textures per chunk;
-      G4 split into G4a (Measures) and G4b (labels).
-    - *Also decided 2026-11-24:* ground never feeds placement (Scatter
-      density rules get the same condition types instead); a rule's height
-      is an enum, either absolute (scaling with the World's `vertical`) or
-      relative to the region's relief. Ground textures default to 512 px,
-      1k is an opt-in, and 128 px of every material is always baked (and
-      always exported in bundles); confirmed by the user 2026-11-25, as a
-      texture rule of its own, apart from meshes' `game_level`.
-    - *Still open:* the resident cap, with the machines from item 18.
-      Then consider letting the quality setting pick the texture size
-      (for example Low 128 px, Ultra 1k), since texture size is a memory
-      budget like the rest of quality.
-    - *Settled in GM1:* the level-ring seam in the weight textures stays
-      as it is.
-    - *Also open:* where plant's far colour function lives (before GM5, with the
-      plant-align lane).
-    - *Details:* [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md),
-      "Open questions".
+23. **Ground materials.** *Retired 2026-11-26:* ground paint was removed
+    (see "Ground paint"); BP will raise its own questions.
 24. **Studio revamp: what is still open.**
     - *Decided by the user 2026-11-24:* Library, Outline, view frame and
       one Inspector replace the tabs; an outliner first, a diagram later;
@@ -3038,7 +2876,7 @@ where the details are.
     - *Details:* TIN plan section 21, road plan section 17, ARCHITECTURE
       open question 11.
 
-### From wave 6 (W0, GM0, fruit B2)
+### From wave 6 (W0, ground materials, fruit B2)
 
 25. **Do hand-placed height bumps stretch with the World's scale? (W0)**
     A World can add a hand-placed bump or dip to the large-scale
@@ -3072,18 +2910,8 @@ where the details are.
     **Decided by the user (2026-11-24):** all three wait for the
     impostor and LOD sweep (IX), so nobody picks them up early.
     Details: [fruit/plan.md](fruit/plan.md), "Measured".
-28. **Ground look choices (GM0).** GM0 picked the ground material
-    colours, the bare terrain's layer order, and the pine forest floor's
-    opacities, and these need your eye. The images are in GM0's notes
-    folder: `gm0-pine-forest-floor.png` and `gm0-bare-terrain.png`. The
-    needle litter under the pines looks fairly round and hard-edged. GM0
-    also made calls you may want to check:
-    - a plain `Ground` reports "no water, no roads", so riverbeds and
-      roads don't paint everywhere;
-    - a height rule relative to the region's relief counts as everywhere
-      until something fills in relief;
-    - pine litter reaches a fixed 3 m, because trees expose only their
-      trunk.
+28. **Ground look choices.** *Retired 2026-11-26:* ground paint was
+    removed (see "Ground paint").
 
 29. **Saved-file format (preset bundles).** The proposal is a zipped
     project folder with every entry stored uncompressed, named
@@ -3115,13 +2943,8 @@ where the details are.
     their own presets first. This needs the merge to remember which file
     each line came from. The alternative is to keep it ambiguous and make
     the user override the line in their own file.
-31. **Relief height for ground rules (G4a, for GM3).** A ground rule can
-    ask for height relative to the region's relief ("the top 20 % of this
-    region"). Nothing fills it yet. A per-region min/max scan is slow and
-    jumps at region borders. G4a suggests an analytic normalisation from
-    the terrain's own relief spreads, blended through the border fade. You
-    decide how it behaves at borders. Details:
-    [docs/decisions/ground-materials.md](docs/decisions/ground-materials.md).
+31. **Relief height for ground rules.** *Retired 2026-11-26:* ground
+    paint was removed (see "Ground paint"); BP may raise it again.
 
 ### Looks of work already built (wave 5)
 
