@@ -582,8 +582,23 @@ What the files hold, read from their glTF:
   `Slide_*`, `Consume`, `Yes`, farming and combat clips. Judged by name
   only, not yet watched: `Idle_Rail_Call` may start the whistle, and the
   `NinjaJump` set the glider launch and landing. Still missing: the glider hang and the whistle proper.
-- **Kenney (E)** is FBX only, three clips (idle, run, jump), blocky and
-  cartoonish: it does not fit the painterly-realistic look. Dropped.
+- **Loading.** Every glTF/GLB above was loaded with `gltf` 1.4.1, the
+  crate Bevy 0.20's glTF loader uses, reading every buffer and image
+  (a throwaway checker outside the workspace, not a Bevy run). All load,
+  with 65-joint skins and 43 clips (8,385 channels) per animation file,
+  except A's two `*_FullBody.gltf`: they fail on the two misnamed normal
+  maps below. The preparation step fixes them; whether Bevy itself shows
+  the result is still to check in the headless test.
+- **Kenney (E)** is FBX only, which Bevy 0.20 cannot load, with three
+  clips (idle, run, jump) on its own skeleton; blocky and cartoonish, it
+  does not fit the painterly-realistic look. Dropped. (The user's copy
+  from `fresh_downloads/` was byte-identical and is moved to
+  `demo/assets/fresh_downloads/`.)
+- **Paid and signed-in sources are not needed for now.** C's free
+  `TreeChopping_Loop` covers chopping, so the Pro set ($9.99) adds
+  nothing the demo needs yet. Mixamo would help only if hand-authoring
+  the glider hang proves hard: then a hanging or bar-hang clip from it,
+  converted once in Blender, could start that pose.
 - **The look.** A test render in Blender under daylight (script and
   images in `demo/assets/previews/`, not committed) of F's male peasant
   outfit with A's head, beard, eyebrows and hair, posed with B's idle and
