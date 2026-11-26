@@ -1,8 +1,7 @@
 //! # procgena_terrain_bevy
 //!
 //! Draws [`procgena_terrain`] ground in Bevy: chunks of terrain streamed
-//! around the camera, finer near it and coarser far away, joined without
-//! cracks.
+//! around the camera, finer near it and coarser far away.
 //!
 //! - Add [`TerrainPlugin`].
 //! - Spawn a [`TerrainStream`] with the ground to draw: a
@@ -10,15 +9,24 @@
 //!   [`WorldTerrain`] of many regions (see [`TerrainStream::world`]).
 //! - Put [`TerrainViewer`] on each camera the terrain is drawn for.
 //!
-//! Chunks are read on Bevy's async compute threads, and the drawn chunks
-//! change all at once, when every chunk of the new set is ready. Each
-//! chunk is a child entity of its stream, with a [`TerrainChunk`]
-//! component and its own [`TerrainMaterial`]. The ground is drawn in plain
-//! grey: what it is made of isn't painted yet.
+//! Every chunk, at every level, is drawn from its canonical mesh: the same
+//! triangles whatever the distance or order it was built in. Chunks of the
+//! same level meet exactly; where levels meet, skirts hang from each
+//! chunk's sides to hide the step. Besides the chunks it draws, a stream
+//! builds every chunk within its level's [`BuildRadii`] around the
+//! viewers, the ground placement reads. All of it is built on one
+//! background thread. Until a chunk is built, a coarser chunk holding it
+//! is drawn in its place.
 //!
-//! Water is not drawn: each chunk with rivers or ponds gets a child entity
-//! with [`TerrainWater`] and a mesh of the water surface, and no material.
-//! Add your own water material to those entities.
+//! Each drawn chunk is a child entity of its stream, with a
+//! [`TerrainChunk`] component and its own [`TerrainMaterial`]. The ground
+//! is drawn in plain grey: what it is made of isn't painted yet.
+//! [`CanonicalGround`] on the stream answers heights from the drawn
+//! chunks, and [`TerrainChanged`] says where they changed.
+//!
+//! Water is not drawn: each finest chunk with rivers or ponds gets a child
+//! entity with [`TerrainWater`] and a mesh of the water surface, and no
+//! material. Add your own water material to those entities.
 //!
 //! [`TerrainDebug`] tints each chunk by its level and draws chunk borders.
 //! A [`TerrainOverlay`] on a chunk draws an image of your own over it.
@@ -49,14 +57,14 @@
 //! ```
 
 mod canonical;
+mod levels;
 mod material;
 mod overlay;
 mod progress;
 mod reads;
-mod stream;
 mod worker;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
@@ -66,37 +74,38 @@ use bevy::prelude::*;
 use glam::{DVec2, DVec3};
 use procgena_core::chain::ViewScale;
 use procgena_core_bevy::{LodPlugin, LodQuality};
-use procgena_terrain::tin::{ChunkEdgeKey, ContractCache, ResidentTins, TinError};
+use procgena_terrain::tin::{ChunkEdgeKey, ContractCache, ResidentTins};
 use procgena_terrain::{
-    ChunkDetail, ChunkKey, ChunkLevels, ChunkMesh, ChunkSamples, ChunkSelection,
-    ChunkSelectionError, ChunkSide, ChunkSource, FeatureLevel, RegionStage, Transitions, WaterMesh,
-    WorldTerrain,
+    ChunkDetail, ChunkKey, ChunkLevels, ChunkMesh, ChunkSelection, ChunkSelectionError,
+    ChunkSource, RegionStage, WaterMesh, WorldTerrain,
 };
 
 pub use canonical::CanonicalGround;
-use canonical::{ReadError, Seams, TinRead};
+use canonical::{ReadError, TinRead};
+pub use levels::BuildRadii;
+use levels::LevelStream;
 pub use material::{GROUND_GREY, TerrainExtension, TerrainMaterial, TerrainSurface};
 pub use overlay::TerrainOverlay;
 
 pub use progress::RegionTracker;
-
-use stream::{Read, Stream};
 
 /// The view distance of [`TerrainPlugin::default`], in metres.
 pub const DEFAULT_VIEW_DISTANCE: f32 = 4000.0;
 
 /// Adds terrain streaming and drawing to a Bevy app. It also adds the
 /// shared [`LodPlugin`], whose [`LodQuality`] scales every chunk level's
-/// distance and the view distance.
+/// distance, the view distance and the build radii.
 ///
 /// Make one with [`detailed`](Self::detailed), whose chunk levels follow
 /// the viewers' field of view, or [`new`](Self::new), with fixed chunk
 /// levels, or use the default: [`ChunkDetail::DEFAULT`] drawn out to
-/// [`DEFAULT_VIEW_DISTANCE`].
+/// [`DEFAULT_VIEW_DISTANCE`]. Each builds [`BuildRadii::default`] unless
+/// changed with [`with_build_radii`](Self::with_build_radii).
 #[derive(Debug, Clone)]
 pub struct TerrainPlugin {
     levels: ChunkLevels,
     detail: Option<(ChunkDetail, f32)>,
+    radii: BuildRadii,
 }
 
 impl Default for TerrainPlugin {
@@ -123,6 +132,7 @@ impl TerrainPlugin {
         Ok(Self {
             levels,
             detail: None,
+            radii: BuildRadii::default(),
         })
     }
 
@@ -147,6 +157,12 @@ impl TerrainPlugin {
         })
     }
 
+    /// The plugin building each chunk level out to `radii` around the
+    /// viewers, besides the chunks it draws.
+    pub fn with_build_radii(self, radii: BuildRadii) -> Self {
+        Self { radii, ..self }
+    }
+
     /// The chunk levels, before any viewer's field of view is seen.
     pub fn levels(&self) -> &ChunkLevels {
         &self.levels
@@ -162,8 +178,10 @@ impl Plugin for TerrainPlugin {
             .insert_resource(TerrainSettings {
                 levels: self.levels.clone(),
                 detail: self.detail,
+                radii: self.radii.clone(),
             })
             .init_resource::<TerrainDebug>()
+            .add_message::<TerrainChanged>()
             .add_systems(
                 Update,
                 (
@@ -192,21 +210,23 @@ impl Plugin for TerrainMaterialPlugin {
 }
 
 /// Ground a [`TerrainStream`] can draw: where its chunks' heights and
-/// water come from. Every [`ChunkSource`] is one, such as a
+/// features come from. Implemented for every [`ChunkSource`] that can be
+/// sent to another thread, such as a
 /// [`Terrain`](procgena_terrain::Terrain) or a [`WorldTerrain`].
 pub trait TerrainSource: ChunkSource + Send {}
 
 impl<T: ChunkSource + Send + ?Sized> TerrainSource for T {}
 
-/// The ground a terrain is drawn from, and how.
+/// The ground a terrain is drawn from.
 ///
-/// Replacing its source reads every chunk again; the old chunks stay until
-/// replacements are ready. To signal changed contents of a source, replace
-/// its `Arc`.
+/// Replacing its source builds every chunk again; the old chunks stay until
+/// the new ones can replace them. To signal changed contents of a source,
+/// replace its `Arc`.
 ///
-/// Each chunk is drawn with the features of its own chunk level (see
-/// [`FeatureLevel::of`]); which features that is, is the source's choice
-/// (for a world, [`WorldTerrain::with_tier_levels`]).
+/// Every chunk, at every level, is built from the source's finest ground
+/// ([`FeatureLevel::FINEST`](procgena_terrain::FeatureLevel::FINEST)),
+/// within a tolerance that grows with the
+/// chunk's level.
 #[derive(Component, Clone)]
 #[require(Transform, Visibility, TerrainProgress)]
 pub struct TerrainStream {
@@ -215,57 +235,29 @@ pub struct TerrainStream {
     /// Counts the source's region builds, so [`TerrainProgress`] can
     /// include them; `None` counts chunks only.
     pub regions: Option<RegionTracker>,
-    /// Draw every chunk at [`FeatureLevel::COARSEST`] first, then read
-    /// each chunk whose own level carries more features (see
-    /// [`level`](Self::level)) again in the background and redraw it when
-    /// ready. The view appears much sooner; near chunks briefly lack their
-    /// costly features. `false` waits for each chunk's own level before
-    /// drawing anything.
-    pub coarse_first: bool,
-    /// Draw finest-level chunks read at [`FeatureLevel::FINEST`] from their
-    /// canonical meshes (see [`procgena_terrain::tin`]), built within the
-    /// source's own
-    /// [`tin_tolerance`](procgena_terrain::ChunkSource::tin_tolerance)
-    /// (for a world, [`WorldTerrainOptions::tin`](procgena_terrain::WorldTerrainOptions::tin)),
-    /// and load them into the stream's [`CanonicalGround`]. Coarser chunk
-    /// levels stay regular. Where the source can't give the finest level,
-    /// chunks stay regular too. `false`, the default, draws every chunk
-    /// regular.
-    pub tin: bool,
 }
 
 impl TerrainStream {
-    /// A stream of `source`'s ground at every level, loaded coarse first,
-    /// counting chunks only.
+    /// A stream of `source`'s ground at every level, counting chunks only.
     pub fn new(source: Arc<dyn TerrainSource>) -> Self {
         Self {
             source,
             regions: None,
-            coarse_first: true,
-            tin: false,
         }
     }
 
-    /// A stream of `world`'s ground at every level, loaded coarse first,
-    /// with its region builds counted in [`TerrainProgress`]. This replaces
-    /// any progress hook `world` had; to keep your own as well, make a
-    /// [`RegionTracker`], call its hook from yours, and set
-    /// [`regions`](Self::regions) yourself.
+    /// A stream of `world`'s ground at every level, with its region builds
+    /// counted in [`TerrainProgress`]. This replaces any progress hook
+    /// `world` had; to keep your own as well, make a [`RegionTracker`],
+    /// call its hook from yours, and set [`regions`](Self::regions)
+    /// yourself.
     pub fn world(world: WorldTerrain) -> Self {
         let tracker = RegionTracker::default();
         let world = world.with_progress(tracker.hook());
         Self {
             source: Arc::new(world),
             regions: Some(tracker),
-            coarse_first: true,
-            tin: false,
         }
-    }
-
-    /// The canonical feature level chunks at chunk level `level` end up
-    /// drawn at (see [`ChunkSource::level`]).
-    pub fn level(&self, level: u8) -> FeatureLevel {
-        self.source.level(FeatureLevel(level))
     }
 }
 
@@ -283,24 +275,21 @@ pub struct TerrainProgress {
     pub stage: Option<RegionStage>,
     /// Chunks drawn.
     pub drawn: usize,
-    /// Drawn chunks still with fewer features than they want, waiting to be
-    /// read again (see [`TerrainStream::coarse_first`]).
+    /// Chunks wanted to draw that a coarser chunk is drawn in place of for
+    /// now, until they and the chunks beside them are built.
     pub refining: usize,
-    /// Chunks wanted around the viewers now.
+    /// Chunks wanted to draw around the viewers now.
     pub wanted: usize,
-    /// Chunks being read or waiting to be read.
+    /// Chunks wanted to build around the viewers now, drawn or not: those
+    /// to draw, and those within a build radius.
+    pub building: usize,
+    /// Chunks being built or waiting to be built.
     pub reading: usize,
-    /// Chunks that could not be read since the stream last changed; they
+    /// Chunks that could not be built since the stream last changed; they
     /// are left as holes.
     pub failed: usize,
-    /// Chunks sampled since the stream last changed, at any feature level.
-    pub sampled: usize,
-    /// Drawn chunks that a finer feature level left exactly as they were, so they
-    /// stand for it without being read again, since the stream last
-    /// changed.
-    pub promoted: usize,
-    /// Whether the drawn chunks are the ones wanted, each from the ground
-    /// it should have, and nothing is being read.
+    /// Whether the drawn chunks are the ones wanted, every chunk within a
+    /// build radius is built, and nothing is being built.
     pub settled: bool,
 }
 
@@ -314,22 +303,23 @@ pub struct TerrainViewer;
 pub struct TerrainChunk {
     /// Which chunk it is.
     pub key: ChunkKey,
-    /// The finer chunks it is meshed to join.
-    pub transitions: Transitions,
-    /// The canonical feature level of the ground it was read from (see
-    /// [`ChunkSource::level`]).
-    pub level: FeatureLevel,
 }
-
-/// Marks a [`TerrainChunk`] drawn from its canonical mesh (see
-/// [`TerrainStream::tin`]) rather than from regular samples.
-#[derive(Component, Debug, Clone, Copy, Default)]
-pub struct CanonicalChunk;
 
 /// Marks the water surface of one chunk, on a child entity of its
 /// [`TerrainChunk`]. It has a mesh and no material: add your own.
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct TerrainWater;
+
+/// Sent when a stream's drawn ground changes: copies of Scatters resting on
+/// the ground within these chunks' footprints should rest again, on
+/// [`CanonicalGround`].
+#[derive(Message, Debug, Clone, PartialEq)]
+pub struct TerrainChanged {
+    /// The stream's entity.
+    pub stream: Entity,
+    /// The chunks no longer drawn, or drawn now, each once.
+    pub chunks: Vec<ChunkKey>,
+}
 
 /// Debug drawing for every terrain.
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -348,230 +338,69 @@ struct TerrainSettings {
     /// The detail and view distance the levels follow the viewers' field
     /// of view with, if they do.
     detail: Option<(ChunkDetail, f32)>,
+    /// How far around the viewers each chunk level is built.
+    radii: BuildRadii,
 }
 
-/// A chunk's ground as read: regular samples, or its canonical mesh.
-#[derive(Clone)]
-pub(crate) enum Geometry {
-    Regular(Arc<ChunkSamples>),
-    Tin(TinRead),
-}
-
-impl Geometry {
-    /// The chunk read.
-    #[cfg(test)]
-    pub(crate) fn key(&self) -> ChunkKey {
-        match self {
-            Self::Regular(samples) => samples.key(),
-            Self::Tin(read) => read.index.chunk().key,
-        }
-    }
-
-    /// The canonical feature level of the ground read.
-    pub(crate) fn level(&self) -> FeatureLevel {
-        match self {
-            Self::Regular(samples) => samples.level(),
-            Self::Tin(_) => FeatureLevel::FINEST,
-        }
-    }
-}
-
-/// One chunk as read, ready to draw.
-pub(crate) struct ChunkRead {
-    pub(crate) geometry: Geometry,
-    /// The canonical feature level the chunk stands for: the level it was
-    /// read at, or a finer one whose read it equals exactly (see
-    /// [`promoted`](Self::promoted)).
-    stands_for: FeatureLevel,
-}
-
-impl ChunkRead {
-    /// Reads chunk `key` of `source` at feature level `level`.
-    #[cfg(test)]
-    pub(crate) fn read(
-        source: &(impl TerrainSource + ?Sized),
-        key: ChunkKey,
-        level: FeatureLevel,
-    ) -> Result<Self, ReadError> {
-        Self::read_with(source, key, level, None)
-    }
-
-    /// Reads chunk `key` of `source` at feature level `level`: from its
-    /// canonical mesh, with edge contracts from `tin`, if given and the
-    /// chunk is a finest-level one read with every feature.
-    fn read_with(
-        source: &(impl TerrainSource + ?Sized),
-        key: ChunkKey,
-        level: FeatureLevel,
-        tin: Option<&ContractCache>,
-    ) -> Result<Self, ReadError> {
-        // A finest-level chunk is canonical at the finest feature level,
-        // and at a coarser one the source already knows the finest level
-        // changes nothing about (asked without building, so the coarser
-        // read stays quick); its canonical mesh is then exactly the finest
-        // level's.
-        let finest = source.level(level) == FeatureLevel::FINEST
-            || source.level_change_known(key, level, FeatureLevel::FINEST) == Some(false);
-        let canonical = tin.filter(|_| key.level == 0 && finest);
-        let geometry = match canonical.map(|contracts| TinRead::build(source, key, contracts)) {
-            Some(Ok(read)) => Geometry::Tin(read),
-            // A source without the finest level has no canonical ground.
-            None | Some(Err(ReadError::Tin(TinError::NotFinest(_)))) => {
-                Geometry::Regular(Arc::new(ChunkSamples::sample(source, key, level)?))
-            }
-            Some(Err(error)) => return Err(error),
-        };
-        Ok(Self {
-            stands_for: geometry.level(),
-            geometry,
-        })
-    }
-
-    /// The canonical feature level the chunk stands for: the level it was
-    /// read at, or a finer one it was promoted to.
-    pub(crate) fn level(&self) -> FeatureLevel {
-        self.stands_for
-    }
-
-    /// This read standing for canonical feature level `level` as well,
-    /// unchanged otherwise. Only for a level the source says changes
-    /// nothing about the chunk (see [`ChunkSource::level_changes`]), so it
-    /// is exactly that level's read.
-    fn promoted(&self, level: FeatureLevel) -> Self {
-        Self {
-            geometry: self.geometry.clone(),
-            stands_for: level,
-        }
-    }
-
-    /// A stand-in for chunk `key`, inside `parent`'s chunk: `parent`'s
-    /// ground drawn at `key`'s size (see [`ChunkSamples::stand_in`]).
-    ///
-    /// # Panics
-    ///
-    /// If `key` is not inside `parent`'s chunk, or `parent` is drawn from
-    /// a canonical mesh (only finest-level chunks are, and no chunk lies
-    /// inside one).
-    pub(crate) fn stand_in(parent: &ChunkRead, key: ChunkKey) -> Self {
-        let Geometry::Regular(samples) = &parent.geometry else {
-            panic!("a canonical chunk has no chunks inside it");
-        };
-        Self {
-            geometry: Geometry::Regular(Arc::new(ChunkSamples::stand_in(samples, key))),
-            stands_for: parent.stands_for,
-        }
-    }
-
-    /// The chunk's canonical mesh, if it is drawn from one.
-    pub(crate) fn tin(&self) -> Option<&TinRead> {
-        match &self.geometry {
-            Geometry::Tin(read) => Some(read),
-            Geometry::Regular(_) => None,
-        }
-    }
-
-    /// The chunk's mesh with `transitions` and skirts `skirt` metres deep,
-    /// meeting the canonical chunks beside it as `seams` says.
-    fn mesh(&self, transitions: Transitions, skirt: f32, seams: &Seams) -> ChunkMesh {
-        match &self.geometry {
-            Geometry::Regular(samples) => {
-                let mut mesh = samples.mesh(transitions, skirt);
-                for tin in &seams.tins {
-                    tin.chunk().fit_neighbour(&mut mesh);
-                }
-                mesh.level = self.stands_for;
-                mesh
-            }
-            Geometry::Tin(read) => read.mesh(&seams.split, skirt),
-        }
-    }
-}
-
-/// A stream's chunk reads on the terrain thread, each under its chunk and
+/// A stream's chunk builds on the terrain thread, each under its chunk and
 /// the stream generation it was started in.
-type Reads = reads::ReadQueue<(ChunkKey, u64), Result<ChunkRead, ReadError>>;
+type Reads = reads::ReadQueue<(ChunkKey, u64), Result<TinRead, ReadError>>;
 
-/// A stream's state: what is drawn, wanted and being read.
+/// A stream's state: what is drawn, wanted and being built.
 #[derive(Component, Default)]
 struct StreamState {
-    stream: Stream,
-    /// Reads queued or running on the terrain thread, nearest first.
+    stream: LevelStream<TinRead>,
+    /// Builds queued or running on the terrain thread, in order.
     reads: Reads,
     last: Option<TerrainStream>,
+    /// The chunks to draw last chosen, for the next choice's hysteresis.
+    selection: ChunkSelection,
+    /// The chunks within a build radius last chosen, likewise.
+    radius: BTreeSet<ChunkKey>,
     /// The entity drawing each chunk.
     entities: HashMap<ChunkKey, Entity>,
-    /// Each drawn chunk's material, with the read it was made from, so a
-    /// chunk drawn again from the same read keeps it.
-    materials: HashMap<ChunkKey, (Arc<ChunkRead>, Handle<TerrainMaterial>)>,
-    /// Chunks that failed to read in this generation.
+    /// Each drawn chunk's material, with the build it was made from, so a
+    /// chunk drawn again from the same build keeps it.
+    materials: HashMap<ChunkKey, (Arc<TinRead>, Handle<TerrainMaterial>)>,
+    /// The skirt depth each drawn chunk is meshed with.
+    skirts: HashMap<ChunkKey, f32>,
+    /// Chunks that failed to build in this generation.
     failed: usize,
-    /// Chunks sampled in this generation (see [`TerrainProgress::sampled`]).
-    sampled: usize,
-    /// Chunks promoted in this generation (see
-    /// [`TerrainProgress::promoted`]).
-    promoted: usize,
     /// Whether the chunk levels can't be chosen; logged once.
     broken: bool,
-    /// The levels, distance factor and viewer positions the last chunk
-    /// choice was made from, when it kept the target as it was. Choosing
-    /// again from the same inputs keeps it again, so it is skipped.
+    /// The levels, distance factor and viewer positions the last choice
+    /// was made from, when it kept the chunks wanted as they were. Choosing
+    /// again from the same inputs keeps them again, so it is skipped.
     unchanged_from: Option<(ChunkLevels, f32, Vec<DVec3>)>,
-    /// Whether a read finished, or the drawn chunks changed, since drawn
-    /// chunks were last checked for promotion. Only then can the answer
-    /// change: a finer feature level's region terrain is built inside a
-    /// read.
-    check_promotions: bool,
-    /// Drawn chunks the feature level they want is known to change, so
-    /// they need a read; not checked for promotion again.
-    changes_known: HashSet<ChunkKey>,
-    /// Skirts deeper than [`skirt_depth`], for chunks beside a chunk read
-    /// at another feature level: how far that level moved the ground.
-    skirts: HashMap<ChunkKey, f32>,
-    /// How each drawn chunk was meshed to meet the canonical chunks
-    /// beside it.
-    seams: HashMap<ChunkKey, Seams>,
-    /// Edge contracts the canonical chunks share, made when the first one
-    /// is read and dropped when the stream starts over.
+    /// Edge contracts the chunks share, made when the first one is built
+    /// and dropped when the stream starts over.
     contracts: Option<Arc<ContractCache>>,
 }
 
-/// How chunk `key`, drawn from `read`, meets the canonical chunks drawn
-/// beside it in `stream`: a canonical chunk splits its sides that meet
-/// regular chunks, and a regular chunk fits every canonical chunk it
-/// touches.
-fn seams_for(stream: &Stream, key: ChunkKey, read: &ChunkRead) -> Seams {
-    let touching = stream.touching(key);
-    if read.tin().is_some() {
-        let regular = |other: ChunkKey| stream.read_of(other).is_some_and(|r| r.tin().is_none());
-        let split = ChunkSide::ALL
-            .into_iter()
-            .filter(|&side| {
-                touching
-                    .iter()
-                    .any(|&(other, _)| canonical::along_side(key, side, other) && regular(other))
-            })
-            .collect();
-        Seams {
-            split,
-            tins: Vec::new(),
-        }
-    } else {
-        let tins = touching
-            .iter()
-            .filter_map(|&(other, _)| Some(stream.read_of(other)?.tin()?.index.clone()))
-            .collect();
-        Seams {
-            split: Vec::new(),
-            tins,
-        }
-    }
-}
-
-/// The skirt hanging from each side of a chunk, in metres: deep enough to
-/// hide small gaps where chunks of different feature levels meet, or rounding where
-/// chunks meet.
+/// The skirt hanging from each side of a chunk, at least: deep enough to
+/// hide rounding where chunks meet. Where a chunk meets one of another
+/// level, its skirt is deepened by the height step between them.
 pub fn skirt_depth(key: ChunkKey) -> f32 {
     (4.0 * key.step() as f32).max(8.0)
+}
+
+/// The skirt chunk `key` needs beside the chunks drawn around it in
+/// `stream` now: [`skirt_depth`], deepened by the largest height step to a
+/// chunk of another level along a shared side.
+fn skirt_beside(stream: &LevelStream<TinRead>, key: ChunkKey, read: &TinRead) -> f32 {
+    let step = stream
+        .touching(key)
+        .into_iter()
+        .filter(|other| other.level != key.level)
+        .filter_map(|other| {
+            let other_read = stream.drawn_of(other)?;
+            Some(canonical::edge_gap(
+                (key, read),
+                (other, other_read.as_ref()),
+            ))
+        })
+        .fold(0.0, f32::max);
+    skirt_depth(key) + step
 }
 
 /// A Bevy mesh of a chunk's ground, with UVs running from 0 to 1 across
@@ -691,24 +520,16 @@ fn reset_streams(
                 });
             }
             Some(mut state) if stream.is_changed() && !stream.is_added() => {
-                let same_ground = state.last.as_ref().is_some_and(|last| {
-                    Arc::ptr_eq(&last.source, &stream.source)
-                        && last.coarse_first == stream.coarse_first
-                        && last.tin == stream.tin
-                });
+                let same_ground = state
+                    .last
+                    .as_ref()
+                    .is_some_and(|last| Arc::ptr_eq(&last.source, &stream.source));
                 if !same_ground {
                     state.stream.reset();
                     state.unchanged_from = None;
                     state.reads.cancel();
-                    state.check_promotions = true;
-                    state.changes_known.clear();
                     state.failed = 0;
-                    state.sampled = 0;
-                    state.promoted = 0;
-                    state.skirts.clear();
-                    state.seams.clear();
                     state.contracts = None;
-                    commands.entity(entity).remove::<CanonicalGround>();
                 }
                 state.last = Some((*stream).clone());
             }
@@ -717,8 +538,8 @@ fn reset_streams(
     }
 }
 
-/// Chooses each stream's chunks around the viewers, reads them, and swaps
-/// the drawn chunks once the new set is ready.
+/// Chooses each stream's chunks around the viewers, builds them, and
+/// changes the drawn chunks as builds come in.
 #[expect(clippy::too_many_arguments, reason = "one Bevy system")]
 fn stream_chunks(
     mut commands: Commands,
@@ -727,6 +548,7 @@ fn stream_chunks(
     debug: Res<TerrainDebug>,
     mut materials: ResMut<Assets<TerrainMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut changes: MessageWriter<TerrainChanged>,
     viewers: Query<&GlobalTransform, With<TerrainViewer>>,
     mut streams: Query<(
         Entity,
@@ -754,18 +576,22 @@ fn stream_chunks(
             .collect();
         let flat: Vec<DVec2> = positions.iter().map(|p| DVec2::new(p.x, p.z)).collect();
 
-        // The chunks wanted now. The choice depends only on its inputs and
-        // the target it keeps or replaces, so when the last choice kept the
-        // target and its inputs haven't changed, it would keep it again.
+        // The chunks wanted now: to draw, and within a build radius. Both
+        // depend only on their inputs and the last choice, so when the last
+        // choice kept them and its inputs haven't changed, it would keep
+        // them again.
         let inputs = (settings.levels.clone(), factor, positions);
         if state.unchanged_from.as_ref() != Some(&inputs) {
             let (levels, factor, positions) = &inputs;
-            match ChunkSelection::around(levels, *factor, positions, Some(&state.stream.target)) {
-                Ok(target) => {
-                    if target == state.stream.target {
+            match ChunkSelection::around(levels, *factor, positions, Some(&state.selection)) {
+                Ok(selection) => {
+                    let radius = settings.radii.around(*factor, &flat, &state.radius);
+                    if selection == state.selection && radius == state.radius {
                         state.unchanged_from = Some(inputs);
                     } else {
-                        state.stream.retarget(target);
+                        state.stream.retarget(&selection, radius.clone());
+                        state.selection = selection;
+                        state.radius = radius;
                         state.unchanged_from = None;
                     }
                 }
@@ -779,315 +605,190 @@ fn stream_chunks(
             }
         }
 
-        // Collect finished reads.
-        for ((key, generation), result) in state.reads.finished() {
-            state.check_promotions = true;
-            let current = generation == state.stream.generation;
-            if let (true, Ok(read)) = (current, &result) {
-                if read.geometry.level() > read.level() {
-                    state.promoted += 1;
-                } else {
-                    state.sampled += 1;
-                }
-            }
-            let read: Read = match result {
+        // Collect finished builds.
+        let generation = state.stream.generation;
+        for ((key, started_in), result) in state.reads.finished() {
+            let built = match result {
                 Ok(read) => Some(Arc::new(read)),
-                // A failed upgrade keeps the ground already drawn.
-                Err(error) if current && state.stream.is_upgrade(key) => {
-                    warn!("terrain {key} keeps its coarser features: {error}");
-                    None
-                }
                 Err(error) => {
-                    if current {
+                    if started_in == generation {
                         warn!("terrain {key} left out: {error}");
                         state.failed += 1;
                     }
                     None
                 }
             };
-            state.stream.finish(key, generation, read);
+            state.stream.finish(key, started_in, built);
         }
 
-        // The reads still waiting are chosen again below, from what is
-        // wanted now.
-        let generation = state.stream.generation;
+        // Queue the chunks still wanted, in the order wanted now; the
+        // builds still waiting from last frame are chosen again with them.
         for (key, started_in) in state.reads.cancel() {
             if started_in == generation {
                 state.stream.cancel(key);
             }
         }
-
-        // A drawn chunk a finer feature level is already known to leave
-        // alone stands for that level as it is, at once and without a
-        // read. A canonical chunk always needs its own read.
-        let wanted = |key: ChunkKey| source.level(key.level);
-        let canonical = |key: ChunkKey, level: FeatureLevel| {
-            source.tin && key.level == 0 && source.source.level(level) == FeatureLevel::FINEST
-        };
-        if std::mem::take(&mut state.check_promotions) {
-            let upgrades = state.stream.upgrades(&flat, wanted);
-            state.changes_known.retain(|key| upgrades.contains(key));
-            for key in upgrades {
-                let level = wanted(key);
-                let Some(drawn) = state.stream.read_of(key).filter(|_| !canonical(key, level))
-                else {
-                    continue;
-                };
-                if state.changes_known.contains(&key) {
-                    continue;
-                }
-                match source.source.level_change_known(key, drawn.level(), level) {
-                    Some(false) => {
-                        state.stream.start(key);
-                        let promoted = Arc::new(drawn.promoted(level));
-                        state.stream.finish(key, generation, Some(promoted));
-                        state.promoted += 1;
-                    }
-                    Some(true) => {
-                        state.changes_known.insert(key);
-                    }
-                    None => {}
-                }
-            }
-        }
-
-        // Queue the missing chunks, nearest first: at the coarsest feature
-        // level when the stream loads coarse first. Only when none is
-        // missing, queue drawn chunks to read again at the level they want.
-        let missing = state.stream.missing(&flat);
-        let mut reads: Vec<(ChunkKey, FeatureLevel)> = missing
-            .iter()
-            .map(|&key| {
-                let level = if source.coarse_first {
-                    FeatureLevel::COARSEST
-                } else {
-                    wanted(key)
-                };
-                (key, level)
-            })
-            .collect();
-        if missing.is_empty() {
-            let upgrades = state.stream.upgrades(&flat, wanted);
-            reads.extend(upgrades.into_iter().map(|k| (k, wanted(k))));
-        }
-        let mut jobs: Vec<((ChunkKey, u64), reads::Job<_>)> = Vec::with_capacity(reads.len());
-        for (key, level) in reads {
-            // A drawn chunk being read again at a finer feature level: if
-            // that level changes nothing about it, the drawn read stands
-            // for it as it is.
-            let drawn = state
-                .stream
-                .is_upgrade(key)
-                .then(|| state.stream.read_of(key))
-                .flatten()
-                .filter(|_| !canonical(key, level));
+        let wanted = state.stream.wanted(&flat);
+        let contracts = state
+            .contracts
+            .get_or_insert_with(|| Arc::new(ContractCache::new(&source.source.tin_tolerance())))
+            .clone();
+        let mut jobs: Vec<((ChunkKey, u64), reads::Job<_>)> = Vec::with_capacity(wanted.len());
+        for key in wanted {
             state.stream.start(key);
             let ground = Arc::clone(&source.source);
-            let tin = source.tin.then(|| {
-                state
-                    .contracts
-                    .get_or_insert_with(|| {
-                        Arc::new(ContractCache::new(&source.source.tin_tolerance()))
-                    })
-                    .clone()
-            });
-            let job = Box::new(move || {
-                if let Some(drawn) = drawn
-                    && !ground.level_changes(key, drawn.level(), level)
-                {
-                    return Ok(drawn.promoted(level));
-                }
-                ChunkRead::read_with(&*ground, key, level, tin.as_deref())
-            });
+            let contracts = Arc::clone(&contracts);
+            let job = Box::new(move || TinRead::build(&*ground, key, &contracts));
             jobs.push(((key, generation), job));
         }
         state.reads.push(jobs);
 
-        // Swap the drawn chunks once the whole new set is read; redraw
-        // upgraded chunks one by one. `redraw` removes a chunk's entity and
-        // draws its samples, if any.
-        let mut redraw = |state: &mut StreamState, key: ChunkKey, transitions, read: Read| {
-            if let Some(chunk) = state.entities.remove(&key) {
-                commands.entity(chunk).despawn();
-            }
-            let Some(read) = read else {
-                state.materials.remove(&key);
-                state.seams.remove(&key);
-                return;
-            };
-            // Keep the material while the read is the same.
-            let material = match state.materials.get(&key) {
-                Some((drawn, material)) if Arc::ptr_eq(drawn, &read) => material.clone(),
-                _ => {
-                    let material = chunk_material(key.level, &look, &mut materials);
-                    state
-                        .materials
-                        .insert(key, (Arc::clone(&read), material.clone()));
-                    material
+        // Change the drawn chunks as builds come in. `redraw` removes a
+        // chunk's entity and draws its build, if any, with skirts `skirt`
+        // metres deep.
+        let mut redraw =
+            |state: &mut StreamState, key: ChunkKey, read: Option<&Arc<TinRead>>, skirt| {
+                if let Some(chunk) = state.entities.remove(&key) {
+                    commands.entity(chunk).despawn();
                 }
-            };
-            let skirt = skirt_depth(key).max(state.skirts.get(&key).copied().unwrap_or(0.0));
-            let seams = seams_for(&state.stream, key, &read);
-            let chunk = spawn_chunk(
-                &mut commands,
-                &mut meshes,
-                &material,
-                entity,
-                &read.mesh(transitions, skirt, &seams),
-                read.tin().is_some(),
-            );
-            state.entities.insert(key, chunk);
-            state.seams.insert(key, seams);
-        };
-        // Every chunk drawn now, whether new to the view or read again at a
-        // finer feature level. Chunks touching at different levels can
-        // stand apart by up to how far the finer level moved the ground:
-        // deepen both chunks' skirts to cover it, redrawing touching
-        // chunks whose skirts grow.
-        let mut drawn_now: Vec<(ChunkKey, Transitions, Read)> = Vec::new();
-        if let Some(swap) = state.stream.swap() {
-            for key in swap.remove {
-                state.skirts.remove(&key);
-                redraw(state, key, Transitions::NONE, None);
-            }
-            drawn_now.extend(swap.add);
-        }
-        drawn_now.extend(state.stream.take_refreshed());
-        let changed = !drawn_now.is_empty();
-        state.check_promotions |= changed;
-        let mut near_changes: Vec<ChunkKey> = Vec::new();
-        for (key, transitions, read) in drawn_now {
-            near_changes.push(key);
-            near_changes.extend(state.stream.touching(key).into_iter().map(|(k, _)| k));
-            let level = read.as_ref().map(|r| r.level());
-            let mut deepest = 0.0f32;
-            for (other, other_transitions) in state.stream.touching(key) {
-                let (Some(level), Some(other_level)) = (level, state.stream.level_of(other)) else {
-                    continue;
+                let Some(read) = read else {
+                    state.materials.remove(&key);
+                    state.skirts.remove(&key);
+                    return;
                 };
-                if level == other_level {
-                    continue;
-                }
-                // The ground of the chunk with more features, against the
-                // coarser level.
-                let finer = if level < other_level { key } else { other };
-                let moved = source.source.level_difference(
-                    finer.min_corner(),
-                    finer.max_corner(),
-                    level.max(other_level),
+                // Keep the material while the build is the same.
+                let material = match state.materials.get(&key) {
+                    Some((drawn, material)) if Arc::ptr_eq(drawn, read) => material.clone(),
+                    _ => {
+                        let material = chunk_material(key.level, &look, &mut materials);
+                        state
+                            .materials
+                            .insert(key, (Arc::clone(read), material.clone()));
+                        material
+                    }
+                };
+                let chunk = spawn_chunk(
+                    &mut commands,
+                    &mut meshes,
+                    &material,
+                    entity,
+                    &read.mesh(skirt),
                 );
-                if moved == 0.0 {
-                    continue;
-                }
-                deepest = deepest.max(moved);
-                let skirt = state.skirts.entry(other).or_default();
-                if moved > *skirt {
-                    *skirt = moved;
-                    let other_read = state.stream.read_of(other);
-                    redraw(state, other, other_transitions, other_read);
-                }
-            }
-            let skirt = state.skirts.entry(key).or_default();
-            *skirt = skirt.max(deepest);
-            redraw(state, key, transitions, read);
+                state.entities.insert(key, chunk);
+                state.skirts.insert(key, skirt);
+            };
+        let Some(swap) = state.stream.swap() else {
+            update_progress(state, source, &mut progress);
+            continue;
+        };
+        let mut changed: Vec<ChunkKey> = swap.remove.clone();
+        changed.extend(swap.add.iter().map(|(key, _)| *key));
+        changed.sort_unstable();
+        changed.dedup();
+        for &key in &swap.remove {
+            redraw(state, key, None, 0.0);
         }
 
-        // Chunks drawn now, and those beside them, may meet canonical
-        // chunks differently than when they were drawn: redraw those that
-        // do, so regular sides fit canonical ones and canonical sides split
-        // where regular ones meet them.
-        near_changes.sort_unstable();
-        near_changes.dedup();
-        for key in near_changes {
-            let (Some(transitions), Some(read)) =
-                (state.stream.drawn.get(key), state.stream.read_of(key))
-            else {
+        // Chunks drawn now, and those beside them, may meet chunks of other
+        // levels differently than when they were drawn: redraw those whose
+        // skirts change.
+        let mut near: Vec<ChunkKey> = Vec::new();
+        for &key in &changed {
+            if state.stream.drawn_of(key).is_some() {
+                near.push(key);
+            }
+            near.extend(state.stream.touching(key));
+        }
+        near.sort_unstable();
+        near.dedup();
+        for key in near {
+            let Some(read) = state.stream.drawn_of(key).cloned() else {
                 continue;
             };
-            let seams = seams_for(&state.stream, key, &read);
-            if state.entities.contains_key(&key)
-                && !state.seams.get(&key).is_some_and(|s| s.same_as(&seams))
-            {
-                redraw(state, key, transitions, Some(read));
+            let skirt = skirt_beside(&state.stream, key, &read);
+            let fresh = !state.entities.contains_key(&key)
+                || !state
+                    .materials
+                    .get(&key)
+                    .is_some_and(|(drawn, _)| Arc::ptr_eq(drawn, &read));
+            if fresh || state.skirts.get(&key) != Some(&skirt) {
+                redraw(state, key, Some(&read), skirt);
             }
         }
 
-        // The canonical chunks drawn now, for ground queries; the shared
-        // edge contracts are kept only for their edges.
-        if changed && source.tin {
-            let mut tins = ResidentTins::new();
-            let mut edges = HashSet::new();
-            for key in state.entities.keys() {
-                if let Some(tin) = state.stream.read_of(*key).as_ref().and_then(|r| r.tin()) {
-                    tins.insert(tin.index.clone());
-                    edges.extend(ChunkEdgeKey::of_chunk(*key));
-                }
+        // The drawn chunks, for ground queries, and where they changed.
+        let mut tins = ResidentTins::new();
+        for (_, read) in state.stream.drawn() {
+            if let Some(read) = read {
+                tins.insert(read.index.clone());
             }
-            if let Some(contracts) = &state.contracts {
-                contracts.retain(|edge| edges.contains(&edge));
-            }
-            commands.entity(entity).insert(CanonicalGround { tins });
         }
-
-        // Region work from the hook, and chunk reads, by their usual cost;
-        // chunks waiting for a finer feature level count as not read.
-        let refining = state.stream.upgrades(&flat, wanted).len();
-        let settled = state.stream.is_settled() && refining == 0;
-        let regions = source
-            .regions
-            .as_ref()
-            .map(|r| r.counts())
-            .unwrap_or_default();
-        let wanted = (state.stream.target.len() + refining) as f32 * progress::CHUNK_COST;
-        let read = state.stream.read_in_target() as f32 * progress::CHUNK_COST;
-        let total = regions.total + wanted;
-        let fraction = if settled || total == 0.0 {
-            1.0
-        } else {
-            ((regions.done + read) / total).clamp(0.0, 1.0)
-        };
-        *progress = TerrainProgress {
-            fraction,
-            stage: regions.stage(),
-            drawn: state.entities.len(),
-            refining,
-            wanted: state.stream.target.len(),
-            reading: state.stream.reading(),
-            failed: state.failed,
-            sampled: state.sampled,
-            promoted: state.promoted,
-            settled,
-        };
+        commands.entity(entity).insert(CanonicalGround { tins });
+        // The shared edge contracts are kept only for built chunks' edges.
+        if let Some(contracts) = &state.contracts {
+            let edges: HashSet<ChunkEdgeKey> = state
+                .stream
+                .built()
+                .flat_map(|(key, _)| ChunkEdgeKey::of_chunk(key))
+                .collect();
+            contracts.retain(|edge| edges.contains(&edge));
+        }
+        changes.write(TerrainChanged {
+            stream: entity,
+            chunks: changed,
+        });
+        update_progress(state, source, &mut progress);
     }
 }
 
+/// Sets `progress` from `state`: region work from the source's hook, and
+/// chunk builds, by their usual cost.
+fn update_progress(state: &StreamState, source: &TerrainStream, progress: &mut TerrainProgress) {
+    let settled = state.stream.is_settled();
+    let regions = source
+        .regions
+        .as_ref()
+        .map(|r| r.counts())
+        .unwrap_or_default();
+    let (built, building) = state.stream.builds();
+    let total = regions.total + building as f32 * progress::CHUNK_COST;
+    let done = regions.done + built as f32 * progress::CHUNK_COST;
+    let fraction = if settled || total == 0.0 {
+        1.0
+    } else {
+        (done / total).clamp(0.0, 1.0)
+    };
+    *progress = TerrainProgress {
+        fraction,
+        stage: regions.stage(),
+        drawn: state.entities.len(),
+        refining: state.stream.standing_in(),
+        wanted: state.stream.target_len(),
+        building,
+        reading: state.stream.reading(),
+        failed: state.failed,
+        settled,
+    };
+}
+
 /// Spawns `mesh` as a chunk of `stream`, with its water as a child, and
-/// returns the chunk entity. `canonical` says whether the mesh is a
-/// canonical chunk's.
+/// returns the chunk entity.
 fn spawn_chunk(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     material: &Handle<TerrainMaterial>,
     stream: Entity,
     mesh: &ChunkMesh,
-    canonical: bool,
 ) -> Entity {
     let chunk = commands
         .spawn((
-            TerrainChunk {
-                key: mesh.key,
-                transitions: mesh.transitions,
-                level: mesh.level,
-            },
+            TerrainChunk { key: mesh.key },
             Mesh3d(meshes.add(chunk_mesh(mesh))),
             MeshMaterial3d(material.clone()),
             Transform::from_translation(mesh.translation().as_vec3()),
             ChildOf(stream),
         ))
         .id();
-    if canonical {
-        commands.entity(chunk).insert(CanonicalChunk);
-    }
     if let Some(water) = &mesh.water {
         commands.spawn((
             TerrainWater,
@@ -1124,18 +825,21 @@ fn update_materials(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, HashSet};
     use std::time::Duration;
 
     use bevy::asset::AssetPlugin;
     use bevy::time::TimeUpdateStrategy;
+    use procgena_terrain::tin::{GroundSurface, build_chunk};
     use procgena_terrain::{
-        Boundary, ChunkDetail, Region, RegionId, TerrainGenerator, TerrainPreset, chunk_levels,
+        Boundary, ChunkDetail, FeatureLevel, Region, RegionId, TerrainGenerator, TerrainPreset,
+        chunk_levels,
     };
 
     use super::*;
 
-    /// Streaming tests share Bevy's async and rayon pools, so they run one
-    /// at a time to keep within their frame budgets.
+    /// Streaming tests share the terrain thread, so they run one at a time
+    /// to keep within their frame budgets.
     static STREAMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Holds [`STREAMING`] for the rest of a streaming test, even after
@@ -1161,7 +865,8 @@ mod tests {
         Arc::new(terrain)
     }
 
-    /// An app with the plugin and no renderer, drawing to 300 m.
+    /// An app with the plugin and no renderer, drawing to 300 m and building
+    /// level 0 to 60 m and level 1 to 200 m.
     fn app() -> App {
         let mut app = App::new();
         app.add_plugins((
@@ -1182,15 +887,21 @@ mod tests {
             cell_on_screen: 2.0 * ChunkDetail::DEFAULT.cell_on_screen,
             ..ChunkDetail::DEFAULT
         };
-        let plugin = TerrainPlugin::new(coarse.levels(300.0)).unwrap();
+        let plugin = TerrainPlugin::new(coarse.levels(300.0))
+            .unwrap()
+            .with_build_radii(BuildRadii {
+                radii: vec![60.0, 200.0],
+            });
         // Only the streaming, not the material plugin, which needs a
         // renderer.
         app.insert_resource(TerrainSettings {
             levels: plugin.levels.clone(),
             detail: plugin.detail,
+            radii: plugin.radii.clone(),
         })
         .init_resource::<LodQuality>()
         .init_resource::<TerrainDebug>()
+        .add_message::<TerrainChanged>()
         .add_systems(
             Update,
             (reset_streams, stream_chunks, update_materials).chain(),
@@ -1210,6 +921,11 @@ mod tests {
             }
         }
         panic!("the terrain did not settle in {frames} frames");
+    }
+
+    /// The state of `stream`.
+    fn state(app: &App, stream: Entity) -> &StreamState {
+        app.world().get::<StreamState>(stream).unwrap()
     }
 
     #[test]
@@ -1234,6 +950,7 @@ mod tests {
         app.insert_resource(TerrainSettings {
             levels: plugin.levels.clone(),
             detail: plugin.detail,
+            radii: plugin.radii.clone(),
         })
         .add_systems(Update, follow_field_of_view);
         let level_1 = |app: &App| app.world().resource::<TerrainSettings>().levels.levels[1].start;
@@ -1277,9 +994,10 @@ mod tests {
             .spawn((TerrainViewer, Transform::from_xyz(0.0, 40.0, 0.0)))
             .id();
 
-        let progress = settle(&mut app, 2000);
+        let progress = settle(&mut app, 3000);
         assert_eq!(progress.failed, 0);
         assert_eq!(progress.drawn, progress.wanted);
+        assert_eq!(progress.refining, 0);
         let mut chunks = app.world_mut().query::<(&TerrainChunk, &ChildOf)>();
         let drawn: Vec<TerrainChunk> = chunks
             .iter(app.world())
@@ -1290,7 +1008,18 @@ mod tests {
             .collect();
         assert_eq!(drawn.len(), progress.drawn);
         assert!(drawn.iter().any(|c| c.key.level == 0));
-        assert!(drawn.iter().any(|c| c.transitions != Transitions::NONE));
+        assert!(drawn.iter().any(|c| c.key.level == 1));
+
+        // Built besides those drawn: level-1 chunks within 200 m, under the
+        // level-0 chunks drawn there.
+        assert!(progress.building > progress.wanted);
+        let built: Vec<ChunkKey> = state(&app, stream).stream.built().map(|(k, _)| k).collect();
+        assert_eq!(built.len(), progress.building);
+        assert!(
+            built
+                .iter()
+                .any(|k| k.level == 1 && !drawn.iter().any(|c| c.key == *k))
+        );
 
         // Move the viewer: the chunks follow, and none is drawn twice.
         app.world_mut()
@@ -1299,12 +1028,12 @@ mod tests {
         // The camera's global transform follows at the end of this frame;
         // the chunks follow it from the next.
         app.update();
-        let progress = settle(&mut app, 2000);
+        let progress = settle(&mut app, 3000);
         let keys: Vec<ChunkKey> = chunks.iter(app.world()).map(|(c, _)| c.key).collect();
         assert_eq!(keys.len(), progress.drawn);
         let under = ChunkKey::containing(DVec2::new(600.0, 0.0), 0);
         assert!(keys.contains(&under), "the chunk under the viewer is drawn");
-        let unique: std::collections::HashSet<_> = keys.iter().collect();
+        let unique: HashSet<_> = keys.iter().collect();
         assert_eq!(unique.len(), keys.len());
 
         // Each drawn chunk has its own flat grey material; those of chunks
@@ -1315,7 +1044,7 @@ mod tests {
         let mut drawn = app
             .world_mut()
             .query::<(&TerrainChunk, &MeshMaterial3d<TerrainMaterial>)>();
-        let handles: std::collections::HashSet<AssetId<TerrainMaterial>> =
+        let handles: HashSet<AssetId<TerrainMaterial>> =
             drawn.iter(app.world()).map(|(_, m)| m.id()).collect();
         assert_eq!(handles.len(), progress.drawn);
         let materials = app.world().resource::<Assets<TerrainMaterial>>();
@@ -1369,15 +1098,9 @@ mod tests {
         assert_eq!(last.refining, 0);
         assert!(seen.iter().any(|p| p.stage.is_some() && p.fraction < 1.0));
 
-        // Coarse first: chunks were drawn rough while the finest level was
-        // still being built, and all end with every feature.
+        // Coarse first: chunks were drawn in place of finer ones while
+        // those were still being built.
         assert!(seen.iter().any(|p| p.drawn > 0 && p.refining > 0));
-        let mut chunks = app.world_mut().query::<&TerrainChunk>();
-        assert!(
-            chunks
-                .iter(app.world())
-                .all(|c| c.level == FeatureLevel::FINEST)
-        );
         assert!(seen.iter().all(|p| (0.0..=1.0).contains(&p.fraction)));
     }
 
@@ -1388,25 +1111,42 @@ mod tests {
         let stream = app.world_mut().spawn(TerrainStream::new(hills())).id();
         app.world_mut()
             .spawn((TerrainViewer, Transform::from_xyz(0.0, 40.0, 0.0)));
-        let before = settle(&mut app, 2000);
+        let before = settle(&mut app, 3000);
         let mut chunks = app.world_mut().query::<(Entity, &TerrainChunk)>();
         let old: Vec<Entity> = chunks.iter(app.world()).map(|(e, _)| e).collect();
 
-        // New ground: every chunk is replaced once the new ones are ready.
+        // New ground: every chunk is replaced once the new ones can be
+        // drawn, never side by side with the old.
         app.world_mut()
             .entity_mut(stream)
             .insert(TerrainStream::new(hills()));
-        let after = settle(&mut app, 2000);
+        let mut mixed = false;
+        for _ in 0..3000 {
+            app.update();
+            std::thread::sleep(Duration::from_millis(5));
+            let entities: Vec<Entity> = chunks.iter(app.world()).map(|(e, _)| e).collect();
+            let some_old = entities.iter().any(|e| old.contains(e));
+            let some_new = entities.iter().any(|e| !old.contains(e));
+            mixed |= some_old && some_new;
+            let progress = *app
+                .world_mut()
+                .query::<&TerrainProgress>()
+                .single(app.world())
+                .unwrap();
+            if progress.settled && !some_old {
+                break;
+            }
+        }
+        assert!(!mixed, "old and new ground were drawn side by side");
+        let after = settle(&mut app, 3000);
         assert_eq!(after.drawn, before.drawn);
         for (entity, _) in chunks.iter(app.world()) {
             assert!(!old.contains(&entity));
         }
     }
 
-    use std::collections::BTreeMap;
-
-    /// The content hash of each canonical chunk the stream has loaded.
-    fn canonical_hashes(app: &mut App) -> BTreeMap<ChunkKey, u64> {
+    /// The content hash of each chunk drawn now, from [`CanonicalGround`].
+    fn drawn_hashes(app: &mut App) -> BTreeMap<ChunkKey, u64> {
         let mut query = app.world_mut().query::<&CanonicalGround>();
         let ground = query.single(app.world()).unwrap();
         ground
@@ -1416,102 +1156,49 @@ mod tests {
             .collect()
     }
 
-    /// The highest mesh height at each world position, in whole
-    /// millimetres across.
-    type Tops = HashMap<(i64, i64), f32>;
+    /// The highest and lowest mesh height at each world position, in whole
+    /// millimetres across: a chunk's surface, and its skirts' feet.
+    type Heights = HashMap<(i64, i64), (f32, f32)>;
 
-    /// Each drawn chunk: its key, whether it is canonical, and the world
-    /// position of each mesh vertex, rounded to whole millimetres across,
-    /// with the highest height at each position (so skirts hanging below
-    /// an edge are left out).
-    fn drawn_edges(app: &mut App) -> Vec<(ChunkKey, bool, Tops)> {
+    /// Each drawn chunk's key and [`Heights`].
+    fn drawn_meshes(app: &mut App) -> Vec<(ChunkKey, Heights)> {
         let mut query = app
             .world_mut()
-            .query::<(&TerrainChunk, &Mesh3d, &Transform, Has<CanonicalChunk>)>();
+            .query::<(&TerrainChunk, &Mesh3d, &Transform)>();
         let meshes = app.world().resource::<Assets<Mesh>>();
         query
             .iter(app.world())
-            .map(|(chunk, mesh, transform, canonical)| {
+            .map(|(chunk, mesh, transform)| {
                 let mesh = meshes.get(&mesh.0).unwrap();
                 let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
                     mesh.attribute(Mesh::ATTRIBUTE_POSITION)
                 else {
                     panic!("chunk meshes have positions");
                 };
-                let mut tops: HashMap<(i64, i64), f32> = HashMap::new();
+                let mut heights: Heights = HashMap::new();
                 for p in positions {
                     let world = transform.translation.as_dvec3() + Vec3::from(*p).as_dvec3();
                     let at = (
                         (world.x * 1000.0).round() as i64,
                         (world.z * 1000.0).round() as i64,
                     );
-                    let top = tops.entry(at).or_insert(f32::NEG_INFINITY);
-                    *top = top.max(p[1]);
+                    let y = world.y as f32;
+                    let h = heights
+                        .entry(at)
+                        .or_insert((f32::NEG_INFINITY, f32::INFINITY));
+                    *h = (h.0.max(y), h.1.min(y));
                 }
-                (chunk.key, canonical, tops)
+                (chunk.key, heights)
             })
             .collect()
     }
 
-    /// Checks that every two drawn chunks meeting along a side, one of
-    /// them canonical, have the same vertices along it at the same
-    /// heights. Returns how many seams between a canonical and a regular
-    /// chunk it checked (each counted from both sides).
-    fn assert_canonical_seams_close(app: &mut App) -> usize {
-        let chunks = drawn_edges(app);
-        let mut checked = 0;
-        for (key, canonical, edges) in &chunks {
-            for side in ChunkSide::ALL {
-                for (other, other_canonical, other_edges) in &chunks {
-                    if !(canonical | other_canonical) || !canonical::along_side(*key, side, *other)
-                    {
-                        continue;
-                    }
-                    // The shared stretch of the side, in millimetres.
-                    let (lo, hi) = (key.min_corner(), key.max_corner());
-                    let (a, b) = (other.min_corner(), other.max_corner());
-                    let mm = |m: f64| (m * 1000.0).round() as i64;
-                    let on = |p: &(i64, i64)| match side {
-                        ChunkSide::MinX | ChunkSide::MaxX => {
-                            let x = if side == ChunkSide::MinX { lo.x } else { hi.x };
-                            p.0 == mm(x) && p.1 >= mm(lo.y.max(a.y)) && p.1 <= mm(hi.y.min(b.y))
-                        }
-                        ChunkSide::MinZ | ChunkSide::MaxZ => {
-                            let z = if side == ChunkSide::MinZ { lo.y } else { hi.y };
-                            p.1 == mm(z) && p.0 >= mm(lo.x.max(a.x)) && p.0 <= mm(hi.x.min(b.x))
-                        }
-                    };
-                    let ours: BTreeMap<_, _> = edges.iter().filter(|(p, _)| on(p)).collect();
-                    let theirs: BTreeMap<_, _> =
-                        other_edges.iter().filter(|(p, _)| on(p)).collect();
-                    assert_eq!(
-                        ours.keys().collect::<Vec<_>>(),
-                        theirs.keys().collect::<Vec<_>>(),
-                        "{key} and {other} have different vertices along {side:?}"
-                    );
-                    for (p, y) in &ours {
-                        assert_eq!(y, &theirs[p], "{key} and {other} stand apart at {p:?} mm");
-                    }
-                    // Count only the seams between a canonical and a
-                    // regular chunk.
-                    if canonical != other_canonical {
-                        checked += 1;
-                    }
-                }
-            }
-        }
-        checked
-    }
-
     #[test]
-    fn canonical_chunks_close_their_seams_and_keep_their_hashes() {
+    fn every_chunk_is_its_canonical_mesh_and_levels_meet_behind_skirts() {
         let _streaming = streaming();
         let source = hills();
         let mut app = app();
-        app.world_mut().spawn(TerrainStream {
-            tin: true,
-            ..TerrainStream::new(source.clone())
-        });
+        app.world_mut().spawn(TerrainStream::new(source.clone()));
         let camera = app
             .world_mut()
             .spawn((TerrainViewer, Transform::from_xyz(10.0, 30.0, 10.0)))
@@ -1519,17 +1206,13 @@ mod tests {
         let progress = settle(&mut app, 3000);
         assert_eq!(progress.failed, 0);
 
-        // Only finest chunks are canonical, and every one is loaded for
-        // queries and hashes as it does when built on its own.
-        let first = canonical_hashes(&mut app);
-        assert!(!first.is_empty());
-        let drawn = drawn_edges(&mut app);
-        let canonical: Vec<ChunkKey> = drawn.iter().filter(|c| c.1).map(|c| c.0).collect();
-        assert!(canonical.iter().all(|k| k.level == 0));
-        assert_eq!(canonical.len(), first.len());
-        assert!(drawn.iter().any(|c| !c.1), "regular chunks beside them");
+        // Every drawn chunk, at every level, is loaded for queries and
+        // hashes as it does when built on its own.
+        let first = drawn_hashes(&mut app);
+        assert_eq!(first.len(), progress.drawn);
+        assert!(first.keys().any(|k| k.level > 0));
         let built = |key: ChunkKey| {
-            procgena_terrain::tin::build_chunk(&*source, key, &source.tin_tolerance())
+            build_chunk(&*source, key, &source.tin_tolerance())
                 .unwrap()
                 .content_hash()
         };
@@ -1537,25 +1220,63 @@ mod tests {
             assert_eq!(hash, built(key), "{key}");
         }
 
-        // No cracks: canonical chunks meet each other and regular chunks of
-        // level 0 and 1 on the same vertices.
-        assert!(assert_canonical_seams_close(&mut app) > 0);
+        // Where two drawn chunks meet along a side, chunks of one level have
+        // the same vertices there at the same heights, and chunks of
+        // different levels hang skirts reaching below each other's edge.
+        let meshes = drawn_meshes(&mut app);
+        let mut across_levels = 0;
+        for (key, ours) in &meshes {
+            for (other, theirs) in &meshes {
+                if key == other {
+                    continue;
+                }
+                let lo = key.min_corner().max(other.min_corner());
+                let hi = key.max_corner().min(other.max_corner());
+                let span = hi - lo;
+                if !(span.x == 0.0 && span.y > 0.0 || span.y == 0.0 && span.x > 0.0) {
+                    continue;
+                }
+                let mm = |m: f64| (m * 1000.0).round() as i64;
+                let on = |p: &(i64, i64)| {
+                    p.0 >= mm(lo.x) && p.0 <= mm(hi.x) && p.1 >= mm(lo.y) && p.1 <= mm(hi.y)
+                };
+                if key.level == other.level {
+                    for (p, (top, _)) in ours.iter().filter(|(p, _)| on(p)) {
+                        let theirs = theirs.get(p).map(|h| h.0);
+                        assert_eq!(Some(*top), theirs, "{key} and {other} at {p:?} mm");
+                    }
+                } else {
+                    let foot = theirs
+                        .iter()
+                        .filter(|(p, _)| on(p))
+                        .map(|(_, h)| h.1)
+                        .fold(f32::INFINITY, f32::min);
+                    for (_, (top, _)) in ours.iter().filter(|(p, _)| on(p)) {
+                        assert!(foot <= *top, "{other}'s skirt stops above {key}'s edge");
+                    }
+                    across_levels += 1;
+                }
+            }
+        }
+        assert!(
+            across_levels > 0,
+            "some chunks meet a chunk of another level"
+        );
 
         // Once settled, nothing is drawn again.
         let mut chunks = app
             .world_mut()
             .query_filtered::<Entity, With<TerrainChunk>>();
-        let before: std::collections::BTreeSet<Entity> = chunks.iter(app.world()).collect();
+        let before: BTreeSet<Entity> = chunks.iter(app.world()).collect();
         for _ in 0..10 {
             app.update();
         }
-        let after: std::collections::BTreeSet<Entity> = chunks.iter(app.world()).collect();
+        let after: BTreeSet<Entity> = chunks.iter(app.world()).collect();
         assert_eq!(before, after, "a settled stream redraws nothing");
 
-        // Ground queries answer from the loaded chunks.
+        // Ground queries answer from the drawn chunks, at every level.
         let mut query = app.world_mut().query::<&CanonicalGround>();
         let ground = query.single(app.world()).unwrap().tins.clone();
-        use procgena_terrain::tin::GroundSurface;
         let under = ground
             .sample(DVec2::new(10.0, 10.0))
             .expect("ground under the camera");
@@ -1569,9 +1290,12 @@ mod tests {
                 .abs()
                 < 0.6
         );
+        let far = *first.keys().max_by_key(|k| k.level).unwrap();
+        let inside = far.min_corner() + DVec2::splat(1.0);
+        assert_eq!(ground.sample(inside).map(|s| s.chunk), Some(far));
 
         // Another camera, other levels and another quality: chunks still
-        // loaded keep their hashes, and new ones hash as built alone.
+        // drawn keep their hashes, and new ones hash as built alone.
         app.world_mut()
             .entity_mut(camera)
             .insert(Transform::from_xyz(150.0, 20.0, -40.0));
@@ -1580,7 +1304,7 @@ mod tests {
         app.world_mut().resource_mut::<LodQuality>().0 = procgena_core::Quality::Low;
         app.update();
         settle(&mut app, 3000);
-        let second = canonical_hashes(&mut app);
+        let second = drawn_hashes(&mut app);
         assert!(second.keys().any(|k| !first.contains_key(k)), "new chunks");
         for (&key, &hash) in &second {
             if let Some(&before) = first.get(&key) {
@@ -1588,163 +1312,41 @@ mod tests {
             }
             assert_eq!(hash, built(key), "{key}");
         }
-        assert!(assert_canonical_seams_close(&mut app) > 0);
     }
 
     #[test]
-    fn without_the_switch_every_chunk_is_regular() {
+    fn changed_ground_is_reported_where_it_changed() {
         let _streaming = streaming();
         let mut app = app();
-        app.world_mut().spawn(TerrainStream::new(hills()));
+        let stream = app.world_mut().spawn(TerrainStream::new(hills())).id();
         app.world_mut()
             .spawn((TerrainViewer, Transform::from_xyz(0.0, 40.0, 0.0)));
-        settle(&mut app, 2000);
-        let mut canonical = app.world_mut().query::<&CanonicalChunk>();
-        assert_eq!(canonical.iter(app.world()).count(), 0);
-        let mut ground = app.world_mut().query::<&CanonicalGround>();
-        assert_eq!(ground.iter(app.world()).count(), 0);
-    }
-
-    #[test]
-    fn chunks_a_finer_level_leaves_alone_are_promoted_not_read_again() {
-        use std::collections::BTreeMap;
-
-        use procgena_terrain::{Elevation, WorldTerrain, fixtures};
-
-        // Medium fixtures with rivers and roads switched on.
-        let featured = |id: RegionId, _: DVec2, _: &Elevation| {
-            let preset = if id.0.is_multiple_of(2) {
-                fixtures::plains_medium()
-            } else {
-                fixtures::rolling_hills_medium()
-            };
-            let mut options = preset.terrain.clone();
-            options.features.roads.enabled = true;
-            options.features.rivers.density = 1.0;
-            options
-        };
-
-        // A chunk's ground as text that tells apart any two bit patterns.
-        let text = |read: &ChunkRead| {
-            let Geometry::Regular(samples) = &read.geometry else {
-                panic!("no canonical chunks without the switch");
-            };
-            let mut mesh = samples.mesh(Transitions::NONE, 0.0);
-            mesh.level = read.level();
-            format!("{mesh:?}")
-        };
-
-        // Each drawn chunk's ground once the stream settles, and how many
-        // chunks stand for a finer feature level than they were read at.
-        let settled = |coarse_first: bool| {
-            let _streaming = streaming();
-            let mut app = app();
-            let world = WorldTerrain::new(fixtures::world_medium(), Arc::new(featured)).unwrap();
-            let stream = app
-                .world_mut()
-                .spawn(TerrainStream {
-                    coarse_first,
-                    ..TerrainStream::world(world)
-                })
-                .id();
-            app.world_mut()
-                .spawn((TerrainViewer, Transform::from_xyz(0.0, 40.0, 0.0)));
-            settle(&mut app, 20_000);
-            let state = app.world().get::<StreamState>(stream).unwrap();
-            let mut promoted = 0;
-            let reads: BTreeMap<ChunkKey, String> = state
-                .materials
-                .iter()
-                .map(|(&key, (read, _))| {
-                    assert_eq!(read.level(), FeatureLevel::FINEST, "{key:?}");
-                    promoted += usize::from(read.geometry.level() > read.level());
-                    (key, text(read))
-                })
-                .collect();
-            (reads, promoted)
-        };
-
-        // Read coarse first, some chunks are promoted; each is drawn exactly
-        // as when every chunk is read once at its own level.
-        let (coarse, promoted) = settled(true);
-        let (direct, none) = settled(false);
-        assert!(promoted > 0, "some chunks should be promoted");
-        assert_eq!(none, 0);
-        assert_eq!(coarse.len(), direct.len());
-        for (key, read) in &coarse {
-            assert!(read == &direct[key], "{key:?} differs");
-        }
-
-        // And each is exactly the chunk read on its own at its own level,
-        // whatever order the stream read it in.
-        let world = WorldTerrain::new(fixtures::world_medium(), Arc::new(featured)).unwrap();
-        for (key, read) in &coarse {
-            let alone = ChunkRead::read(&world, *key, FeatureLevel::of(*key)).unwrap();
-            assert!(read == &text(&alone), "{key:?} differs from its read alone");
-        }
-    }
-
-    #[test]
-    fn canonical_chunks_known_unchanged_are_built_on_their_first_read() {
-        use procgena_terrain::tin::build_chunk;
-        use procgena_terrain::{Elevation, WorldTerrain, fixtures};
-
-        // Medium fixtures with rivers and roads switched on, so some
-        // chunks change at the fine tier and some don't.
-        let featured = |_: RegionId, _: DVec2, _: &Elevation| {
-            let mut options = fixtures::rolling_hills_medium().terrain.clone();
-            options.features.roads.enabled = true;
-            options.features.rivers.density = 1.0;
-            options
-        };
-        let world = || WorldTerrain::new(fixtures::world_medium(), Arc::new(featured)).unwrap();
-
-        // Settles a coarse-first canonical stream viewed from a point on
-        // the border of the region at the origin, with that region (but not
-        // its neighbour) built at every tier beforehand if `warm`: its
-        // canonical chunks' hashes, and how many chunk reads it took.
-        let settled = |warm: bool| {
-            let _streaming = streaming();
-            let mut app = app();
-            let world = world();
-            let origin = world.region_at(DVec2::ZERO);
-            let border = &world.region(origin).edges[0].polyline;
-            let on_border = border[border.len() / 2];
-            let site = world.site(origin);
-            let eye = on_border + (site - on_border).normalize() * 200.0;
-            if warm {
-                for tier in procgena_terrain::FeatureTier::ALL {
-                    world.terrain_tier(origin, tier).unwrap();
-                }
+        let mut reported: BTreeSet<ChunkKey> = BTreeSet::new();
+        for _ in 0..3000 {
+            app.update();
+            std::thread::sleep(Duration::from_millis(5));
+            let messages = app.world().resource::<Messages<TerrainChanged>>();
+            for message in messages.iter_current_update_messages() {
+                assert_eq!(message.stream, stream);
+                reported.extend(message.chunks.iter().copied());
             }
-            app.world_mut().spawn(TerrainStream {
-                tin: true,
-                ..TerrainStream::world(world)
-            });
-            app.world_mut().spawn((
-                TerrainViewer,
-                Transform::from_xyz(eye.x as f32, 40.0, eye.y as f32),
-            ));
-            let progress = settle(&mut app, 20_000);
-            assert_eq!(progress.failed, 0);
-            (canonical_hashes(&mut app), progress.sampled)
-        };
-        let (cold, cold_reads) = settled(false);
-        let (warm, warm_reads) = settled(true);
-
-        // With every tier kept, some finest chunks are canonical from
-        // their first read and aren't read again; others still are.
-        assert!(warm_reads < cold_reads, "{warm_reads} against {cold_reads}");
-        let level0 = cold.len();
-        assert!(warm_reads > cold_reads - level0, "some chunks can't");
-
-        // Every canonical chunk is the same either way, and as built alone.
-        assert_eq!(warm, cold);
-        let alone = world();
-        for (&key, &hash) in &warm {
-            let built = build_chunk(&alone, key, &alone.tin_tolerance()).unwrap();
-            assert_eq!(hash, built.content_hash(), "{key:?}");
+            let progress = *app
+                .world_mut()
+                .query::<&TerrainProgress>()
+                .single(app.world())
+                .unwrap();
+            if progress.settled {
+                break;
+            }
         }
+        // Every chunk drawn now, and every stand-in it replaced, was
+        // reported.
+        let mut chunks = app.world_mut().query::<&TerrainChunk>();
+        let drawn: Vec<ChunkKey> = chunks.iter(app.world()).map(|c| c.key).collect();
+        for key in &drawn {
+            assert!(reported.contains(key), "{key}");
+        }
+        assert!(reported.len() > drawn.len(), "stand-ins were replaced");
     }
 
     #[test]
@@ -1756,17 +1358,14 @@ mod tests {
             .world_mut()
             .spawn((TerrainViewer, Transform::from_xyz(0.0, 40.0, 0.0)))
             .id();
-        settle(&mut app, 2000);
-        fn state(app: &App, stream: Entity) -> &StreamState {
-            app.world().get::<StreamState>(stream).unwrap()
-        }
+        settle(&mut app, 3000);
 
-        // Settled and still: the last choice kept the target, so the next
-        // frames don't choose again, and the target stays.
-        let target = state(&app, stream).stream.target.clone();
+        // Settled and still: the last choice kept the chunks wanted, so the
+        // next frames don't choose again, and they stay.
+        let selection = state(&app, stream).selection.clone();
         app.update();
         assert!(state(&app, stream).unchanged_from.is_some());
-        assert!(state(&app, stream).stream.target == target);
+        assert!(state(&app, stream).selection == selection);
 
         // Moved far: the chunks are chosen again around the new place.
         app.world_mut()
@@ -1778,15 +1377,22 @@ mod tests {
         for _ in 0..3 {
             app.update();
         }
-        assert!(state(&app, stream).stream.target != target);
-        settle(&mut app, 2000);
+        assert!(state(&app, stream).selection != selection);
+        settle(&mut app, 3000);
 
         // Skipping changes nothing: choosing afresh from the same inputs
-        // gives the target the stream holds.
+        // gives the chunks the stream holds.
         let state = state(&app, stream);
         let (levels, factor, positions) = state.unchanged_from.clone().unwrap();
-        let again = ChunkSelection::around(&levels, factor, &positions, Some(&state.stream.target))
-            .unwrap();
-        assert!(again == state.stream.target);
+        let again =
+            ChunkSelection::around(&levels, factor, &positions, Some(&state.selection)).unwrap();
+        assert!(again == state.selection);
+        let flat: Vec<DVec2> = positions.iter().map(|p| DVec2::new(p.x, p.z)).collect();
+        let radius =
+            app.world()
+                .resource::<TerrainSettings>()
+                .radii
+                .around(factor, &flat, &state.radius);
+        assert!(radius == state.radius);
     }
 }

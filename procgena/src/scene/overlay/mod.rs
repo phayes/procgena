@@ -238,10 +238,11 @@ fn areas(
         .iter_descendants(root)
         .filter_map(|entity| {
             if let Ok(chunk) = chunks.get(entity) {
+                // Every terrain chunk is built from the finest ground.
                 let key: ChunkKey = chunk.key;
                 Some((
                     entity,
-                    AreaKey::new(key.min_corner(), key.size(), chunk.level),
+                    AreaKey::new(key.min_corner(), key.size(), FeatureLevel::FINEST),
                 ))
             } else {
                 marked
@@ -545,8 +546,7 @@ mod tests {
     use bevy::asset::AssetPlugin;
     use bevy::math::DVec3;
     use procgena_terrain::{
-        Elevation, RegionId, SampleDetail, TerrainPreset, Transitions, WorldTerrain,
-        WorldTerrainOptions,
+        Elevation, RegionId, SampleDetail, TerrainPreset, WorldTerrain, WorldTerrainOptions,
     };
 
     use super::*;
@@ -578,14 +578,7 @@ mod tests {
         let root = app.world_mut().spawn(source(world)).id();
         let chunks = chunk_keys().map(|key| {
             app.world_mut()
-                .spawn((
-                    TerrainChunk {
-                        key,
-                        transitions: Transitions::NONE,
-                        level: FeatureLevel::COARSEST,
-                    },
-                    ChildOf(root),
-                ))
+                .spawn((TerrainChunk { key }, ChildOf(root)))
                 .id()
         });
         app.insert_resource(OverlayRoot(Some(root)));

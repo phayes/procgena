@@ -39,12 +39,10 @@
 //!   print how long coarse ground stayed under and near the camera; then
 //!   exit (with `--screenshot`, after an image taken at the end of the
 //!   flight, still moving);
-//! - `--tin`: draw the finest chunks from their canonical meshes (see
-//!   `TerrainStream::tin`); `--measure` then also counts those chunks;
-//!   `--tin-level <name>` picks how closely they follow the ground
-//!   (`dense`, `general`, `low_poly` or `very_low_poly`), and
-//!   `--tin-error <m>` how far open land may stray from it; either implies
-//!   `--tin`;
+//! - `--tin-level <name>`: how closely the chunks' canonical meshes follow
+//!   the ground (`dense`, `general`, `low_poly` or `very_low_poly`;
+//!   default `general`), and `--tin-error <m>` how far open land may stray
+//!   from it at level 0;
 //! - `--headless`: with `--screenshot` or `--measure`, render a
 //!   1280 × 720 image without opening a window.
 
@@ -70,8 +68,8 @@ use procgena_terrain::{
     WorldTerrain, WorldTerrainOptions,
 };
 use procgena_terrain_bevy::{
-    CanonicalChunk, TerrainChunk, TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream,
-    TerrainViewer, TerrainWater,
+    TerrainChunk, TerrainDebug, TerrainPlugin, TerrainProgress, TerrainStream, TerrainViewer,
+    TerrainWater,
 };
 
 /// Frames to wait after every chunk is drawn before a screenshot, so
@@ -136,9 +134,6 @@ struct Scene {
     world: Option<WorldTerrain>,
     eye: Vec3,
     target: Vec3,
-    /// Draw the finest chunks from their canonical meshes (within the
-    /// world's tolerance).
-    tin: bool,
     headless: bool,
 }
 
@@ -180,10 +175,9 @@ fn main() {
             _ => TerrainPreset::mountains().terrain.clone(),
         }
     };
-    let tin = tin_tolerance(has("--tin"), value("--tin-level"), value("--tin-error"));
     let options = WorldTerrainOptions {
         seed: value("--seed").map_or(1, |s| s.parse().expect("--seed needs a number")),
-        tin: tin.unwrap_or(TinTolerance::GENERAL),
+        tin: tin_tolerance(value("--tin-level"), value("--tin-error")),
         ..WorldTerrainOptions::default()
     };
     let world = WorldTerrain::new(options, Arc::new(source)).expect("a valid world");
@@ -301,7 +295,6 @@ fn main() {
             })),
             eye,
             target,
-            tin: tin.is_some(),
             headless,
         })
         .add_systems(Startup, setup)
@@ -312,18 +305,14 @@ fn main() {
         .run();
 }
 
-/// The canonical meshes' tolerance from the options, or `None` without
-/// any TIN option: `--tin` alone gives [`TinTolerance::GENERAL`],
-/// `--tin-level <name>` a named level, and `--tin-error <m>` sets how far
-/// open land may stray (either implies `--tin`).
+/// The canonical meshes' tolerance from the options:
+/// [`TinTolerance::GENERAL`], or the level named by `--tin-level <name>`,
+/// with `--tin-error <m>` setting how far open land may stray.
 ///
 /// # Panics
 ///
 /// On an unknown level name, or an error that isn't a positive number.
-fn tin_tolerance(tin: bool, level: Option<String>, error: Option<String>) -> Option<TinTolerance> {
-    if !tin && level.is_none() && error.is_none() {
-        return None;
-    }
+fn tin_tolerance(level: Option<String>, error: Option<String>) -> TinTolerance {
     let mut tolerance = level.map_or(TinTolerance::GENERAL, |name| {
         TinTolerance::named(&name)
             .expect("--tin-level needs dense, general, low_poly or very_low_poly")
@@ -332,7 +321,7 @@ fn tin_tolerance(tin: bool, level: Option<String>, error: Option<String>) -> Opt
         tolerance.general.height = error.parse().expect("--tin-error needs metres");
     }
     assert!(tolerance.is_valid(), "invalid TIN tolerance {tolerance:?}");
-    Some(tolerance)
+    tolerance
 }
 
 /// Spawns the terrain, the camera and the light.
@@ -343,10 +332,7 @@ fn setup(
     mut scene: ResMut<Scene>,
 ) {
     let world = scene.world.take().expect("set up once");
-    commands.spawn(TerrainStream {
-        tin: scene.tin,
-        ..TerrainStream::world(world)
-    });
+    commands.spawn(TerrainStream::world(world));
 
     let mut camera = commands.spawn((
         Camera3d::default(),
@@ -430,9 +416,6 @@ fn toggle_debug(
 struct LevelFigures {
     chunks: usize,
     triangles: usize,
-    /// Chunks drawn from their canonical meshes, and their triangles.
-    canonical: usize,
-    canonical_triangles: usize,
     /// The nearest point of the nearest and of the farthest chunk, in
     /// metres from the camera.
     nearest: f32,
@@ -447,13 +430,7 @@ fn measure(
     path: Res<ScreenshotPath>,
     time: Res<Time<Real>>,
     progress: Query<&TerrainProgress>,
-    chunks: Query<(
-        &TerrainChunk,
-        &Mesh3d,
-        &GlobalTransform,
-        &Aabb,
-        Has<CanonicalChunk>,
-    )>,
+    chunks: Query<(&TerrainChunk, &Mesh3d, &GlobalTransform, &Aabb)>,
     meshes: Res<Assets<Mesh>>,
     camera: Query<(&GlobalTransform, &Projection, &Camera), With<TerrainViewer>>,
     fly: Option<Res<Fly>>,
@@ -487,7 +464,7 @@ fn measure(
     };
     let eye = eye.translation();
     let mut levels: std::collections::BTreeMap<u8, LevelFigures> = default();
-    for (chunk, mesh, transform, aabb, canonical) in &chunks {
+    for (chunk, mesh, transform, aabb) in &chunks {
         let triangles = meshes
             .get(&mesh.0)
             .and_then(|m| m.indices())
@@ -501,10 +478,6 @@ fn measure(
         });
         row.chunks += 1;
         row.triangles += triangles;
-        if canonical {
-            row.canonical += 1;
-            row.canonical_triangles += triangles;
-        }
         row.nearest = row.nearest.min(distance);
         row.farthest = row.farthest.max(distance);
     }
@@ -537,12 +510,6 @@ fn measure(
         );
         chunks_all += row.chunks;
         triangles_all += row.triangles;
-        if row.canonical > 0 {
-            println!(
-                "       level {level}: {} chunks canonical, {} triangles (skirts and split sides included)",
-                row.canonical, row.canonical_triangles
-            );
-        }
     }
     println!("total  {chunks_all} chunks, {triangles_all} triangles");
     let mut times = measure.times.clone();

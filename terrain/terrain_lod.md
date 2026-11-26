@@ -334,7 +334,10 @@ and the copy would then rest on ground that isn't drawn.
 ## Open choices
 
 1. **The build radii and the tree cap**: defaults above, for the user to
-   review.
+   review. Until placement moves to the TIN (stage 3), the radii are a
+   setting of the stream's plugin (`TerrainPlugin::with_build_radii`).
+   Where they live after that, likely `WorldTerrainOptions` since Scatters
+   clamp to them, is decided then.
 2. **Edge and carve levels** per feature type: defaults above; later kinds
    (gullies, stamps, paths, cliffs, lakes) declare their own.
 3. **Labels per placement level.** A label reads its level's TIN with a

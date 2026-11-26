@@ -1,5 +1,5 @@
-//! Canonical ground in a stream: finest-level chunks drawn from their
-//! canonical meshes, and how they meet the regular chunks around them.
+//! Canonical ground in a stream: each chunk, at every level, built and
+//! drawn from its canonical mesh.
 
 use std::fmt;
 use std::sync::Arc;
@@ -10,31 +10,33 @@ use procgena_terrain::tin::{
     ContractCache, ResidentTins, TinError, TinIndex, TinTolerance, build_chunk_with,
 };
 use procgena_terrain::{
-    ChunkError, ChunkFeature, ChunkKey, ChunkMesh, ChunkSamples, ChunkSide, ChunkSource,
-    FeatureKind, FeatureLevel, Transitions, WaterMesh,
+    ChunkError, ChunkFeature, ChunkKey, ChunkMesh, ChunkSamples, ChunkSource, FeatureKind,
+    FeatureLevel, Transitions, WaterMesh,
 };
 
-/// The canonical ground a [`TerrainStream`](crate::TerrainStream) has
-/// loaded, on the stream's entity: the finest-level chunks it draws from
-/// their canonical meshes (see [`TerrainStream::tin`](crate::TerrainStream::tin)).
+use crate::levels::Ground;
+
+/// The ground a [`TerrainStream`](crate::TerrainStream) draws now, on the
+/// stream's entity: the canonical mesh of every drawn chunk, at every level.
 ///
-/// Ask it for the physical ground near the viewers: where collision meets
-/// the ground, and where nearby copies come to rest. It answers only for
-/// the chunks loaded now, which follow the viewers, and never builds or
-/// reads ground to answer. Placement, masks and slope tests read the
-/// terrain's own ground instead.
+/// Ask it where things rest on the ground you see: where collision meets
+/// the ground near the viewers, and what height copies of Scatters stand
+/// at, at any distance. Drawn chunks never overlap, so each point has one
+/// answer, from the chunk drawn there. It answers only for the chunks
+/// drawn now, which follow the viewers, and never builds or reads ground to
+/// answer. When the drawn ground changes, the stream sends a
+/// [`TerrainChanged`](crate::TerrainChanged) naming where.
 #[derive(Component, Debug, Clone, Default)]
 pub struct CanonicalGround {
-    /// The loaded chunks.
+    /// The drawn chunks.
     pub tins: ResidentTins,
 }
 
-/// A finest-level chunk's canonical mesh, ready to draw.
-#[derive(Clone)]
+/// A chunk's canonical mesh, ready to draw.
 pub(crate) struct TinRead {
     pub(crate) index: Arc<TinIndex>,
     /// One shading normal for each vertex.
-    normals: Arc<Vec<Vec3>>,
+    normals: Vec<Vec3>,
     /// The water over the chunk, from its regular samples.
     water: Option<WaterMesh>,
 }
@@ -43,7 +45,7 @@ impl TinRead {
     /// Builds chunk `key`'s canonical mesh from `source` within its
     /// [`tin_tolerance`](ChunkSource::tin_tolerance), taking edge contracts
     /// from `contracts` (which must hold only `source`'s), with its shading
-    /// normals and its water.
+    /// normals, and its water at level 0.
     pub(crate) fn build(
         source: &(impl ChunkSource + ?Sized),
         key: ChunkKey,
@@ -53,13 +55,15 @@ impl TinRead {
         let tolerance = source.tin_tolerance();
         let chunk = build_chunk_with(&source, key, &tolerance, contracts)?;
         let normals = chunk.shading_normals(&source)?;
-        // The mesh has no rivers or ponds of its own yet, so their water
-        // comes from the regular samples, read only where a river or pond
-        // reaches the chunk.
-        let wet = source
-            .lines_within(key.min_corner(), key.max_corner(), FeatureLevel::FINEST)
-            .iter()
-            .any(|f| f.id.kind != FeatureKind::Road);
+        // The mesh has no rivers or ponds of its own yet, so at level 0
+        // their water comes from the chunk's regular samples, read only
+        // where a river or pond reaches it. Coarser levels draw no water
+        // until the mesh carries it.
+        let wet = key.level == 0
+            && source
+                .lines_within(key.min_corner(), key.max_corner(), FeatureLevel::FINEST)
+                .iter()
+                .any(|f| f.id.kind != FeatureKind::Road);
         let water = if wet {
             ChunkSamples::sample(&source, key, FeatureLevel::FINEST)?
                 .mesh(Transitions::NONE, 0.0)
@@ -69,15 +73,14 @@ impl TinRead {
         };
         Ok(Self {
             index: Arc::new(TinIndex::new(Arc::new(chunk))),
-            normals: Arc::new(normals),
+            normals,
             water,
         })
     }
 
-    /// The mesh to draw, with `split` sides split for regular neighbours and
-    /// skirts `skirt` metres deep.
-    pub(crate) fn mesh(&self, split: &[ChunkSide], skirt: f32) -> ChunkMesh {
-        let mut mesh = self.index.chunk().render_mesh(&self.normals, split, skirt);
+    /// The mesh to draw, with skirts `skirt` metres deep.
+    pub(crate) fn mesh(&self, skirt: f32) -> ChunkMesh {
+        let mut mesh = self.index.chunk().render_mesh(&self.normals, &[], skirt);
         if let Some(water) = &self.water {
             for p in &water.positions {
                 mesh.heights.0 = mesh.heights.0.min(p.y);
@@ -87,11 +90,45 @@ impl TinRead {
         }
         mesh
     }
+}
 
+impl Ground for TinRead {
     /// The canonical height under `p`, if it is in this chunk.
-    pub(crate) fn height(&self, p: DVec2) -> Option<f32> {
+    fn height(&self, p: DVec2) -> Option<f32> {
         Some(self.index.sample(p)?.height as f32)
     }
+}
+
+/// The largest height difference between `a` (drawn for chunk `a_key`) and
+/// `b` (for `b_key`) along the stretch of side they share, sampled at the
+/// finer chunk's step; 0 if they share no stretch of side.
+pub(crate) fn edge_gap(
+    (a_key, a): (ChunkKey, &impl Ground),
+    (b_key, b): (ChunkKey, &impl Ground),
+) -> f32 {
+    let (a_lo, a_hi) = (a_key.min_corner(), a_key.max_corner());
+    let (b_lo, b_hi) = (b_key.min_corner(), b_key.max_corner());
+    let lo = a_lo.max(b_lo);
+    let hi = a_hi.min(b_hi);
+    // A shared stretch of side is a segment: one coordinate equal, the
+    // other a range of positive length.
+    let along = hi - lo;
+    if !(along.x == 0.0 && along.y > 0.0 || along.y == 0.0 && along.x > 0.0) {
+        return 0.0;
+    }
+    let step = a_key.step().min(b_key.step());
+    let samples = (along.length() / step).round() as usize;
+    // A point on the shared side, nudged 1 cm into each chunk, since a
+    // chunk owns only some of its sides.
+    let inside = |p: DVec2, lo: DVec2, hi: DVec2| p.clamp(lo + 0.01, hi - 0.01);
+    (0..=samples)
+        .filter_map(|i| {
+            let p = lo + along * (i as f64 / samples as f64);
+            let ha = a.height(inside(p, a_lo, a_hi))?;
+            let hb = b.height(inside(p, b_lo, b_hi))?;
+            Some((ha - hb).abs())
+        })
+        .fold(0.0, f32::max)
 }
 
 /// Lets a source of unknown size be passed where `&dyn ChunkSource` is
@@ -121,9 +158,20 @@ impl<S: ChunkSource + ?Sized> ChunkSource for AsDyn<'_, S> {
     fn tin_tolerance(&self) -> TinTolerance {
         self.0.tin_tolerance()
     }
+    fn level_changes(&self, key: ChunkKey, from: FeatureLevel, to: FeatureLevel) -> bool {
+        self.0.level_changes(key, from, to)
+    }
+    fn level_change_known(
+        &self,
+        key: ChunkKey,
+        from: FeatureLevel,
+        to: FeatureLevel,
+    ) -> Option<bool> {
+        self.0.level_change_known(key, from, to)
+    }
 }
 
-/// Why a chunk could not be read.
+/// Why a chunk could not be built.
 #[derive(Debug, Clone)]
 pub(crate) enum ReadError {
     Chunk(ChunkError),
@@ -145,45 +193,9 @@ impl From<TinError> for ReadError {
 impl fmt::Display for ReadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Chunk(error) => error.fmt(f),
+            Self::Chunk(error) => write!(f, "its water failed: {error}"),
             Self::Tin(error) => write!(f, "its canonical mesh failed: {error}"),
         }
-    }
-}
-
-/// How a drawn chunk meets canonical chunks beside it.
-#[derive(Clone, Default)]
-pub(crate) struct Seams {
-    /// For a canonical chunk: its sides that meet a regular chunk.
-    pub(crate) split: Vec<ChunkSide>,
-    /// For a regular chunk: the canonical chunks it touches.
-    pub(crate) tins: Vec<Arc<TinIndex>>,
-}
-
-impl Seams {
-    /// Whether these seams mesh a chunk the same way as `other`.
-    pub(crate) fn same_as(&self, other: &Self) -> bool {
-        self.split == other.split
-            && self.tins.len() == other.tins.len()
-            && self
-                .tins
-                .iter()
-                .zip(&other.tins)
-                .all(|(a, b)| Arc::ptr_eq(a, b))
-    }
-}
-
-/// Whether `other` touches chunk `key` along a stretch of its `side`, not
-/// just at a corner.
-pub(crate) fn along_side(key: ChunkKey, side: ChunkSide, other: ChunkKey) -> bool {
-    let (lo, hi) = (key.min_corner(), key.max_corner());
-    let (a, b) = (other.min_corner(), other.max_corner());
-    let overlaps = |lo1: f64, hi1: f64, lo2: f64, hi2: f64| lo1 < hi2 && lo2 < hi1;
-    match side {
-        ChunkSide::MinX => b.x == lo.x && overlaps(lo.y, hi.y, a.y, b.y),
-        ChunkSide::MaxX => a.x == hi.x && overlaps(lo.y, hi.y, a.y, b.y),
-        ChunkSide::MinZ => b.y == lo.y && overlaps(lo.x, hi.x, a.x, b.x),
-        ChunkSide::MaxZ => a.y == hi.y && overlaps(lo.x, hi.x, a.x, b.x),
     }
 }
 
@@ -283,5 +295,24 @@ mod tests {
         let read =
             TinRead::build(&field, key, &ContractCache::new(&field.tin_tolerance())).unwrap();
         assert!(read.water.is_some(), "the river's water is drawn");
+    }
+
+    /// Flat ground at `height`, everywhere.
+    struct Level(f32);
+
+    impl Ground for Level {
+        fn height(&self, _: DVec2) -> Option<f32> {
+            Some(self.0)
+        }
+    }
+
+    #[test]
+    fn the_gap_between_chunks_is_read_only_along_a_shared_side() {
+        let coarse = ChunkKey::new(0, 0, 1);
+        let beside = ChunkKey::new(2, 0, 0);
+        let corner = ChunkKey::new(2, 2, 0);
+        assert_eq!(edge_gap((coarse, &Level(3.0)), (beside, &Level(1.5))), 1.5);
+        assert_eq!(edge_gap((beside, &Level(1.5)), (coarse, &Level(3.0))), 1.5);
+        assert_eq!(edge_gap((coarse, &Level(3.0)), (corner, &Level(0.0))), 0.0);
     }
 }

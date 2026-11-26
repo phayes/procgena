@@ -26,8 +26,6 @@
 //!   Higher levels cover coarser chunks. Rough detail omits roads; mid detail
 //!   uses coarse road routes. Rough takes precedence; other levels finish at
 //!   fine detail.
-//! - `--tin` requests adaptive triangle meshes for the finest chunks at fine
-//!   detail, instead of the default regular meshes.
 //! - `--roads` turns roads on in every region, and `--rivers <n>` gives
 //!   every region `n` river sources per km². The built-in presets have
 //!   neither.
@@ -43,13 +41,14 @@
 //!   thread, region, stage, event type, and stage duration in seconds. Start
 //!   events have a duration of zero.
 //! - `frames.csv`: one row per recorded frame, with elapsed seconds, frame
-//!   duration in milliseconds, and counts of drawn, refining, wanted, and reading
-//!   chunks. It also records the finest drawn level (`-1` if none), the number
-//!   of chunks at that level, how many meet the final-detail check, and the
-//!   total number using adaptive meshes (`canonical`). With `--tin`, the
-//!   final-detail check also requires an adaptive mesh.
+//!   duration in milliseconds, and counts of drawn, refining (drawn by a
+//!   coarser chunk for now), wanted (to draw), building (to draw or within a
+//!   build radius) and reading chunks. It also records the finest drawn level
+//!   (`-1` if none) and the number of chunks at that level.
 //!
-//! A console summary accompanies the files. Recording ends when loading settles
+//! A console summary accompanies the files: when the first chunk and the
+//! first level-0 chunk were drawn, when loading settled, the ground points the
+//! stream read, and the triangles drawn. Recording ends when loading settles
 //! with at least one drawn chunk, or when the timeout is observed.
 
 use std::fmt::Write as _;
@@ -71,8 +70,7 @@ use procgena_terrain::{
     WorldTerrain, WorldTerrainOptions,
 };
 use procgena_terrain_bevy::{
-    CanonicalChunk, RegionTracker, TerrainChunk, TerrainPlugin, TerrainProgress, TerrainStream,
-    TerrainViewer,
+    RegionTracker, TerrainChunk, TerrainPlugin, TerrainProgress, TerrainStream, TerrainViewer,
 };
 
 /// Shared starting point for elapsed times, initialized at entry to `main`.
@@ -108,10 +106,6 @@ struct Timeline {
     long_total: f64,
     /// Longest recorded frame duration, in seconds.
     longest_frame: f64,
-    /// Which tier each chunk level finishes at.
-    tier_levels: TierLevels,
-    /// Whether the finest-level milestone also requires adaptive meshes.
-    tin: bool,
     /// World retained for the optional road count after recording ends.
     footprint: Option<Arc<WorldTerrain>>,
     /// The source the stream reads, counting its ground reads.
@@ -281,7 +275,6 @@ fn main() {
         rough_from: value("--rough-from").map(|v| v.parse().expect("--rough-from needs a level")),
         mid_from: value("--mid-from").map(|v| v.parse().expect("--mid-from needs a level")),
     };
-    let tin = has("--tin");
     let world = Arc::new(world.with_tier_levels(tier_levels));
     let reads = Arc::new(Counting {
         world: Arc::clone(&world),
@@ -289,7 +282,6 @@ fn main() {
         calls: AtomicU64::new(0),
     });
     let stream = TerrainStream {
-        tin,
         regions: Some(tracker),
         ..TerrainStream::new(reads.clone())
     };
@@ -316,7 +308,7 @@ fn main() {
         .insert_resource(Timeline {
             dir,
             events,
-            frames: "t,frame_ms,drawn,refining,wanted,reading,finest_level,finest,finest_final,canonical\n"
+            frames: "t,frame_ms,drawn,refining,wanted,building,reading,finest_level,finest\n"
                 .to_owned(),
             first_picture: None,
             near_final: None,
@@ -325,8 +317,6 @@ fn main() {
             long_frames: 0,
             long_total: 0.0,
             longest_frame: 0.0,
-            tier_levels,
-            tin,
             footprint: has("--footprint").then_some(world),
             reads,
         })
@@ -363,7 +353,7 @@ fn record(
     mut timeline: ResMut<Timeline>,
     time: Res<Time<Real>>,
     progress: Query<&TerrainProgress>,
-    chunks: Query<(&TerrainChunk, Has<CanonicalChunk>, &Mesh3d)>,
+    chunks: Query<(&TerrainChunk, &Mesh3d)>,
     meshes: Res<Assets<Mesh>>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -373,30 +363,22 @@ fn record(
     };
     let frame = f64::from(time.delta_secs());
 
-    // Find the most detailed level currently drawn (the smallest level number).
-    // Count chunks at their requested feature detail; with --tin, also require
-    // an adaptive mesh for the finest-level milestone.
-    let finest_level = chunks.iter().map(|(c, _, _)| c.key.level).min();
-    let final_level = |level: u8| timeline.tier_levels.canonical(FeatureLevel(level));
-    let (mut finest, mut finest_final, mut canonical) = (0, 0, 0);
-    for (chunk, is_canonical, _) in &chunks {
-        canonical += usize::from(is_canonical);
-        if Some(chunk.key.level) == finest_level {
-            finest += 1;
-            let tier_done = chunk.level == final_level(chunk.key.level);
-            if tier_done && (!timeline.tin || is_canonical) {
-                finest_final += 1;
-            }
-        }
-    }
+    // The most detailed level drawn now (the smallest level number), and
+    // how many chunks are drawn at it.
+    let finest_level = chunks.iter().map(|(c, _)| c.key.level).min();
+    let finest = chunks
+        .iter()
+        .filter(|(c, _)| Some(c.key.level) == finest_level)
+        .count();
 
     // Append one CSV row, then update the console progress and milestone times.
     let row = format!(
-        "{t:.3},{:.2},{},{},{},{},{},{finest},{finest_final},{canonical}\n",
+        "{t:.3},{:.2},{},{},{},{},{},{},{finest}\n",
         frame * 1000.0,
         progress.drawn,
         progress.refining,
         progress.wanted,
+        progress.building,
         progress.reading,
         finest_level.map_or(-1, i32::from),
     );
@@ -416,9 +398,9 @@ fn record(
         timeline.first_picture = Some(t);
         println!("first picture at {t:.2} s ({} chunks)", progress.drawn);
     }
-    if timeline.near_final.is_none() && finest > 0 && finest == finest_final {
+    if timeline.near_final.is_none() && finest_level == Some(0) {
         timeline.near_final = Some(t);
-        println!("finest level {finest_level:?} final ({finest} chunks) at {t:.2} s");
+        println!("level 0 first drawn at {t:.2} s ({finest} chunks)");
     }
     let timed_out = t > timeline.timeout;
     if progress.settled && progress.drawn > 0 || timed_out {
@@ -429,8 +411,8 @@ fn record(
             println!("settled at {t:.2} s ({} chunks)", progress.drawn);
         }
         println!(
-            "chunk reads: {} sampled, {} promoted without a read",
-            progress.sampled, progress.promoted
+            "chunks: {} drawn, {} built (drawn or within a build radius)",
+            progress.drawn, progress.building
         );
         println!(
             "ground reads: {} points in {} calls",
@@ -439,7 +421,7 @@ fn record(
         );
         // Triangles drawn, skirts included, by chunk level.
         let mut triangles: std::collections::BTreeMap<u8, (usize, usize)> = Default::default();
-        for (chunk, _, mesh) in &chunks {
+        for (chunk, mesh) in &chunks {
             let count = meshes
                 .get(&mesh.0)
                 .and_then(Mesh::indices)
@@ -456,7 +438,7 @@ fn record(
         println!();
         write_files(&timeline);
         if let Some(world) = &timeline.footprint {
-            let keys: Vec<_> = chunks.iter().map(|(c, _, _)| c.key).collect();
+            let keys: Vec<_> = chunks.iter().map(|(c, _)| c.key).collect();
             count_road_chunks(world, &keys);
         }
         exit.write(AppExit::Success);
