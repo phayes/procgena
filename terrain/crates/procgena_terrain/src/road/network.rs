@@ -262,7 +262,8 @@ pub struct RoadSegment {
 /// A place where a road meets a river: the road stops at a node on each
 /// bank, and the gap between them is left for the caller to span (with a
 /// bridge, a ford or anything else). The ground and the river between the
-/// two nodes are left as they are.
+/// two nodes are left as they are. A road that runs through the pond a
+/// river ends in crosses that river there too.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RiverCrossing {
     /// The [`RiverBank`](RoadNodeKind::RiverBank) nodes on either side,
@@ -272,7 +273,8 @@ pub struct RiverCrossing {
     pub origin: RoadNodeId,
     /// The river crossed, as an index into the terrain's rivers.
     pub river: usize,
-    /// The river's water level where the road crosses it, in metres.
+    /// The river's water level where the road crosses it (or the pond's,
+    /// when it crosses the river's pond), in metres.
     pub water_level: f32,
 }
 

@@ -511,16 +511,25 @@ fn roads_cross_a_river_again_only_to_save_a_long_way_round() {
     );
 }
 
-/// Roads stop at both banks where they cross a river: no carved road runs
-/// over a river, and each crossing's banks lie on either side of it.
+/// Distance from `p` to the segment from `a` to `b`.
+fn segment_distance(a: DVec2, b: DVec2, p: DVec2) -> f64 {
+    let ab = b - a;
+    let t = ((p - a).dot(ab) / ab.length_squared().max(1e-12)).clamp(0.0, 1.0);
+    p.distance(a + ab * t)
+}
+
+/// Roads stop at both banks where they cross a river or the pond it ends
+/// in: no carved road runs over a river or through a pond, and each
+/// crossing's banks lie on either side of its river, or of its river's
+/// pond.
 #[test]
 fn roads_leave_the_rivers_they_cross_open() {
     let mut crossings = 0;
     for (w, world) in worlds().iter().enumerate() {
         for t in world.terrains() {
             for road in t.roads() {
-                for river in t.rivers() {
-                    for a in road.points.windows(2) {
+                for a in road.points.windows(2) {
+                    for river in t.rivers() {
                         for b in river.points.windows(2) {
                             assert!(
                                 !segments_cross(a[0], a[1], b[0], b[1]),
@@ -529,6 +538,14 @@ fn roads_leave_the_rivers_they_cross_open() {
                                 a[0]
                             );
                         }
+                    }
+                    for pond in t.ponds() {
+                        assert!(
+                            segment_distance(a[0], a[1], pond.centre) >= pond.radius,
+                            "world {w}, region {}: a road runs through the pond at {}",
+                            t.region().id.0,
+                            pond.centre
+                        );
                     }
                 }
             }
@@ -539,16 +556,71 @@ fn roads_leave_the_rivers_they_cross_open() {
                     .banks
                     .map(|id| network.node(id).expect("bank").position);
                 let river = &t.rivers()[crossing.river];
+                let over_river = river
+                    .points
+                    .windows(2)
+                    .any(|r| segments_cross(a, b, r[0], r[1]));
+                // The pond the river ends in, if any.
+                let mouth = *river.points.last().expect("rivers have points");
+                let over_pond = t.ponds().iter().any(|pond| {
+                    mouth.distance(pond.centre) < pond.radius
+                        && segment_distance(a, b, pond.centre) < pond.radius
+                });
                 assert!(
-                    river
-                        .points
-                        .windows(2)
-                        .any(|r| segments_cross(a, b, r[0], r[1])),
-                    "world {w}, region {}: banks {a} and {b} are on one side of the river",
-                    t.region().id.0
+                    over_river || over_pond,
+                    "world {w}, region {}: banks {a} and {b} are on one side of river {} \
+                     and its pond",
+                    t.region().id.0,
+                    crossing.river
                 );
             }
         }
     }
     assert!(crossings > 0, "the test worlds should have river crossings");
+}
+
+/// The content hashes of every road network in `world`, by region.
+fn network_hashes(world: &StitchedWorld) -> Vec<(u64, u64)> {
+    world
+        .terrains()
+        .iter()
+        .map(|t| (t.region().id.0, t.road_network().content_hash()))
+        .collect()
+}
+
+/// A world's road networks hash the same however many threads build it.
+/// Run with and without the `rayon` feature, `--nocapture` prints the
+/// hashes, which must also match between the two builds.
+#[test]
+fn road_networks_are_the_same_on_any_number_of_threads() {
+    let build = || {
+        RIVER_SEEDS
+            .iter()
+            .flat_map(|&s| network_hashes(&hills_into_plains(s, WITH_LAND[0])))
+            .collect::<Vec<_>>()
+    };
+    let hashes = build();
+    println!("road network hashes: {hashes:x?}");
+    assert!(
+        RIVER_SEEDS.iter().any(|&s| {
+            hills_into_plains(s, WITH_LAND[0])
+                .terrains()
+                .iter()
+                .any(|t| !t.road_network().crossings.is_empty())
+        }),
+        "the river worlds should have road networks with crossings"
+    );
+    assert_eq!(build(), hashes, "a second build should hash the same");
+    #[cfg(feature = "rayon")]
+    for threads in [1, 3, 8] {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .expect("a thread pool");
+        assert_eq!(
+            pool.install(build),
+            hashes,
+            "on {threads} threads the networks should hash the same"
+        );
+    }
 }

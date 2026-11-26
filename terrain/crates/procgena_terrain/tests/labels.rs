@@ -158,7 +158,14 @@ fn water_and_roads_get_their_labels() {
             for pond in terrain.ponds() {
                 if terrain.region().boundary.contains(pond.centre) {
                     let labels = terrain.annotate(pond.centre);
-                    assert_eq!(labels.landform, Landform::Pondbed, "{}", pond.centre);
+                    assert_eq!(
+                        labels.landform,
+                        Landform::Pondbed,
+                        "{}: water {:?}, road tags {:?}, pond {pond:?}",
+                        pond.centre,
+                        terrain.water_level(pond.centre),
+                        terrain.road_tags(pond.centre).names()
+                    );
                     assert!(labels.flags.contains(Flags::UNDERWATER | Flags::POND));
                     ponds += 1;
                 }

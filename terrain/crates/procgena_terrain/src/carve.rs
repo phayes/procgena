@@ -938,7 +938,14 @@ impl Features {
         // order the pieces are listed in.
         for part in parts {
             if part.id.kind == FeatureKind::Road {
-                let (d, half_width, _, _) = self.road_at(part.index, part.segment, p);
+                // The true distance to the surface's edge, not the
+                // stretched one that fades the carving past an open end.
+                let road = &self.roads[part.index as usize];
+                let s = part.segment as usize;
+                let (d, t) = segment_position(road, s, p);
+                let half_width = 0.5
+                    * (f64::from(road.widths[s])
+                        + (f64::from(road.widths[s + 1]) - f64::from(road.widths[s])) * t);
                 nearby.road_distance = nearby.road_distance.min((d - half_width).max(0.0));
             } else if let Some((gap, _)) = water_at(part) {
                 let nearer = gap < nearby.water_distance

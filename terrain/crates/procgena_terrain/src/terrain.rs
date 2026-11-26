@@ -596,7 +596,7 @@ impl Terrain {
                 &self.generator.relief,
                 &self.region,
                 &self.paired(),
-                &self.hydrology.rivers,
+                &self.hydrology,
                 &|p| self.base_height(p),
             );
             self.roads = Some(Arc::new(outline.roads.clone()));
@@ -613,7 +613,7 @@ impl Terrain {
                 &self.generator.relief,
                 &self.region,
                 &self.paired(),
-                &self.hydrology.rivers,
+                &self.hydrology,
                 &|p| self.base_height(p),
                 &outline,
             );

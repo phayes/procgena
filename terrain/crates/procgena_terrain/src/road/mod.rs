@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use glam::DVec2;
 
-use crate::carve::{FeatureLine, PointOfInterest, bank_for};
+use crate::carve::{FeatureLine, PointOfInterest, Pond, bank_for};
 use crate::grid::Grid;
 use crate::options::RoadGrades;
 use crate::ports::FEATURE_CLEARANCE;
@@ -81,6 +81,14 @@ pub(crate) struct RoadStart {
     pub min_width: f32,
     /// The tightest bend the road should take, in metres.
     pub min_radius: f32,
+}
+
+/// The water roads cross or keep clear of: rivers, and the ponds where
+/// they end.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Waters<'a> {
+    pub rivers: &'a [FeatureLine],
+    pub ponds: &'a [Pond],
 }
 
 /// Where a region's roads lead.
@@ -163,8 +171,9 @@ impl RouteStats {
 
 /// Links every start to a hub near the middle of the region, or to a road
 /// already linked, over `grid` (heights of the bent terrain, which
-/// `ground` gives at any point). Roads cross `rivers` as seldom as they
-/// reasonably can, and `grades` gives the road grades at a point. Roads
+/// `ground` gives at any point). Roads cross the rivers of `waters` as
+/// seldom as they reasonably can, and `grades` gives the road grades at a
+/// point. Roads
 /// stay at least [`FEATURE_CLEARANCE`] from the border, apart from the
 /// straight first leg from each start.
 ///
@@ -173,11 +182,12 @@ impl RouteStats {
 ///
 /// Each road is fitted with straights and arcs of at least its start's
 /// `min_radius` where the ground leaves room (tighter bends are listed as
-/// sharp bends), and stops at both banks of each river it crosses.
+/// sharp bends), and stops clear of the water (ponds included) on both
+/// banks of each river it crosses.
 pub(crate) fn route(
     grid: &Grid,
     starts: &[RoadStart],
-    rivers: &[FeatureLine],
+    waters: Waters,
     hub: Hub,
     grades: &(dyn Fn(DVec2) -> RoadGrades + Sync),
     ground: &(dyn Fn(DVec2) -> f32 + Sync),
@@ -219,6 +229,7 @@ pub(crate) fn route(
             unused
         }
     });
+    let rivers = waters.rivers;
     let river = water(grid, rivers);
     let bridges = Bridges::new(grid, rivers);
     let terrain = Terrain {
@@ -231,7 +242,7 @@ pub(crate) fn route(
     let mut scratch = Scratch::new(&allowed);
     stats.setup_time = setup_started.elapsed();
 
-    let river_index = RiverIndex::new(rivers);
+    let river_index = RiverIndex::new(rivers, waters.ponds);
     let mut network = vec![false; grid.heights.len()];
     network[hub] = true;
     // Cells over a river gap: no road may join there.
@@ -475,7 +486,7 @@ impl Routes {
 pub(crate) fn coarse_routes(
     polygon: &[DVec2],
     starts: &[RoadStart],
-    rivers: &[FeatureLine],
+    waters: Waters,
     hub: RoadNodeId,
     grades: &(dyn Fn(DVec2) -> RoadGrades + Sync),
     ground: &(dyn Fn(DVec2) -> f32 + Sync),
@@ -487,7 +498,7 @@ pub(crate) fn coarse_routes(
         at: None,
         node: hub,
     };
-    let mut routes = route(&grid, starts, rivers, hub, grades, ground);
+    let mut routes = route(&grid, starts, waters, hub, grades, ground);
     routes.stats.grid_time = grid_time;
     routes
 }
@@ -502,7 +513,7 @@ pub(crate) fn refined_routes(
     coarse: &Routes,
     cell: f64,
     starts: &[RoadStart],
-    rivers: &[FeatureLine],
+    waters: Waters,
     grades: &(dyn Fn(DVec2) -> RoadGrades + Sync),
     ground: &(dyn Fn(DVec2) -> f32 + Sync),
 ) -> Routes {
@@ -527,7 +538,7 @@ pub(crate) fn refined_routes(
         at: Some(hub_at),
         node: hub,
     };
-    let mut routes = route(&grid, starts, rivers, hub, grades, ground);
+    let mut routes = route(&grid, starts, waters, hub, grades, ground);
     routes.stats.grid_time = grid_time;
     routes
 }
@@ -743,6 +754,12 @@ mod tests {
     use crate::carve::{FeatureKind, PoiKind};
     use search::segments_meet;
 
+    /// No rivers or ponds.
+    const DRY: Waters = Waters {
+        rivers: &[],
+        ponds: &[],
+    };
+
     /// The hub of the test roads: near the middle, node 1.
     const HUB: Hub = Hub {
         at: None,
@@ -783,7 +800,7 @@ mod tests {
             grade: 0.04,
             max_grade: 0.08,
         };
-        let Routes { roads, end, .. } = route(&grid, &starts, &[], HUB, &grades, &ground);
+        let Routes { roads, end, .. } = route(&grid, &starts, DRY, HUB, &grades, &ground);
         assert_eq!(roads.len(), 2);
         // The network ends at the hub, where the first road arrives.
         let (hub, level) = end.expect("the roads reach the hub");
@@ -835,7 +852,10 @@ mod tests {
         let routes = route(
             &grid,
             &[start],
-            std::slice::from_ref(&river),
+            Waters {
+                rivers: std::slice::from_ref(&river),
+                ponds: &[],
+            },
             HUB,
             &grades,
             &ground,
@@ -942,6 +962,60 @@ mod tests {
     }
 
     #[test]
+    fn a_road_keeps_clear_of_a_pond_in_its_way() {
+        // A river from the west edge ending in a pond right on the road's
+        // way north to the hub.
+        let polygon = [
+            DVec2::ZERO,
+            DVec2::new(2000.0, 0.0),
+            DVec2::new(2000.0, 2000.0),
+            DVec2::new(0.0, 2000.0),
+        ];
+        let ground = |_: DVec2| 0.0;
+        let grid = Grid::with_cell(&polygon, ground, 8.0);
+        let pond = Pond {
+            centre: DVec2::new(1000.0, 500.0),
+            level: 0.0,
+            radius: 16.0,
+            depth: 2.0,
+        };
+        let river = FeatureLine {
+            kind: FeatureKind::River,
+            points: vec![DVec2::new(0.0, 500.0), pond.centre],
+            levels: vec![0.0; 2],
+            widths: vec![6.0; 2],
+            depth: 1.0,
+        };
+        let grades = |_| RoadGrades {
+            grade: 0.04,
+            max_grade: 0.08,
+        };
+        let waters = Waters {
+            rivers: std::slice::from_ref(&river),
+            ponds: std::slice::from_ref(&pond),
+        };
+        let start = start(10, DVec2::new(1000.0, 70.0), 0.0);
+        let routes = route(&grid, &[start], waters, HUB, &grades, &ground);
+
+        // The road passes the pond close by...
+        let closest = routes.roads[0]
+            .points
+            .iter()
+            .map(|p| p.distance(pond.centre) - pond.radius)
+            .fold(f64::INFINITY, f64::min);
+        assert!(closest < 6.0, "the road keeps {closest} m from the pond");
+
+        // ...but no carved road comes within 6 m of it.
+        assert!(!routes.carved.is_empty());
+        for road in &routes.carved {
+            for &p in &road.line.points {
+                let gap = p.distance(pond.centre) - pond.radius;
+                assert!(gap >= 6.0 - 1e-9, "{p} is {gap} m from the pond");
+            }
+        }
+    }
+
+    #[test]
     fn a_road_that_joins_another_splits_it_at_a_junction() {
         let polygon = [
             DVec2::ZERO,
@@ -961,7 +1035,7 @@ mod tests {
             grade: 0.04,
             max_grade: 0.08,
         };
-        let routes = route(&grid, &starts, &[], HUB, &grades, &ground);
+        let routes = route(&grid, &starts, DRY, HUB, &grades, &ground);
         let network = &routes.network;
         let junctions: Vec<&RoadNode> = network
             .nodes
@@ -1022,7 +1096,7 @@ mod tests {
             grade: 0.04,
             max_grade: 0.08,
         };
-        let routes = route(&grid, &starts, &[], HUB, &grades, &ground);
+        let routes = route(&grid, &starts, DRY, HUB, &grades, &ground);
         let sharp: Vec<DVec2> = routes
             .points_of_interest
             .iter()

@@ -17,7 +17,7 @@ use crate::relief::Relief;
 use crate::river::{End, Occupied, Traced, Tracing, trace_inbound, trace_own};
 use crate::road::{
     AlignmentPiece, RoadId, RoadNetwork, RoadNode, RoadNodeId, RoadNodeKind, RoadSegment,
-    RoadStart, RoadStation, RouteStats, Routes, along_mean, coarse_routes, distance_along,
+    RoadStart, RoadStation, RouteStats, Routes, Waters, along_mean, coarse_routes, distance_along,
     refined_routes,
 };
 use crate::seam::{EdgeAgreement, EdgeSample, smooth};
@@ -89,7 +89,7 @@ const BEND_SHARE: f64 = 0.4;
 const ROAD_CELL: f64 = 8.0;
 
 /// Tags mixed into road node ids: the hub's, and a border piece's ends.
-const HUB_TAG: u64 = 0x6875_62;
+const HUB_TAG: u64 = 0x0068_7562;
 const BORDER_TAG: u64 = 0x626f_7264;
 const PIECE_TAG: u64 = 0x7069_6563;
 /// The smallest depth a river may cut through a rise, in metres.
@@ -671,7 +671,7 @@ pub(crate) fn road_outline(
     relief: &Relief,
     region: &Region,
     agreements: &[(usize, &EdgeAgreement)],
-    rivers: &[FeatureLine],
+    hydrology: &Hydrology,
     base: &(dyn Fn(DVec2) -> f32 + Sync),
 ) -> RoadOutline {
     let Boundary::Polygon(polygon) = &region.boundary else {
@@ -680,7 +680,7 @@ pub(crate) fn road_outline(
     let starts = road_starts(options, region, agreements);
     let grades = |p| relief.road_grades(p);
     let hub = hub_node(region);
-    let routes = coarse_routes(polygon, &starts, rivers, hub, &grades, base);
+    let routes = coarse_routes(polygon, &starts, waters(hydrology), hub, &grades, base);
     let (lines, end) = (routes.roads.clone(), routes.end);
     RoadOutline {
         roads: finish_roads(routes, region, agreements),
@@ -704,7 +704,7 @@ pub(crate) fn roads(
     relief: &Relief,
     region: &Region,
     agreements: &[(usize, &EdgeAgreement)],
-    rivers: &[FeatureLine],
+    hydrology: &Hydrology,
     base: &(dyn Fn(DVec2) -> f32 + Sync),
     outline: &RoadOutline,
 ) -> Roads {
@@ -721,8 +721,24 @@ pub(crate) fn roads(
         points_of_interest: Vec::new(),
         stats: outline.roads.stats,
     };
-    let fine = refined_routes(polygon, &coarse, ROAD_CELL, &starts, rivers, &grades, base);
+    let fine = refined_routes(
+        polygon,
+        &coarse,
+        ROAD_CELL,
+        &starts,
+        waters(hydrology),
+        &grades,
+        base,
+    );
     finish_roads(fine, region, agreements)
+}
+
+/// The rivers and ponds of `hydrology`, for the roads to cross.
+fn waters(hydrology: &Hydrology) -> Waters<'_> {
+    Waters {
+        rivers: &hydrology.rivers,
+        ponds: &hydrology.ponds,
+    }
 }
 
 /// Where the region's roads start: the region's end of each road

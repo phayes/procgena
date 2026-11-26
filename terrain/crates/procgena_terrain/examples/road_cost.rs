@@ -273,7 +273,7 @@ fn print_stats(label: &str, s: &RouteStats) {
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;
     println!(
         "    {label:<7} cells {} active {:.0}% starts {} unconnected {} searches {} \
-         pushed {} popped {} refused {} crowded {}/{} peak {:.1} MB",
+         pushed {} popped {} refused {} crowded {}/{} sharp bends {} crossings {} peak {:.1} MB",
         s.grid_cells,
         100.0 * s.active_cells as f64 / s.grid_cells.max(1) as f64,
         s.starts,
@@ -284,6 +284,8 @@ fn print_stats(label: &str, s: &RouteStats) {
         s.refused_joins,
         s.crowded_retries,
         s.crowded_kept,
+        s.sharp_bends,
+        s.river_crossings,
         s.peak_state_bytes as f64 / 1e6,
     );
     println!(
@@ -346,6 +348,8 @@ struct Summary {
     searches: usize,
     popped: u64,
     crowded_kept: usize,
+    sharp_bends: usize,
+    river_crossings: usize,
     search_ms: Vec<f64>,
     total_ms: Vec<f64>,
     peak_bytes: usize,
@@ -361,6 +365,8 @@ impl Summary {
         self.searches += outline.searches + fine.searches;
         self.popped += outline.states_popped + fine.states_popped;
         self.crowded_kept += outline.crowded_kept + fine.crowded_kept;
+        self.sharp_bends += fine.sharp_bends;
+        self.river_crossings += fine.river_crossings;
         self.search_ms
             .push((outline.search_time + fine.search_time).as_secs_f64() * 1000.0);
         self.total_ms
@@ -380,13 +386,15 @@ impl Summary {
         let w = worst(&self.quality);
         println!(
             "summary over {} regions: ports {}/{} connected, searches {}, states popped {}, \
-             crowded kept {}, peak {:.1} MB",
+             crowded kept {}, sharp bends {}, river crossings {}, peak {:.1} MB",
             self.regions,
             self.starts - self.unconnected,
             self.starts,
             self.searches,
             self.popped,
             self.crowded_kept,
+            self.sharp_bends,
+            self.river_crossings,
             self.peak_bytes as f64 / 1e6,
         );
         println!(

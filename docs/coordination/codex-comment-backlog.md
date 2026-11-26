@@ -625,3 +625,20 @@ in these files (`git show <commits> -- <file>` shows which).
   `World::biomes`, `Choice`, `Mode`), `src/selection/{mod,sampling,suitability,compatibility,relaxation}.rs`
   (every item), `tests/selection.rs` (module docs), `examples/large_world.rs`
   (module docs, `Args::selection`).
+
+## procgena_terrain (RB4 canonical road network, 2026-11-25)
+
+- **RB4** (commit `7b119a9` and the commit after it):
+  `terrain/crates/procgena_terrain/src/road/network.rs` (every item),
+  `src/road/align.rs` (every item), `src/road/assemble.rs` (every item),
+  `src/road/mod.rs` (`RoadStart`, `Waters`, `Hub`, `Routes`,
+  `RouteStats::sharp_bends`, `RouteStats::river_crossings`, `route`,
+  `coarse_routes`, `refined_routes`, `level_middle`), `src/carve.rs`
+  (`Features::new`, `OPEN_END`, `past_open_end`, `PoiKind`,
+  `PointOfInterest::partner`, `Features::nearby`), `src/plan.rs`
+  (`HUB_TAG`, `BORDER_TAG`, `PIECE_TAG`, `hub_node`, `piece_nodes`,
+  `add_piece`, `waters`, `Roads`), `src/terrain.rs` (`Terrain::roads`,
+  `Terrain::road_network`), `src/options.rs` (`RoadOptions::min_radius`,
+  `MAX_ROAD_RADIUS`), `tests/features.rs` (`segment_distance`,
+  `network_hashes`, `roads_leave_the_rivers_they_cross_open`,
+  `road_networks_are_the_same_on_any_number_of_threads`, `along_river`).

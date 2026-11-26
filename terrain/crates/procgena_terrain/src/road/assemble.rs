@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 use glam::DVec2;
 
-use crate::carve::{FeatureKind, FeatureLine, PoiKind, PointOfInterest};
+use crate::carve::{FeatureKind, FeatureLine, PoiKind, PointOfInterest, Pond};
 use crate::hash::mix64;
 
 use super::network::{
@@ -123,12 +123,26 @@ impl Planned {
 pub(super) struct RiverIndex<'a> {
     rivers: &'a [FeatureLine],
     buckets: HashMap<(i64, i64), Vec<(u32, u32)>>,
+    /// Each pond, with the river that ends in it, if any.
+    ponds: Vec<(&'a Pond, Option<usize>)>,
 }
 
 impl<'a> RiverIndex<'a> {
     /// Indexes `rivers`, each segment in every bucket within its half width
-    /// plus [`CROSSING_MARGIN`].
-    pub fn new(rivers: &'a [FeatureLine]) -> Self {
+    /// plus [`CROSSING_MARGIN`], and `ponds`, each with the river that ends
+    /// in it (the first whose last point lies in the pond).
+    pub fn new(rivers: &'a [FeatureLine], ponds: &'a [Pond]) -> Self {
+        let ponds = ponds
+            .iter()
+            .map(|pond| {
+                let river = rivers.iter().position(|r| {
+                    r.points
+                        .last()
+                        .is_some_and(|&end| end.distance(pond.centre) <= pond.radius)
+                });
+                (pond, river)
+            })
+            .collect();
         let mut buckets: HashMap<(i64, i64), Vec<(u32, u32)>> = HashMap::new();
         for (r, river) in rivers.iter().enumerate() {
             for s in 0..river.points.len().saturating_sub(1) {
@@ -145,30 +159,49 @@ impl<'a> RiverIndex<'a> {
                 }
             }
         }
-        Self { rivers, buckets }
+        Self {
+            rivers,
+            buckets,
+            ponds,
+        }
     }
 
-    /// How far `p` is from the water of river `river`, in metres (0 in the
-    /// water), if within [`CROSSING_MARGIN`] of it.
-    fn gap_to(&self, river: usize, p: DVec2) -> Option<f64> {
+    /// Whether `p` is within [`CROSSING_MARGIN`] of the water of river
+    /// `river` or of any pond.
+    fn wet(&self, river: usize, p: DVec2) -> bool {
         let line = &self.rivers[river];
-        self.buckets
-            .get(&bucket(p))?
-            .iter()
-            .filter(|&&(r, _)| r as usize == river)
-            .map(|&(_, s)| {
+        let near_river = self.buckets.get(&bucket(p)).is_some_and(|parts| {
+            parts.iter().any(|&(r, s)| {
                 let s = s as usize;
-                let (d, _) = closest(line.points[s], line.points[s + 1], p);
-                (d - half_width(line, s)).max(0.0)
+                r as usize == river && {
+                    let (d, _) = closest(line.points[s], line.points[s + 1], p);
+                    d - half_width(line, s) < CROSSING_MARGIN
+                }
             })
-            .min_by(f64::total_cmp)
-            .filter(|&g| g < CROSSING_MARGIN)
+        });
+        near_river
+            || self
+                .ponds
+                .iter()
+                .any(|(pond, _)| p.distance(pond.centre) - pond.radius < CROSSING_MARGIN)
+    }
+
+    /// Where the step from `a` to `b` first meets water: the first river
+    /// centre line it crosses, or failing that a pond it enters (as the
+    /// river that ends there), with the water level there.
+    fn crossing(&self, a: DVec2, b: DVec2) -> Option<(usize, f32)> {
+        self.river_crossing(a, b).or_else(|| {
+            self.ponds.iter().find_map(|&(pond, river)| {
+                let (d, _) = closest(a, b, pond.centre);
+                (d < pond.radius).then_some(river?).map(|r| (r, pond.level))
+            })
+        })
     }
 
     /// Where the step from `a` to `b` crosses a river's centre line: the
     /// first crossing along the step, as the river and its water level
     /// there.
-    fn crossing(&self, a: DVec2, b: DVec2) -> Option<(usize, f32)> {
+    fn river_crossing(&self, a: DVec2, b: DVec2) -> Option<(usize, f32)> {
         let (lo, hi) = (bucket(a.min(b)), bucket(a.max(b)));
         let mut best: Option<(f64, usize, usize, f32)> = None;
         for x in lo.0..=hi.0 {
@@ -230,8 +263,9 @@ fn intersection(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> Option<(f64, f64)> {
 }
 
 /// The river gaps along a road through `points` (stations, `along` metres
-/// along it): wherever it crosses a river, from the last station before
-/// the river that is at least [`CROSSING_MARGIN`] from the water to the
+/// along it): wherever it crosses a river or enters the pond at a river's
+/// end, from the last station before that is at least [`CROSSING_MARGIN`]
+/// from the river and every pond to the
 /// first such station after it. Gaps that would overlap are merged; a gap
 /// that would reach the road's first or last station is left out, and the
 /// road there keeps the ground filled.
@@ -249,18 +283,18 @@ pub(super) fn gaps(rivers: &RiverIndex, points: &[DVec2], along: &[f64]) -> Vec<
         let mut from = i;
         while from > 0
             && along[i] - along[from] < CROSSING_SEARCH
-            && rivers.gap_to(river, points[from]).is_some()
+            && rivers.wet(river, points[from])
         {
             from -= 1;
         }
         let mut to = i + 1;
         while to < last
             && along[to] - along[i + 1] < CROSSING_SEARCH
-            && rivers.gap_to(river, points[to]).is_some()
+            && rivers.wet(river, points[to])
         {
             to += 1;
         }
-        let dry = |k: usize| rivers.gap_to(river, points[k]).is_none();
+        let dry = |k: usize| !rivers.wet(river, points[k]);
         if from == 0 || to == last || !dry(from) || !dry(to) {
             i = to.max(i + 1);
             continue;
