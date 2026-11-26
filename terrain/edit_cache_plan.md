@@ -780,9 +780,11 @@ bugs after TE3, comemo's tracked-view idea is worth copying by hand (see
 
 ## Border negotiation per tier (decided 2026-11-24, user)
 
-**Parked (user, 2026-11-25).** The user may come back to this. TE4a and
-TE4b are on hold, and question 10 stays open until then. The rest of the
-plan does not depend on it.
+**Parked (user, 2026-11-25): a performance improvement, built only if it
+turns out to be needed.** Until then borders are negotiated once. TE4a
+and TE4b are on hold, and question 10 stays open until then. The rest of
+the plan does not depend on it. This section is the design's only home
+(ARCHITECTURE.md points here).
 
 **The decision.** Borders are negotiated per tier, rough, then mid, then
 fine, at the feature tiers' granularities. Far regions never settle their

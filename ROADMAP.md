@@ -1646,9 +1646,8 @@ recommendations accepted).
   in release: 23 region plans, 9 region builds, roads in 2 regions and
   86 chunks.
 - **The order:** stop wasted work first, then show a provisional
-  preview, then a content-keyed stage cache. Then border negotiation per
-  tier (TE4a and TE4b, decided 2026-11-24) and a faster road search
-  (TE5).
+  preview, then a content-keyed stage cache, and a faster road search
+  (TE5). Border negotiation per tier (TE4a and TE4b) is parked.
 - **The GPU:** it takes the per-point drawing work (ground weights and
   the preview), never the plans.
 - **Names:** TE (terrain edits), to keep clear of S1 (Streaming).
@@ -1721,12 +1720,11 @@ recommendations accepted).
 
 #### TE4a: Relief bands
 
-**Parked (user, 2026-11-25), with TE4b.** The user may come back to
-per-tier negotiation; until then neither step is scheduled.
-
-Border negotiation per tier was decided by the user on 2026-11-24 (see
-ARCHITECTURE.md, "Border negotiation per tier", and the plan's section of
-that name). TE4 is built as two steps; this is the first.
+**Parked (user, 2026-11-25), with TE4b:** a performance improvement, built
+only if it turns out to be needed. Until then borders are negotiated
+once. Design: [terrain/edit_cache_plan.md](terrain/edit_cache_plan.md),
+"Border negotiation per tier". TE4 would be built as two steps; this is
+the first.
 
 - **Covers:**
   - Each relief layer in the presets gets a band cut: low-band octaves,
@@ -1767,9 +1765,6 @@ that name). TE4 is built as two steps; this is the first.
   - TE4a;
   - the user's answer to question 10 of the plan (exact low-pass for the
     relief, bounded for carving).
-
-  TE5 should land first, since both edit the road planning. That is a
-  file-sharing order, with no arrow in the graph.
 - **Done when:**
   - a region drawn fine beside a rough neighbour, then beside a fine
     one, gives bit-identical heights (load independence);
@@ -2333,7 +2328,7 @@ a cell run in order within the wave.
 | 8 | C3; R4; B1; I2; X1 (Scatter part); ED; R3a → R3's remaining asset parts (deadwood → mushroom → tree); GP (after C3 and plant P4; D2's owed timing runs any time); W1; S1 (single Biome; see GP's question); GM3; GM4 (B1 part); ST1; ST2; ST4; ST7a; ST8; IX Step 4 and Step 5 | Each studio milestone works in its own folder under `procgena/src/studio/`, so up to three run at once. ST1's per-crate metadata workers wait for the crate's other writers. ST4 touches `procgena_impostor` and agrees it with IX. ST2's move from `&'static` presets to owned ones, if needed, is a workspace churn window of its own. R3a works in `stone/` plus one studio feature flag. |
 | 9 | S1 (World-wide); X1 (Biome and World hooks); GM4 (W1 part); GM5; ST3; ST5a; ST6 (with GM2's texture catalogue); ST7b (after IX's chain preview); IX2 and FF (after IX's experiment); Later | ST5b follows X1's `part()`; ST9 follows B1 and W1. |
 | Terrain results (any wave with no other terrain work in flight) | G7 → RS; LK; TE6; TE7 | Each changes terrain results everywhere, so each runs in a wave of its own. LK, TE6 and CT3 share the river, plan and carve files, so they run one at a time. |
-| TE (from wave 8) | TE1 → TE2 → TE3 → TE3b (TE4a → TE4b parked by the user, 2026-11-25); TE5 beside them, landing before TE4b; GPU2 (after GM1 and G4a); GPU1 (after TE2) | The terrain editing track, decided 2026-11-24, with border negotiation per tier (TE4a, TE4b). TE4a also edits the presets and `noise.rs`/`relief.rs`. TE1–TE4b all edit `world.rs`, `procgena_terrain_bevy`'s stream and the studio's terrain scene, so they run one at a time. TE1 waits for GM1 to merge, since both touch the Bevy crate and the scene. TE5 keeps to the road files and lands before TE4. GPU2 works in new shader and Bevy files beside the CPU painter, so it can run beside TE2 or TE3. |
+| TE (from wave 8) | TE1 → TE2 → TE3 → TE3b; GPU2 (after GM1 and G4a); GPU1 (after TE2); TE4a → TE4b parked, only if needed | The terrain editing track, decided 2026-11-24. TE1–TE3 all edit `world.rs`, `procgena_terrain_bevy`'s stream and the studio's terrain scene, so they run one at a time. GPU2 works in new shader and Bevy files beside the CPU painter, so it can run beside TE2 or TE3. |
 
 | CR (from now) | RB0 → RB1, with RB3 beside RB1 (done); D6 (decided); CT0 → CT1 → CT2 (done) → CT3, and RB4 → RB5, meeting at CT4 → CT5; RB2 deferred | The canonical ground and roads track (2026-11-25). CT0–CT2 live in new modules, or a new crate if CT0 decides so (added to the workspace members only after its files exist). CT3 shares the river and carve files with TE6, and CT5 shares the Bevy stream with TE1–TE3, so those pairs run one at a time. |
 
