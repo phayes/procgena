@@ -71,6 +71,7 @@ use procgena_terrain::{
 };
 use procgena_terrain_bevy::{
     RegionTracker, TerrainChunk, TerrainPlugin, TerrainProgress, TerrainStream, TerrainViewer,
+    TerrainWater,
 };
 
 /// Shared starting point for elapsed times, initialized at entry to `main`.
@@ -354,6 +355,7 @@ fn record(
     time: Res<Time<Real>>,
     progress: Query<&TerrainProgress>,
     chunks: Query<(&TerrainChunk, &Mesh3d)>,
+    water: Query<(), With<TerrainWater>>,
     meshes: Res<Assets<Mesh>>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -418,6 +420,13 @@ fn record(
             "ground reads: {} points in {} calls",
             timeline.reads.points.load(Ordering::Relaxed),
             timeline.reads.calls.load(Ordering::Relaxed)
+        );
+        // Level-0 chunks with water read their 67 × 67 regular samples
+        // once for it, on top of their canonical mesh: included above.
+        let wet = water.iter().count();
+        println!(
+            "  of which water: {wet} level-0 chunks × 4,489 points = {}",
+            wet * 4489
         );
         // Triangles drawn, skirts included, by chunk level.
         let mut triangles: std::collections::BTreeMap<u8, (usize, usize)> = Default::default();
