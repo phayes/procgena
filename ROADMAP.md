@@ -2203,10 +2203,12 @@ in a `tin` module of `procgena_terrain`.
     | rolling hills | 447 | 67 / 239 mm | 91 / 271 mm |
     | mountains | 1,405 | 84 / 377 mm | 122 / 485 mm |
 
-  - **Open-land slope:** checking it at §7's 0.05
-    (`tin_cost --gradient 0.05`) takes rolling hills from 66 to 2,923
-    triangles and mountains from 657 to 6,569, so `GENERAL` leaves it
-    unchecked until the user decides.
+  - **Open-land slope (decided by the user, 2026-11-25): off.**
+    `GENERAL` checks slope only within the water band. Checking open
+    land at §7's 0.05 (`tin_cost --gradient 0.05`) takes rolling hills
+    from 66 to 2,923 triangles per chunk and mountains from 657 to
+    6,569. Placement, labels and shading read the exact ground, so they
+    don't need it.
 
 #### RB4: Canonical road network and alignments
 
