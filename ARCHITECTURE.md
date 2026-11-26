@@ -1955,7 +1955,7 @@ it starts.
   −45° for things on slopes, or 0° (today's upper hemisphere) for low
   things seen mostly from above. Deadwood and mushroom do the same if
   they ever gain an impostor. View coverage is built (see "Impostor bake
-  options"): `default_tree_impostor()` declares −45° at 10 × 10 views and
+  options"): `default_tree_impostor()` declares −45° at 8 × 8 views and
   `default_stone_impostor()` −45° at 8 × 8.
 - [x] **Fruit as an attached asset** ([fruit/plan.md](fruit/plan.md)):
   the `procgena_fruit` crate (cluster builder and meshers, in the cluster

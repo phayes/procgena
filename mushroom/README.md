@@ -8,7 +8,7 @@ scattered over another generator's surface, each at several levels of detail.
 | Crate | What it does |
 |---|---|
 | `procgena_mushroom` | Options and presets, meshes at any detail, clusters, scatter, OBJ/glTF export |
-| `procgena_mushroom_bevy` | Bevy plugin: background building, distance-based detail switching, material and shaders |
+| `procgena_mushroom_bevy` | Bevy plugin: background building, detail and impostors switched by size on screen, material and shaders |
 
 All lengths are in metres, Y is up, and a mushroom's stem base sits at the origin.
 
@@ -18,8 +18,8 @@ All lengths are in metres, Y is up, and a mushroom's stem base sits at the origi
 use procgena_mushroom::{Mushroom, MushroomDetail, MushroomPreset};
 
 let mushroom = Mushroom::from_preset(MushroomPreset::fly_agaric()).unwrap();
-let close = mushroom.mesh(); // the detail in the options: full by default
-let far = mushroom.mesh_with_detail(&MushroomDetail::FLAT).unwrap();
+let close = mushroom.mesh(); // the game level in the options: HIGH by default
+let far = mushroom.mesh_with_detail(&MushroomDetail::LOW).unwrap();
 println!("{} vs {} triangles", close.triangle_count(), far.triangle_count());
 ```
 
@@ -83,24 +83,19 @@ Read one with `MushroomPreset::from_yaml(key, text)`, and write one with
 
 ## Levels of detail
 
-Distant mushrooms don't need fine detail, so renderers swap in simpler meshes as
-the camera moves away. Every level follows the same shape, so the mushroom keeps
-its outline when it switches.
+A mushroom's preset sets its game level (`MushroomOptions::game_level`,
+`HIGH` by default): its real shape, which picking, growing things on it and
+its impostor use. Renderers also draw one coarser mesh when the mushroom is
+small on screen, then an impostor. Every detail follows the same shape, so the
+mushroom keeps its outline when it switches.
 
-| Detail | Surfaces | Use |
-|---|---|---|
-| `FULL`, `HIGH` | Closed (watertight) cap and stem | Close up |
-| `MEDIUM`, `LOW` | Open cap and stem | Middle distance |
-| `FLAT` | Open six-sided cap and a flat stem strip that turns toward the camera; about 40 triangles | Far away, or thousands at once |
-| `BILLBOARD` | One triangle for the stem and one for the cap, turned toward the camera, vertex colours only | Farthest |
+| Detail | Surfaces |
+|---|---|
+| `FULL`, `HIGH` | Closed (watertight) cap and stem |
+| `MEDIUM`, `LOW` | Open cap and stem |
 
-`MushroomLod` says which detail to draw at which distance;
-`MushroomLod::for_size(size)` scales the defaults to the mushroom's size.
-`Mushroom::lod_meshes(&lod)` builds one mesh per level.
-
-Shapes that turn toward the camera are a `BillboardMesh`: the shapes plus the
-data a renderer needs to keep them facing the camera. Renderers that can't turn
-them can draw the fixed crossing copies instead.
+`Mushroom::mesh` builds the game level, `Mushroom::lod` gives the game level
+and its lower detail, and `Mushroom::mesh_with_detail` builds any other.
 
 ## Clusters and scatter
 
@@ -195,8 +190,8 @@ cargo test -p procgena_mushroom_bevy --test gpu -- --include-ignored
 
 ## Status
 
-The procgena studio has a Mushrooms tab for designing mushrooms and exporting
-them. See [plan.md](plan.md) for the design, what is done, and what is left.
+The procgena studio edits mushrooms as a kind, and exports them. What is
+left is in [ROADMAP.md](../ROADMAP.md).
 
 ## Credits
 

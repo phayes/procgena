@@ -112,25 +112,28 @@ trees near the camera, and `--mode click` the tree you click.
 
 ## Far trees as impostors
 
-Beyond 120 m, trees are drawn as impostors: one flat quad per tree showing a
-picture of the tree baked from the nearest of 64 directions, lit by the scene.
-This applies to groves and to single trees alike, and makes large groves
-several times cheaper to draw. Set the distance, or turn impostors off, with
-`TreePlugin::impostor`:
+When a tree is small on screen, it is drawn as an impostor: one flat quad
+per tree showing a picture of the tree, baked from its game-level mesh in
+8 × 8 directions covering viewers from straight above down to 45° below,
+and lit by the scene. This applies to Scatters and to single trees alike,
+and makes large Scatters several times cheaper to draw. Where the switch
+happens is the shared drawing chain's (size on screen, moved by the quality
+level), not the tree's. Change how impostors are baked, or turn them off,
+with `TreePlugin::impostor`:
 
 ```rust
 use bevy::prelude::*;
-use procgena_tree_bevy::{TreeImpostor, TreePlugin};
+use procgena_tree_bevy::TreePlugin;
 
 App::new().add_plugins(TreePlugin {
-    impostor: Some(TreeImpostor { distance: 200.0, ..default() }),
+    impostor: None, // draw each tree's lower mesh until it is culled
     ..default()
 });
 ```
 
 Each distinct tree is baked once, the first time it is generated, which takes
-a few frames; until then its farthest mesh level is drawn at every distance.
-Impostors don't sway in the wind.
+a few frames; until then its lower mesh is drawn until the tree is culled.
+Impostors cast no shadows and don't sway in the wind.
 
 Baked impostors are kept in memory. To keep them between runs, add
 `procgena_impostor::ImpostorPlugin` yourself, before `TreePlugin`, with a

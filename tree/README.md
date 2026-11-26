@@ -92,45 +92,29 @@ Deserializing `TreeOptions` directly with serde requires every field.
 
 ## Create simpler meshes
 
-Generate several levels of detail (LOD) from the same tree. Your renderer chooses
-which mesh to show based on camera distance.
+A tree has two meshes. `Tree::mesh` is its game level: the tree's real
+shape, set by `TreeOptions::game_level`, which colliders, picking and impostor
+bakes use. `Tree::lower_mesh` is a coarser mesh derived from it, drawn only
+when the tree is small on screen; beyond that, a renderer draws an impostor
+(see `procgena_tree_bevy`).
 
 ```rust
-use procgena_tree::{Tree, TreePreset, default_lod};
+use procgena_tree::{Tree, TreePreset};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tree = Tree::from_preset(TreePreset::ash_small())?;
-    for (level, mesh) in tree.lod_meshes(&default_lod().levels) {
-        println!(
-            "From distance {}: {} triangles",
-            level.distance,
-            mesh.triangle_count(),
-        );
-    }
+    println!("Game level: {} triangles", tree.triangle_count());
+    println!("Lower mesh: {} triangles", tree.lower_mesh().triangle_count());
     Ok(())
 }
 ```
 
-The four default levels use progressively simpler meshes at distances of 0, 10,
-25 and 50 metres for a tree 10 metres tall; a renderer scales these by each
-tree's height, so a 5 m tree switches at 5, 12.5 and 25 metres. Nothing is
-drawn beyond 1.5 km, scaled the same way. To choose your own mesh detail, pass a `LodDetail` to
-`Tree::mesh_with_detail`.
+`Tree::lod` gives both details. To build any other detail, pass a `LodDetail`
+to `Tree::mesh_with_detail`.
 
-Only LOD0 and LOD1 are meant for gameplay. Their trunk and branches are closed,
-outward-facing solids (`LodDetail::closed`), suitable for physics, collision and
-volumes. LOD2 and LOD3 are for drawing distant trees only: their bark is open
-and simplified, so don't build colliders or volumes from them.
-
-At 50 metres (LOD3), retained branches, leaves and fruit use flat shapes
-called billboards. A compatible renderer turns them toward the camera to help
-preserve the distant tree’s outline. `MeshBuffers::billboard` stores the rotation
-data; `TreeMesh::billboard_cull` stores crossed fallback shapes. Draw the fallback
-shapes only when the renderer does not rotate billboards. `procgena_tree_bevy` handles
-rotation and skips the fallback shapes automatically. glTF exports the data and
-`billboard` / `billboard_cull` node tags for compatible importers; ordinary viewers
-show the fixed shapes. OBJ exports fixed shapes, naming fallback objects
-`<part>_billboard_cull`.
+Only closed meshes (`LodDetail::closed`) are outward-facing solids suitable
+for physics, collision and volumes; the lower mesh's bark is open and
+simplified, so build colliders from the game level.
 If you only need branch shapes and leaf placements, use `Skeleton::generate`
 without building a mesh.
 

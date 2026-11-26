@@ -967,8 +967,7 @@ LOD model: the impostor is the last step of every asset's chain
   `Impostors::request` is the one bake path and cache, with a shared
   material per key. Stone's bake keeps its projected textures. Under IX
   every kind ends its chain in an impostor, single pieces and GPU pools
-  alike. `ViewCoverage`: trees declare −45° at 10 × 10 views and stone
-  −45° at 8 × 8; 0° reproduces the old layout. A tree seen from about 42°
+  alike. `ViewCoverage`: trees and stone declare −45° at 8 × 8 views; 0° reproduces the old layout. A tree seen from about 42°
   below, up a 40° hillside, shows a baked view from below. Not built:
   per-pool bake caps (they need the specimen budget's `N`, W1).
 

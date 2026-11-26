@@ -183,7 +183,7 @@ To give one tree an entity of its own, for a collider or to interact with
 it, spawn a `PromotedTree` with whatever the tree needs:
 
 ```rust,ignore
-commands.spawn((PromotedTree::new(grove, tree.id), MyCollider));
+commands.spawn((PromotedTree::new(grove, tree.address), MyCollider));
 ```
 
 The entity becomes an ordinary tree, drawn exactly like the grove's copy,
