@@ -2050,6 +2050,14 @@ bitwise identical.
   - Region search without a sort: the 25 nearby regions are tried
     nearest first, picked one at a time, so most points never order the
     rest. Same order and ties. → 8.60 / 8.81 / 10.34 G.
+  - Interior batches skip the region search: when a batch's bounding box
+    lies at least 1 cm inside one region's outline (an exact check that no
+    side of the outline meets the box), each point takes that region
+    wherever it is among the point's candidates. → 4.42 / 4.61 / 6.15 G,
+    about −60% in all from TB.
+- **Paused (user, 2026-11-26):** the query path may move to the TIN and
+  the GPU, so it is to be revamped; the gradient and Hessian sharing was
+  not started.
 
 #### TB: Cheap borders
 

@@ -17,7 +17,7 @@ use crate::feature::FeatureTier;
 use crate::graph::{EdgePolicy, RegionGraph, RegionGraphError, RegionGraphOptions, RegionKey};
 use crate::label::Labels;
 use crate::options::{OptionsError, RoadGrades, TerrainOptions};
-use crate::region::{CornerId, EdgeId, Region, RegionId};
+use crate::region::{Boundary, CornerId, EdgeId, Region, RegionId};
 use crate::scale::WorldScale;
 use crate::seam::{EdgeOffer, SeamError, negotiate};
 use crate::terrain::{
@@ -556,6 +556,19 @@ impl WorldTerrain {
         nearest_border.expect("there are candidates").1
     }
 
+    /// The region whose outline holds every one of `points` at least
+    /// [`BATCH_CLEARANCE`] inside, if there is one: the owner of the middle
+    /// of their bounding box, when its outline holds the whole box.
+    fn interior_owner(&self, points: &[DVec2]) -> Option<RegionKey> {
+        let (&first, rest) = points.split_first()?;
+        let (lo, hi) = rest
+            .iter()
+            .fold((first, first), |(lo, hi), &p| (lo.min(p), hi.max(p)));
+        let key = self.owner((lo + hi) * 0.5);
+        let grown = DVec2::splat(BATCH_CLEARANCE);
+        holds_box(&self.region_of(key).boundary, lo - grown, hi + grown).then_some(key)
+    }
+
     /// Finds every point's region, then holds each region's terrain once
     /// while sampling all points. Failed regions remain missing for the
     /// whole batch, just as in the point-at-a-time API.
@@ -566,7 +579,10 @@ impl WorldTerrain {
         sample: impl Fn(Option<&Terrain>, DVec2) -> T,
     ) -> Vec<T> {
         // Each point's owner, reusing the regions and nearby sites already
-        // looked up for the batch.
+        // looked up for the batch. Where the whole batch lies well inside
+        // one region's outline, every point is that region's wherever the
+        // region is among its candidates: no other outline can hold it.
+        let interior = self.interior_owner(points);
         let mut regions = HashMap::new();
         let mut sites = HashMap::new();
         let owners: Vec<RegionKey> = points
@@ -574,6 +590,11 @@ impl WorldTerrain {
             .map(|&p| {
                 let near = self.graph.cell_near(p);
                 let nearby = sites.entry(near).or_insert_with(|| self.nearby_sites(near));
+                if let Some(key) = interior
+                    && nearby.iter().any(|&(_, k)| k == key)
+                {
+                    return key;
+                }
                 self.owner_using(p, nearby, |key| {
                     regions
                         .entry(key)
@@ -874,6 +895,48 @@ impl Ground for WorldTerrain {
 /// One kept value, built once by whichever thread asks first, while any
 /// other thread asking waits for that build.
 ///
+/// How far inside a region's outline, in metres, every point of a sampling
+/// batch must lie for the batch to skip the search for each point's region:
+/// far beyond any rounding in the outline tests.
+const BATCH_CLEARANCE: f64 = 0.01;
+
+/// Whether `boundary` holds the whole box from `lo` to `hi`: no side of the
+/// outline meets the box, and the box's corner `lo` is inside. Always false
+/// for an unbounded boundary, which no world region has.
+fn holds_box(boundary: &Boundary, lo: DVec2, hi: DVec2) -> bool {
+    let Boundary::Polygon(points) = boundary else {
+        return false;
+    };
+    let mut sides = points.iter().zip(points.iter().cycle().skip(1));
+    let crossed = sides.any(|(&a, &b)| segment_meets_box(a, b, lo, hi));
+    // With no side inside it, the box is wholly in or wholly out.
+    !crossed && boundary.contains(lo)
+}
+
+/// Whether the segment from `a` to `b` meets the box from `lo` to `hi`
+/// (Liang–Barsky clipping).
+fn segment_meets_box(a: DVec2, b: DVec2, lo: DVec2, hi: DVec2) -> bool {
+    let d = b - a;
+    let (mut enter, mut leave) = (0.0_f64, 1.0_f64);
+    for (towards, room) in [
+        (-d.x, a.x - lo.x),
+        (d.x, hi.x - a.x),
+        (-d.y, a.y - lo.y),
+        (d.y, hi.y - a.y),
+    ] {
+        if towards == 0.0 {
+            if room < 0.0 {
+                return false;
+            }
+        } else if towards < 0.0 {
+            enter = enter.max(room / towards);
+        } else {
+            leave = leave.min(room / towards);
+        }
+    }
+    enter <= leave
+}
+
 /// A build runs on the thread that asked first and may read other values
 /// from the caches, but only values that come before it (regions and
 /// settings, then plans, then each tier in order), so no wait ever closes
@@ -958,6 +1021,38 @@ mod tests {
     /// Key `i` of the test caches.
     fn key(i: i32) -> RegionKey {
         RegionKey(IVec2::new(i, 0))
+    }
+
+    #[test]
+    fn a_box_is_held_only_when_no_side_reaches_it() {
+        // An L-shaped outline: the notch at the top right is outside.
+        let outline = Boundary::Polygon(
+            [
+                (0.0, 0.0),
+                (100.0, 0.0),
+                (100.0, 50.0),
+                (50.0, 50.0),
+                (50.0, 100.0),
+                (0.0, 100.0),
+            ]
+            .map(|(x, z)| DVec2::new(x, z))
+            .to_vec(),
+        );
+        let held = |lo: (f64, f64), hi: (f64, f64)| {
+            holds_box(&outline, DVec2::new(lo.0, lo.1), DVec2::new(hi.0, hi.1))
+        };
+        assert!(held((10.0, 10.0), (40.0, 90.0)));
+        assert!(held((10.0, 10.0), (90.0, 40.0)));
+        assert!(held((40.0, 40.0), (60.0, 45.0)));
+        // Reaching into the notch.
+        assert!(!held((10.0, 10.0), (60.0, 60.0)));
+        assert!(!held((45.0, 45.0), (55.0, 55.0)));
+        // Touching a side, or outside altogether.
+        assert!(!held((0.0, 10.0), (10.0, 20.0)));
+        assert!(!held((60.0, 60.0), (90.0, 90.0)));
+        assert!(!held((-20.0, -20.0), (-10.0, -10.0)));
+        // Unbounded land is never taken as held.
+        assert!(!holds_box(&Boundary::Unbounded, DVec2::ZERO, DVec2::ONE));
     }
 
     #[test]
