@@ -68,6 +68,17 @@ are the ones most worth a look.
    on the GPU from the TIN. Step 1a (skipping unused curvature) did land,
    bit-identical.
 
+## User decisions (2026-11-26, afternoon)
+
+- **Terrain paint is removed entirely.** The user: "Rip it all out. It's
+  fundamentally broken and wrong." Ground paint will be decided at the
+  Biome layer from labels and segmentation data, independent of
+  placement. The studio's terrain view is flat grey for now. The GM3
+  worker does the removal. The roadmap gets a new unscheduled milestone,
+  BP.
+- **`H*` stays as is.** Most work moves to the GPU via the TIN, and `H*`
+  may be revisited later. The GPU plan is being revised to be TIN-centred.
+
 ## Demo
 
 10. **Review: the play area.**
