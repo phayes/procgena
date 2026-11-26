@@ -7,8 +7,10 @@
 //! [`WorldOptions`] set the World's seed, its scale, how it is split into
 //! regions, the world elevation E, and how each region's Biome is chosen:
 //! smooth selector fields (ruggedness and moisture) read with E at each
-//! region's site, rules that turn those values into Biomes, and pins that
-//! set a region's Biome by hand. [`WorldPreset`] has ready-made settings for
+//! region, rules that turn those values into Biomes or, optionally,
+//! [weighted selection](BiomeSelectionOptions) that draws Biomes by how
+//! well they suit the fields and their neighbours, and pins that set a
+//! region's Biome by hand. [`WorldPreset`] has ready-made settings for
 //! each scale class, from small Minecraft-like worlds to real-life ones.
 //!
 //! This is an early version: Biomes are bare land for now, so a World is

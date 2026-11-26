@@ -239,7 +239,8 @@ mod tests {
 
     use super::*;
     use crate::options::{
-        BiomeSelectionOptions, BiomeSuitability, CompatibilityPair, SelectorFields,
+        BiomeCompatibility, BiomeSelectionOptions, BiomeSuitability, CompatibilityPair,
+        FieldPreference, SelectorFields,
     };
 
     /// The catalogue the tests choose from, in a deliberately unsorted
@@ -527,10 +528,64 @@ mod tests {
 
     #[test]
     fn selection_is_frozen() {
-        // Golden Biomes of a row of regions under the default settings: a
-        // change here changes every weighted World.
+        // Golden Biomes of a row of regions under fixed settings (the
+        // first-draft defaults of 2026-11-25, written out so tuning the
+        // defaults doesn't move this): a change here changes every
+        // weighted World.
+        let prefer = |centre, spread| Some(FieldPreference { centre, spread });
+        let pair = |a: &str, b: &str, weight| CompatibilityPair {
+            a: a.to_owned(),
+            b: b.to_owned(),
+            weight,
+        };
+        let options = BiomeSelectionOptions {
+            version: 1,
+            iterations: 3,
+            temperature: 0.8,
+            neighbour_strength: 1.5,
+            suitability: BTreeMap::from([
+                (
+                    "plains".to_owned(),
+                    BiomeSuitability {
+                        prevalence: 1.0,
+                        elevation: None,
+                        ruggedness: prefer(-0.5, 0.6),
+                        moisture: None,
+                    },
+                ),
+                (
+                    "rolling_hills".to_owned(),
+                    BiomeSuitability {
+                        prevalence: 1.0,
+                        elevation: None,
+                        ruggedness: prefer(0.3, 0.6),
+                        moisture: None,
+                    },
+                ),
+                (
+                    "mountains".to_owned(),
+                    BiomeSuitability {
+                        prevalence: 0.7,
+                        elevation: prefer(150.0, 80.0),
+                        ruggedness: prefer(0.8, 0.5),
+                        moisture: None,
+                    },
+                ),
+            ]),
+            compatibility: BiomeCompatibility {
+                default: 0.5,
+                pairs: vec![
+                    pair("plains", "plains", 1.0),
+                    pair("plains", "rolling_hills", 0.9),
+                    pair("plains", "mountains", 0.25),
+                    pair("rolling_hills", "rolling_hills", 1.0),
+                    pair("rolling_hills", "mountains", 0.9),
+                    pair("mountains", "mountains", 1.0),
+                ],
+            },
+        };
         let f = fields(0);
-        let s = selector(&BiomeSelectionOptions::default(), 0, HashMap::new());
+        let s = selector(&options, 0, HashMap::new());
         let ids: Vec<RegionId> = (-8..8).map(|x| key(x, -x / 2)).collect();
         let got: Vec<&str> = s
             .select_many(&ids, &f)

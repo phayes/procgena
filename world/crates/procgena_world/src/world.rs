@@ -51,7 +51,8 @@ pub struct FieldValues {
 pub enum WorldError {
     /// The settings aren't valid.
     Options(WorldOptionsError),
-    /// A rule, the fallback or a pin names a Biome the World wasn't given.
+    /// A rule, the fallback, a pin, or the weighted selection's
+    /// suitability or compatibility names a Biome the World wasn't given.
     /// Holds the unknown key.
     UnknownBiome(String),
     /// Two of the Biomes the World was given share this key.
@@ -245,15 +246,18 @@ impl World {
     }
 
     /// The World for `options`, choosing among `biomes` only: the rules,
-    /// the fallback and the pins name Biomes by their keys in this list.
-    /// Builds no land yet.
+    /// the fallback, the pins and the weighted selection name Biomes by
+    /// their keys in this list. The order of `biomes` doesn't change which
+    /// Biome a region gets. Builds no land yet.
     ///
     /// # Errors
     ///
     /// [`WorldError::Options`] if the settings aren't valid,
     /// [`WorldError::DuplicateBiome`] if two of `biomes` share a key,
-    /// [`WorldError::UnknownBiome`] if a rule, the fallback or a pin names
-    /// a key not in `biomes`, [`WorldError::DuplicatePin`] if two pins land
+    /// [`WorldError::UnknownBiome`] if a rule, the fallback, a pin or the
+    /// weighted selection names a key not in `biomes` (the rules and the
+    /// fallback are checked even when weighted selection is used),
+    /// [`WorldError::DuplicatePin`] if two pins land
     /// on one region, and [`WorldError::Biome`] if one of `biomes` has a
     /// Terrain that can't be resolved or isn't valid.
     pub fn with_biomes(

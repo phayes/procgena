@@ -796,9 +796,11 @@ algorithm may replace it):
   redraws it `iterations` times from its six lattice neighbours' previous
   draws (seed key `"world.biome.selection"`). Adjacency is the six
   neighbours of the hexagonal lattice and fields are read at the
-  unjittered lattice point (decided by the user 2026-11-25: corners may
-  drift by a bounded, Biome-independent amount, and only cross-Biome edges
-  are warped, so selection never depends on geometry it sets). One
+  unjittered lattice point (decided by the user 2026-11-25: same-Biome
+  edges stay straight, only cross-Biome edges are warped, and corners may
+  drift by a capped amount that never changes which hexes touch, so
+  selection never depends on geometry it sets; whether corners drift
+  always or only between different Biomes is open, W0d.1). One
   selector serves `World::biome`, the batch `World::biomes` and the
   terrain source, with its own graph and E (no cycle, no land built).
   Random access matches a whole-patch simulation. Cost: about 28 µs per

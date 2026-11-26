@@ -12,10 +12,12 @@ use serde::{Deserialize, Serialize};
 
 /// Settings for a [`World`](crate::World): its seed, its scale, how it is
 /// split into regions, the fields that choose each region's Biome, the
-/// rules that turn field values into Biomes, and pinned regions.
+/// rules or the weighted selection that turn field values into Biomes, and
+/// pinned regions.
 ///
 /// The settings of what the World generates (E's noise layers and tilt,
-/// the selector fields and the rules' elevation bounds) are written at
+/// the selector fields, the rules' elevation bounds and the weighted
+/// selection's elevation preferences) are written at
 /// reference scale 1, and [`scale`](Self::scale) stretches them when the
 /// World is built. Anything placed by hand (E's bumps, pins), region sizes
 /// and border warp are in real metres and never scaled.
