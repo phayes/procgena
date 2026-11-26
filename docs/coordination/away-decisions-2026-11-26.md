@@ -75,7 +75,9 @@ are the ones most worth a look.
   Biome layer from labels and segmentation data, independent of
   placement. The studio's terrain view is flat grey for now. The GM3
   worker does the removal. The roadmap gets a new unscheduled milestone,
-  BP.
+  BP. The studio's ground-editing and texture infrastructure stays,
+  disconnected, for Biome and Ecotope paint later, as do the texture
+  lists and assets. The user: "keep the bones of this for later".
 - **`H*` stays as is.** Most work moves to the GPU via the TIN, and `H*`
   may be revisited later. The GPU plan is being revised to be TIN-centred.
 
