@@ -143,6 +143,7 @@ flowchart TD
     CT1["CT1 Chunk edge contracts, chunk CDT"]
     CT2["CT2 Adaptive refinement"]
     CT3["CT3 Rivers, ponds, stamps in the ground"]
+    CTA["CT-A Adaptive TIN sampling"]
     CT4["CT4 Roads in the ground"]
     CT5["CT5 TIN products and streaming"]
     G7["G7 Scale-aware terrain lengths"]
@@ -281,6 +282,7 @@ flowchart TD
     CT1 --> CT2
     CT2 --> CT3
     CT3 --> CT4
+    CT3 --> CTA
     RB5 --> CT4
     CT4 --> CT5
     I1 --> IX
@@ -2235,14 +2237,16 @@ in a `tin` module of `procgena_terrain`.
   error, and topology is stable under reordered probes.
 - **Status (CT0–CT2): done 2026-11-25**, in `procgena_terrain::tin`
   (spade 2.15 as the triangulator; hashes from the core
-  `ContentHasher`). Each chunk samples its ground once on a 1 m lattice
-  in one batch. It then splits the worst triangle at its worst sample
-  (Garland–Heckbert over the lattice, exact integer tests), so there are
-  no per-probe samples to reorder. Edge contracts are pure functions of
+  `ContentHasher`). Each chunk samples its ground on the 1 m lattice
+  (since CT-A only where the ground needs it; CT2 read every point). It
+  then splits the worst triangle at its worst sample (Garland–Heckbert
+  over the samples, exact integer tests), so there are no per-probe
+  samples to reorder. Edge contracts are pure functions of
   the edge and `H*`, and chunks built alone in any order share their
   edges (`tests/tin.rs`). A plane chunk's hash is pinned.
   `--example tin_cost` (seed 1, 16 chunks, 0.5 m tolerance), against the
-  regular mesh's 8,192 triangles:
+  regular mesh's 8,192 triangles, as built in CT2 (for today's figures
+  see CT-A):
 
   | Preset | Triangles | Error between samples, p95 / max | Build per chunk |
   |---|---|---|---|
@@ -2306,6 +2310,66 @@ in a `tin` module of `procgena_terrain`.
     from 66 to 2,923 triangles per chunk and mountains from 657 to
     6,569. Placement, labels and shading read the exact ground, so they
     don't need it.
+
+#### CT-A: Adaptive TIN sampling
+
+- **Covers:** building canonical chunks from far fewer `H*` reads, so TIN
+  chunks are cheap enough to build widely (one day out to placement
+  range, D6b option a); the allowed error as a setting, for low-poly
+  terrain.
+- **Needs:** CT3.
+- **Status: built 2026-11-26** (`src/tin/sampling.rs`). A chunk's inside
+  is sampled coarse to fine on the 1 m lattice: 32 m cells are cut in
+  four while they bend more than 0.2 of the open-land tolerance (or the
+  cell they came from bent more than 4× that), down to 2 m cells; every
+  metre within reach of water (band + 1 m) and roads (half width +
+  40 m). Edge contracts still read every metre, unchanged, and hand their
+  samples to the inside. Samples standing for coarse cells are held 0.4
+  of the tolerance tighter. Not a proven bound: `H*` has creases a few
+  metres long that hide 5–17× what smooth ground would
+  (`--example tin_detail`), so a little more can slip between samples.
+- **The setting:** `TinTolerance` gains `sampling` (`Adaptive` or
+  `EveryMetre`) and named levels; one tolerance serves a whole world
+  (`TerrainStream::tin`), so edges match. The river and pond band keeps
+  0.10 m at every level. **Default `GENERAL`, chosen by the coordinator
+  2026-11-26 while the user was away, for the user's review.** The viewer
+  takes `--tin-level <name>` and `--tin-error <m>`.
+- **The curve** (`tin_cost`, 4 seeds × 8 × 8 chunks of the shipped
+  presets and the fixtures; reads per chunk; open-land error on
+  independent half-metre probes, p95 / max in mm; "over" counts 1 m
+  lattice points beyond the level's own tolerance, worst excess in mm).
+  Dense reads were 4,485 before CT-A; edges handing on their samples
+  gives 4,229.
+
+  | Level (open land, max edge) | Preset | Reads | Triangles | p95 / max | Over (worst) |
+  |---|---|---|---|---|---|
+  | `DENSE` (0.5 m, 32 m, every metre) | plains | 4,229 | 25 | 109 / 359 | 0 |
+  | | rolling hills | 4,229 | 65 | 326 / 644 | 0 |
+  | | mountains | 4,229 | 673 | 383 / 1,124 | 0 |
+  | `GENERAL` (0.5 m, 32 m) | plains | 354 | 24 | 112 / 359 | 0 |
+  | | rolling hills | 2,393 | 102 | 243 / 644 | 1 (19) |
+  | | rolling hills (fixture) | 1,762 | 81 | 243 / 612 | 17 (131) |
+  | | mountains | 3,945 | 678 | 381 / 1,124 | 2 (37) |
+  | `LOW_POLY` (1 m, 64 m) | plains | 310 | 6 | 245 / 772 | 0 |
+  | | rolling hills | 1,082 | 45 | 440 / 1,375 | 95 (271) |
+  | | mountains | 3,606 | 296 | 696 / 1,594 | 19 (148) |
+  | `VERY_LOW_POLY` (3 m, 64 m) | plains | 309 | 6 | 245 / 773 | 0 |
+  | | rolling hills | 399 | 8 | 1,268 / 2,996 | 0 |
+  | | mountains | 2,310 | 99 | 1,521 / 3,854 | 16 (474) |
+
+  Along rivers (fixtures, 4 × 4 chunks) every level keeps the water
+  band's error as `DENSE` has it (p95 77–80 mm), and `GENERAL` reads
+  1,449 (plains) to 3,478 (mountains). Roads (`--along-road`) read near
+  dense around the road, with no lattice point over. Chunk build time,
+  fastest of 5 under a load average of 40–100, so only indicative:
+  plains 23 ms dense against 7 ms `GENERAL`; rolling hills 12 against
+  11 ms; mountains 42 against 69 ms (noise). Four edge contracts (260
+  reads) take 0.4 ms, about 1.5 µs a read, so outside plains the build's
+  other work (lines, triangulation, scoring) weighs as much as the reads.
+- **Left:** a contract cache (edges are 260 of 354 reads on plains; both
+  neighbours read each edge); the bend limit scales with the level, so
+  low-poly mountains still read most of the lattice; the tolerance is not
+  in `TinChunk`'s hash; quiet-machine timing.
 
 #### RB4: Canonical road network and alignments
 
