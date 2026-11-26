@@ -146,14 +146,17 @@ pub use measure::{CURVATURE_STEP, MEASURE_REACH, Measures, SampleDetail, WATER_H
 pub use noise::MAX_OCTAVES;
 pub use options::{
     BaseOptions, EdgeOptions, FeatureOptions, MAX_EROSION, MAX_HEIGHT, MAX_MARGIN,
-    MAX_RIVER_DENSITY, MAX_WAVELENGTH, MountainLayer, NoiseLayer, OptionsError, RiverOptions,
-    RoadGrades, RoadOptions, TerrainOptions,
+    MAX_RIVER_DENSITY, MAX_ROAD_RADIUS, MAX_WAVELENGTH, MountainLayer, NoiseLayer, OptionsError,
+    RiverOptions, RoadGrades, RoadOptions, TerrainOptions,
 };
 pub use ports::{
     FEATURE_CLEARANCE, INNER_DEPTHS, MAX_PORT_WIDTH, Port, PortKind, PortWish, Side, inner_depth,
 };
 pub use presets::TerrainPreset;
-pub use road::{RoadQuality, RouteStats, road_quality};
+pub use road::{
+    Alignment, AlignmentPiece, RiverCrossing, RoadId, RoadNetwork, RoadNode, RoadNodeId,
+    RoadNodeKind, RoadQuality, RoadSegment, RoadStation, RouteStats, road_quality,
+};
 /// The text of `terrain.meta.yml`: each Terrain setting's label,
 /// description and range, for tools that edit Terrain presets. Read it with
 /// [`KindMeta::parse`](procgena_core::meta::KindMeta::parse).

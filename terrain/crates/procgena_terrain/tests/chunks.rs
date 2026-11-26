@@ -12,8 +12,8 @@ use procgena_core::chain::ViewScale;
 use procgena_terrain::{
     CHUNK_CELLS, ChunkDetail, ChunkKey, ChunkLevels, ChunkMesh, ChunkSamples, ChunkSelection,
     ChunkSide, ChunkSource, EdgeAgreement, Elevation, FeatureTier, RegionGraphOptions, RegionId,
-    RegionProgress, RegionStage, Terrain, Transitions, WorldTerrain, WorldTerrainOptions,
-    chunk_levels, fixtures,
+    RegionProgress, RegionStage, RoadNodeId, RoadNodeKind, Terrain, Transitions, WorldTerrain,
+    WorldTerrainOptions, chunk_levels, fixtures,
 };
 
 /// Four chunk levels, switching at 96, 192 and 384 m, drawn out to
@@ -504,8 +504,32 @@ fn mid_tier_roads_outline_the_fine_ones() {
     // with.
     assert_eq!(fine.roads(), full.roads());
 
-    // Every fine road starts where an outline road starts, and stays within
-    // the outline's corridor (48 m) and a coarse cell (16 m) of it.
+    // The fine roads start where the outline's start, at the same border
+    // nodes, and lead to the same hub.
+    let ends = |t: &Terrain| {
+        let mut nodes: Vec<(RoadNodeId, DVec2)> = t
+            .road_network()
+            .nodes
+            .iter()
+            .filter(|n| matches!(n.kind, RoadNodeKind::Border | RoadNodeKind::Hub))
+            .map(|n| {
+                (
+                    n.id,
+                    if n.kind == RoadNodeKind::Hub {
+                        DVec2::ZERO
+                    } else {
+                        n.position
+                    },
+                )
+            })
+            .collect();
+        nodes.sort_by_key(|n| n.0);
+        nodes
+    };
+    assert_eq!(ends(&fine), ends(&mid));
+
+    // Every fine road stays within the outline's corridor (48 m) and a
+    // coarse cell (16 m) of it.
     let distance = |line: &procgena_terrain::FeatureLine, p: DVec2| {
         line.points
             .windows(2)
@@ -517,7 +541,6 @@ fn mid_tier_roads_outline_the_fine_ones() {
             .fold(f64::INFINITY, f64::min)
     };
     for road in fine.roads() {
-        assert!(mid.roads().iter().any(|o| o.points[0] == road.points[0]));
         for &p in &road.points {
             let nearest = mid
                 .roads()

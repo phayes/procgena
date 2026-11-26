@@ -2222,6 +2222,23 @@ in a `tin` module of `procgena_terrain`.
   research. It also decides how geomorphing (TE7) works on a TIN.
 - **RB8 and CT9, conformance and integrated benchmarks** (road Stage 11):
   the determinism matrix of TIN section 14.9 and the end-to-end gates.
+- **Maybe: roads over gullies** (asked about by the user 2026-11-25, not
+  scheduled). Gullies (`gully.rs`) are a pattern evaluated per point, not
+  lines, and today a road fades them out within 10 m (plus 30 m), so it
+  fills every gully it passes over. Two options, after RB4:
+  - **Mark only** (about half a day): walk each road's stations, find
+    where a gully floor deep enough to matter would pass under the road
+    (its depth without the road's fade), and record a gully crossing (or
+    culvert) point of interest there. The ground is unchanged; a later
+    pass decides culvert or bridge.
+  - **Open gaps like rivers** (about 2–3 days): treat gully floors deeper
+    than a threshold as crossings in RB4's gap finder, so the road stops on
+    both sides with linked nodes and the gully stays open. This needs a
+    depth threshold (gullies are a few tens of metres apart on every valley
+    wall, so without one roads get many tiny gaps), gaps longer than the
+    gully's road clearance or a shorter fade inside gaps, optionally a
+    gully cost in the route search, and moves the labels and measures
+    figures.
 
 ### Studio track
 

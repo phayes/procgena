@@ -30,7 +30,7 @@ sections:
     settings: [features.rivers.density, features.rivers.spacing, features.rivers.width, features.rivers.depth, features.rivers.min_length]
   - title: Roads
     part: roads
-    settings: [features.roads.enabled, features.roads.width, features.roads.min_width, features.roads.grade, features.roads.max_grade]
+    settings: [features.roads.enabled, features.roads.width, features.roads.min_width, features.roads.grade, features.roads.max_grade, features.roads.min_radius]
   - title: Borders
     part: land
     settings: [edges.stiffness, edges.margin, edges.roughness]
@@ -176,6 +176,12 @@ settings:
     description: "The steepest slope a road may climb at all, as rise over run."
     range: [0.01, 1]
     step: 0.01
+  features.roads.min_radius:
+    label: Tightest Bend
+    unit: m
+    description: "The tightest bend a road should take, as the radius of its centre line. Where the ground leaves no room, the road bends tighter and the bend is marked as a sharp bend."
+    range: [2, 500]
+    step: 1
   edges.stiffness:
     label: Stiffness
     description: "How strongly this terrain keeps its own shape at a border, compared with its neighbour."

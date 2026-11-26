@@ -6,9 +6,11 @@ use common::{
     CONFIGS, JOIN_SEEDS, RIVER_SEEDS, WARPED, WITH_LAND, assert_no_crack, hills_into_plains,
     triple_junction, two_terrains,
 };
+use std::collections::BTreeMap;
+
 use glam::DVec2;
 use procgena_terrain::{
-    FeatureKind, FeatureLine, Port, PortKind, RegionEdge, StitchedWorld, Terrain,
+    FeatureKind, FeatureLine, Port, PortKind, RegionEdge, RoadNodeId, StitchedWorld, Terrain,
 };
 
 /// The test worlds, for each of [`WITH_LAND`] and then [`WARPED`] in turn:
@@ -446,30 +448,19 @@ fn rivers_and_roads_stay_close_to_the_ground() {
     }
 }
 
-/// Where `road` crosses `river`, as (distance along the road, distance
-/// along the river). Crossings within 30 m of each other along the road
-/// count as one.
-fn bridges(road: &FeatureLine, river: &FeatureLine) -> Vec<(f64, f64)> {
-    let mut found: Vec<(f64, f64)> = Vec::new();
-    let mut along_road = 0.0;
-    for a in road.points.windows(2) {
-        let mut along_river = 0.0;
-        for b in river.points.windows(2) {
-            if segments_cross(a[0], a[1], b[0], b[1]) {
-                // Where along each segment the two cross.
-                let (d, e) = (a[1] - a[0], b[1] - b[0]);
-                let t = (b[0] - a[0]).perp_dot(e) / d.perp_dot(e);
-                let s = (b[0] - a[0]).perp_dot(d) / d.perp_dot(e);
-                let at = (along_road + t * d.length(), along_river + s * e.length());
-                if found.last().is_none_or(|last| at.0 - last.0 > 30.0) {
-                    found.push(at);
-                }
-            }
-            along_river += b[0].distance(b[1]);
+/// How far along `river` the point on it nearest `p` is, in metres.
+fn along_river(river: &FeatureLine, p: DVec2) -> f64 {
+    let (mut best, mut along, mut at) = (f64::INFINITY, 0.0, 0.0);
+    for w in river.points.windows(2) {
+        let ab = w[1] - w[0];
+        let t = ((p - w[0]).dot(ab) / ab.length_squared().max(1e-12)).clamp(0.0, 1.0);
+        let d = p.distance(w[0] + ab * t);
+        if d < best {
+            (best, at) = (d, along + t * ab.length());
         }
-        along_road += a[0].distance(a[1]);
+        along += ab.length();
     }
-    found
+    at
 }
 
 /// A road crosses one river twice only where going round instead would
@@ -482,20 +473,32 @@ fn roads_cross_a_river_again_only_to_save_a_long_way_round() {
     let mut wasteful = Vec::new();
     for (w, world) in worlds().iter().enumerate() {
         for t in world.terrains() {
-            for (i, road) in t.roads().iter().enumerate() {
-                for (j, river) in t.rivers().iter().enumerate() {
-                    let at = bridges(road, river);
-                    bridged += at.len();
-                    for pair in at.windows(2) {
-                        if (pair[1].1 - pair[0].1).abs() < 600.0 {
-                            wasteful.push(format!(
-                                "world {w}, region {}: road {i} crosses river {j} at {:?} and \
-                                 again at {:?} m (along road, along river)",
-                                t.region().id.0,
-                                pair[0],
-                                pair[1]
-                            ));
-                        }
+            // Each road's crossings of each river, by distance along the
+            // river (the middle of the two banks).
+            let network = t.road_network();
+            let mut crossed: BTreeMap<(RoadNodeId, usize), Vec<f64>> = BTreeMap::new();
+            for crossing in &network.crossings {
+                let [a, b] = crossing
+                    .banks
+                    .map(|id| network.node(id).expect("bank").position);
+                let along = along_river(&t.rivers()[crossing.river], a.lerp(b, 0.5));
+                crossed
+                    .entry((crossing.origin, crossing.river))
+                    .or_default()
+                    .push(along);
+            }
+            for ((road, river), mut at) in crossed {
+                bridged += at.len();
+                at.sort_by(f64::total_cmp);
+                for pair in at.windows(2) {
+                    if pair[1] - pair[0] < 600.0 {
+                        wasteful.push(format!(
+                            "world {w}, region {}: road {road:?} crosses river {river} at {} and \
+                             again at {} m along it",
+                            t.region().id.0,
+                            pair[0],
+                            pair[1]
+                        ));
                     }
                 }
             }
@@ -506,4 +509,46 @@ fn roads_cross_a_river_again_only_to_save_a_long_way_round() {
         bridged > 0,
         "the test worlds should have roads crossing rivers"
     );
+}
+
+/// Roads stop at both banks where they cross a river: no carved road runs
+/// over a river, and each crossing's banks lie on either side of it.
+#[test]
+fn roads_leave_the_rivers_they_cross_open() {
+    let mut crossings = 0;
+    for (w, world) in worlds().iter().enumerate() {
+        for t in world.terrains() {
+            for road in t.roads() {
+                for river in t.rivers() {
+                    for a in road.points.windows(2) {
+                        for b in river.points.windows(2) {
+                            assert!(
+                                !segments_cross(a[0], a[1], b[0], b[1]),
+                                "world {w}, region {}: a road runs over a river near {}",
+                                t.region().id.0,
+                                a[0]
+                            );
+                        }
+                    }
+                }
+            }
+            let network = t.road_network();
+            for crossing in &network.crossings {
+                crossings += 1;
+                let [a, b] = crossing
+                    .banks
+                    .map(|id| network.node(id).expect("bank").position);
+                let river = &t.rivers()[crossing.river];
+                assert!(
+                    river
+                        .points
+                        .windows(2)
+                        .any(|r| segments_cross(a, b, r[0], r[1])),
+                    "world {w}, region {}: banks {a} and {b} are on one side of the river",
+                    t.region().id.0
+                );
+            }
+        }
+    }
+    assert!(crossings > 0, "the test worlds should have river crossings");
 }

@@ -4,11 +4,10 @@
 use glam::DVec2;
 
 use crate::carve::{
-    FeatureKind, FeatureLine, PoiKind, PointOfInterest, Pond, ROAD_BANK, ValleyShape, chaikin,
-    valley_reach,
+    FeatureKind, FeatureLine, PointOfInterest, Pond, ROAD_BANK, ValleyShape, chaikin, valley_reach,
 };
 use crate::grid::Grid;
-use crate::hash::hash2;
+use crate::hash::{hash2, mix64};
 use crate::options::TerrainOptions;
 use crate::ports::{
     BANK_REACH, FEATURE_CLEARANCE, FREEBOARD, MAX_HALF_WIDTH, Port, PortKind, PortWish, Side,
@@ -17,7 +16,9 @@ use crate::region::{Boundary, Region, RegionEdge, point_at, segments};
 use crate::relief::Relief;
 use crate::river::{End, Occupied, Traced, Tracing, trace_inbound, trace_own};
 use crate::road::{
-    RoadStart, RouteStats, Routes, along_mean, banks, coarse_routes, distance_along, refined_routes,
+    AlignmentPiece, RoadId, RoadNetwork, RoadNode, RoadNodeId, RoadNodeKind, RoadSegment,
+    RoadStart, RoadStation, RouteStats, Routes, along_mean, coarse_routes, distance_along,
+    refined_routes,
 };
 use crate::seam::{EdgeAgreement, EdgeSample, smooth};
 
@@ -86,6 +87,11 @@ const BEND_SHARE: f64 = 0.4;
 /// The cell size of the grid roads are planned on, in metres: fine enough
 /// for a road to find ledges and saddles a little wider than itself.
 const ROAD_CELL: f64 = 8.0;
+
+/// Tags mixed into road node ids: the hub's, and a border piece's ends.
+const HUB_TAG: u64 = 0x6875_62;
+const BORDER_TAG: u64 = 0x626f_7264;
+const PIECE_TAG: u64 = 0x7069_6563;
 /// The smallest depth a river may cut through a rise, in metres.
 const BREACH_BASE: f32 = 4.0;
 
@@ -376,10 +382,16 @@ pub(crate) struct Hydrology {
 /// rivers: the third planning stage.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Roads {
+    /// The roads to carve: the network's segments, crossing pieces
+    /// included.
     pub roads: Vec<FeatureLine>,
     /// For each road, how steeply its banks start at each point.
     pub banks: Vec<Vec<f32>>,
+    /// For each road, whether it stops short at its start and its end.
+    pub open: Vec<[bool; 2]>,
     pub points_of_interest: Vec<PointOfInterest>,
+    /// The roads as a network.
+    pub network: RoadNetwork,
     /// What routing the roads took.
     pub stats: RouteStats,
 }
@@ -667,21 +679,19 @@ pub(crate) fn road_outline(
     };
     let starts = road_starts(options, region, agreements);
     let grades = |p| relief.road_grades(p);
-    let Routes { roads, end, stats } = coarse_routes(polygon, &starts, rivers, &grades, base);
+    let hub = hub_node(region);
+    let routes = coarse_routes(polygon, &starts, rivers, hub, &grades, base);
+    let (lines, end) = (routes.roads.clone(), routes.end);
     RoadOutline {
-        roads: finish_roads(
-            Routes {
-                roads: roads.clone(),
-                end,
-                stats,
-            },
-            region,
-            agreements,
-            base,
-        ),
-        routes: roads,
+        roads: finish_roads(routes, region, agreements),
+        routes: lines,
         end,
     }
+}
+
+/// The node of `region`'s road hub.
+fn hub_node(region: &Region) -> RoadNodeId {
+    RoadNodeId(mix64(HUB_TAG, region.id.0))
 }
 
 /// Plans the region's roads at full detail along `outline` (see
@@ -706,10 +716,13 @@ pub(crate) fn roads(
     let coarse = Routes {
         roads: outline.routes.clone(),
         end: outline.end,
+        network: outline.roads.network.clone(),
+        carved: Vec::new(),
+        points_of_interest: Vec::new(),
         stats: outline.roads.stats,
     };
     let fine = refined_routes(polygon, &coarse, ROAD_CELL, &starts, rivers, &grades, base);
-    finish_roads(fine, region, agreements, base)
+    finish_roads(fine, region, agreements)
 }
 
 /// Where the region's roads start: the region's end of each road
@@ -725,39 +738,46 @@ fn road_starts(
         let side = side_of(region, edge);
         for port in agreement.ports.iter().filter(|p| p.kind == PortKind::Road) {
             let (point, level) = piece_end(edge, port, side);
+            let (points, _) = port.piece(edge);
+            let ends = piece_nodes(edge, port);
+            let near_end = point.distance(points[points.len() - 1]) < point.distance(points[0]);
             starts.push(RoadStart {
+                node: ends[usize::from(near_end)],
                 point,
                 level,
                 width: port.width,
                 min_width: options.features.roads.min_width.min(port.width),
+                min_radius: options.features.roads.min_radius,
             });
         }
     }
     starts
 }
 
-/// The roads to carve from `routes`: each with its banks, the crossing
-/// pieces, and the network's end as a point of interest.
-fn finish_roads(
-    routes: Routes,
-    region: &Region,
-    agreements: &[(usize, &EdgeAgreement)],
-    base: &(dyn Fn(DVec2) -> f32 + Sync),
-) -> Roads {
+/// The nodes at the two ends of the crossing piece of road `port` on
+/// `edge`, from its first point to its last. Both regions on the edge give
+/// them the same ids.
+fn piece_nodes(edge: &RegionEdge, port: &Port) -> [RoadNodeId; 2] {
+    let key = mix64(mix64(BORDER_TAG, edge.id.0), port.along.to_bits());
+    [RoadNodeId(mix64(key, 0)), RoadNodeId(mix64(key, 1))]
+}
+
+/// The roads to carve and the road network from `routes`, with the
+/// crossing pieces added to both.
+fn finish_roads(routes: Routes, region: &Region, agreements: &[(usize, &EdgeAgreement)]) -> Roads {
     let Routes {
-        mut roads,
-        end,
+        mut network,
+        carved,
+        points_of_interest,
         stats,
+        ..
     } = routes;
-    let points_of_interest = end
-        .map(|(position, level)| PointOfInterest {
-            kind: PoiKind::RoadEnd,
-            position,
-            level,
-        })
-        .into_iter()
-        .collect();
-    let mut road_banks: Vec<Vec<f32>> = roads.iter().map(|r| banks(&r.points, base)).collect();
+    let (mut roads, mut road_banks, mut open) = (Vec::new(), Vec::new(), Vec::new());
+    for road in carved {
+        roads.push(road.line);
+        road_banks.push(road.banks);
+        open.push(road.open);
+    }
 
     // Crossing pieces keep the gentlest banks, so both sides carve the
     // same ground at the border.
@@ -765,22 +785,71 @@ fn finish_roads(
         let edge = &region.edges[index];
         for port in agreement.ports.iter().filter(|p| p.kind == PortKind::Road) {
             let (points, levels) = port.piece(edge);
-            road_banks.push(vec![ROAD_BANK as f32; points.len()]);
-            roads.push(FeatureLine {
+            let line = FeatureLine {
                 kind: FeatureKind::Road,
                 widths: vec![port.width; points.len()],
                 points,
                 levels,
                 depth: 0.0,
-            });
+            };
+            add_piece(&mut network, &line, piece_nodes(edge, port));
+            road_banks.push(vec![ROAD_BANK as f32; line.points.len()]);
+            open.push([false; 2]);
+            roads.push(line);
         }
     }
+    network.nodes.sort_by_key(|n| n.id);
+    network.segments.sort_by_key(|s| s.id);
     Roads {
         roads,
         banks: road_banks,
+        open,
         points_of_interest,
+        network,
         stats,
     }
+}
+
+/// Adds the crossing piece `line` to `network`: a straight segment between
+/// border nodes `ends`, and the nodes themselves where the network doesn't
+/// have them yet.
+fn add_piece(network: &mut RoadNetwork, line: &FeatureLine, ends: [RoadNodeId; 2]) {
+    let (first, last) = (line.points[0], line.points[line.points.len() - 1]);
+    let heading = (last - first).normalize_or_zero();
+    for (k, &id) in ends.iter().enumerate() {
+        if network.nodes.iter().all(|n| n.id != id) {
+            let i = if k == 0 { 0 } else { line.points.len() - 1 };
+            network.nodes.push(RoadNode {
+                id,
+                kind: RoadNodeKind::Border,
+                position: line.points[i],
+                level: line.levels[i],
+                heading,
+                width: line.widths[i],
+            });
+        }
+    }
+    let along = distance_along(&line.points);
+    network.segments.push(RoadSegment {
+        id: RoadId(mix64(mix64(PIECE_TAG, ends[0].0), ends[1].0)),
+        origin: ends[0],
+        start: ends[0],
+        end: ends[1],
+        alignment: crate::road::Alignment {
+            pieces: vec![AlignmentPiece::Line {
+                from: first,
+                to: last,
+            }],
+        },
+        stations: (0..line.points.len())
+            .map(|i| RoadStation {
+                along: along[i],
+                position: line.points[i],
+                level: line.levels[i],
+                width: line.widths[i],
+            })
+            .collect(),
+    });
 }
 
 /// A smooth wobble between −1 and 1 along a line, `t` in wavelengths:

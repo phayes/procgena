@@ -176,22 +176,35 @@ impl std::ops::BitOrAssign for RoadTags {
 
 /// What a [`PointOfInterest`] is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum PoiKind {
     /// Where the region's roads lead: the end of the road network.
     RoadEnd,
+    /// Where a road stops at a river bank. Its
+    /// [`partner`](PointOfInterest::partner) is where the road goes on, on
+    /// the far bank; the caller may span the gap between, with a bridge or
+    /// anything else.
+    RiverCrossing,
+    /// A bend tighter than the road's
+    /// [`min_radius`](crate::RoadOptions::min_radius), where the ground
+    /// left no room for a wider one.
+    SharpBend,
 }
 
 /// A place the caller may fill with content of their own, such as a
-/// village at the end of a road. The ground there is left as it is.
+/// village at the end of a road or a bridge over a river.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PointOfInterest {
     /// What the place is.
     pub kind: PoiKind,
     /// Position, in metres (x and z).
     pub position: DVec2,
-    /// The height of the place, in metres: for a road end, the road
-    /// surface there.
+    /// The height of the place, in metres: the road surface there.
     pub level: f32,
+    /// For a place that comes in a pair, such as the two banks of a
+    /// [`RiverCrossing`](PoiKind::RiverCrossing), the other one, as an
+    /// index into the same list of points of interest.
+    pub partner: Option<usize>,
 }
 
 /// All features of one terrain, ready to carve the ground at any point.
@@ -205,6 +218,9 @@ pub(crate) struct Features {
     /// For each road, how steeply its banks start at each point, as rise
     /// over run.
     road_banks: Vec<Vec<f32>>,
+    /// For each road, whether its start and its end are open: the road
+    /// stops there (at a river bank) and holds no ground beyond.
+    road_open: Vec<[bool; 2]>,
     /// Places left for the caller to fill; they don't change the ground.
     pub points_of_interest: Vec<PointOfInterest>,
     /// Each feature's box outside which it changes nothing, and its place
@@ -287,6 +303,46 @@ fn segment_slopes(line: &FeatureLine, segment: usize, p: DVec2) -> (DVec2, DVec2
         DVec2::ZERO
     };
     (distance, along)
+}
+
+/// How many times faster the distance from a road grows past an open end
+/// (see [`Features::new`]) than across the road: the road's hold on the
+/// ground ends within a tenth of [`BANK_REACH`] past the end.
+const OPEN_END: f64 = 10.0;
+
+/// For `p` beyond an open end of segment `segment` of road `line` (`open`
+/// says which ends are open), the distance to the road with the part along
+/// the road counted [`OPEN_END`] times over, and its gradient. `None` if
+/// `p` is not beyond an open end of this segment.
+fn past_open_end(
+    line: &FeatureLine,
+    segment: usize,
+    open: [bool; 2],
+    p: DVec2,
+) -> Option<(f64, DVec2)> {
+    let last = line.points.len() - 2;
+    let (a, b) = (line.points[segment], line.points[segment + 1]);
+    let direction = (b - a).normalize_or_zero();
+    if direction == DVec2::ZERO {
+        return None;
+    }
+    // How far past the end, and which way "past" points.
+    let (end, outward) = if open[0] && segment == 0 && (p - a).dot(direction) < 0.0 {
+        (a, -direction)
+    } else if open[1] && segment == last && (p - b).dot(direction) > 0.0 {
+        (b, direction)
+    } else {
+        return None;
+    };
+    let past = (p - end).dot(outward);
+    let across = (p - end).perp_dot(direction);
+    let d = across.hypot(OPEN_END * past);
+    let slope = if d > 0.0 {
+        (-direction.perp() * across + outward * (OPEN_END * OPEN_END * past)) / d
+    } else {
+        DVec2::ZERO
+    };
+    Some((d, slope))
 }
 
 /// The gradients of [`smooth_min`]'s result by `a` and by `b`.
@@ -626,20 +682,26 @@ impl Features {
     ///
     /// `river_valleys` gives, for each of `rivers`, its valley's shape at
     /// each of its points; `road_banks` gives, for each of `roads`, how
-    /// steeply its banks start at each of its points (see [`bank_for`]).
+    /// steeply its banks start at each of its points (see [`bank_for`]);
+    /// `road_open`, for each road, whether it stops short at its start and
+    /// at its end, holding no ground beyond (a few metres past such an end
+    /// the ground is left as it is).
     ///
     /// # Panics
     ///
-    /// If `river_valleys` doesn't have one shape per river point, or
-    /// `road_banks` one value per road point.
+    /// If `river_valleys` doesn't have one shape per river point,
+    /// `road_banks` one value per road point, or `road_open` one entry per
+    /// road.
     pub(crate) fn new(
         rivers: Vec<FeatureLine>,
         river_valleys: Vec<Vec<ValleyShape>>,
         ponds: Vec<Pond>,
         roads: Vec<FeatureLine>,
         road_banks: Vec<Vec<f32>>,
+        road_open: Vec<[bool; 2]>,
         points_of_interest: Vec<PointOfInterest>,
     ) -> Self {
+        assert_eq!(road_open.len(), roads.len(), "one pair of ends per road");
         fn matches<T>(values: &[Vec<T>], lines: &[FeatureLine]) -> bool {
             values.len() == lines.len()
                 && values
@@ -667,6 +729,7 @@ impl Features {
             ponds,
             roads,
             road_banks,
+            road_open,
             points_of_interest,
             bounds,
             index: FeatureIndex::new(parts),
@@ -791,11 +854,15 @@ impl Features {
 
     /// Segment `segment` of road `line` seen from `p`: the distance to it,
     /// the road's half width, and its level and bank steepness at the
-    /// closest point.
+    /// closest point. Past an open end the distance grows
+    /// [`OPEN_END`] times faster along the road than across it.
     fn road_at(&self, line: u32, segment: u32, p: DVec2) -> (f64, f64, f64, f64) {
         let (road, banks) = (&self.roads[line as usize], &self.road_banks[line as usize]);
         let s = segment as usize;
-        let (d, t) = segment_position(road, s, p);
+        let (mut d, t) = segment_position(road, s, p);
+        if let Some((open, _)) = past_open_end(road, s, self.road_open[line as usize], p) {
+            d = open;
+        }
         let lerp = |a: f32, b: f32| f64::from(a) + (f64::from(b) - f64::from(a)) * t;
         (
             d,
@@ -810,7 +877,10 @@ impl Features {
     fn road_slopes(&self, line: u32, segment: u32, p: DVec2) -> [DVec2; 4] {
         let (road, banks) = (&self.roads[line as usize], &self.road_banks[line as usize]);
         let s = segment as usize;
-        let (distance, t) = segment_slopes(road, s, p);
+        let (mut distance, t) = segment_slopes(road, s, p);
+        if let Some((_, slope)) = past_open_end(road, s, self.road_open[line as usize], p) {
+            distance = slope;
+        }
         let change = |a: f32, b: f32| t * (f64::from(b) - f64::from(a));
         [
             distance,
@@ -1246,6 +1316,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
         );
         let middle = features.apply(DVec2::new(50.0, 0.0), 20.0);
         assert!((middle.height - 8.0).abs() < 1e-4);
@@ -1279,6 +1350,7 @@ mod tests {
             vec![pond],
             vec![road],
             vec![vec![ROAD_BANK as f32; 2]],
+            vec![[false; 2]],
             Vec::new(),
         );
         let near = |x: f64, z: f64| features.nearby(DVec2::new(x, z), BANK_REACH);
@@ -1329,6 +1401,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
         );
         let mut last = features.apply(DVec2::new(50.0, 0.0), 20.0).height;
         for k in 1..2000 {
@@ -1354,12 +1427,51 @@ mod tests {
             Vec::new(),
             vec![road],
             vec![vec![0.6; 2]],
+            vec![[false; 2]],
             Vec::new(),
         );
         let cut = features.apply(DVec2::new(50.0, 0.0), 30.0).height;
         let fill = features.apply(DVec2::new(50.0, 0.0), 0.0).height;
         assert!((cut - 9.75).abs() < 1e-4);
         assert!((fill - 9.25).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_road_holds_no_ground_a_few_metres_past_an_open_end() {
+        let road = FeatureLine {
+            kind: FeatureKind::Road,
+            depth: 0.0,
+            ..river()
+        };
+        let carve = |open: [bool; 2], p: DVec2| {
+            let features = Features::new(
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                vec![road.clone()],
+                vec![vec![0.6; 2]],
+                vec![open],
+                Vec::new(),
+            );
+            features.apply(p, 0.0).height
+        };
+        // On the road near its end, filled to its level either way.
+        let on = DVec2::new(99.0, 0.0);
+        assert!((carve([false, true], on) - 8.76).abs() < 0.05);
+        // Five metres past the end: an open end leaves the ground alone,
+        // a closed one still holds it up.
+        let past = DVec2::new(105.0, 0.0);
+        assert_eq!(carve([false, true], past), 0.0);
+        assert!(carve([false, false], past) > 1.0);
+        // Opening the far end changes nothing at the start.
+        let start = DVec2::new(-5.0, 0.0);
+        assert_eq!(carve([false, true], start), carve([false, false], start));
+        // Just past the end the ground falls away, without a step.
+        let heights: Vec<f32> = (0..=40)
+            .map(|i| carve([false, true], DVec2::new(100.0 + 0.1 * f64::from(i), 0.0)))
+            .collect();
+        assert!(heights.windows(2).all(|w| w[1] <= w[0] + 1e-4));
+        assert!(heights.windows(2).all(|w| w[0] - w[1] < 1.5), "{heights:?}");
     }
 
     #[test]
@@ -1383,7 +1495,15 @@ mod tests {
             })
             .collect();
         let banks = vec![vec![0.6; 2], vec![1.5; 2], vec![3.0; 2]];
-        let features = Features::new(Vec::new(), Vec::new(), Vec::new(), roads, banks, Vec::new());
+        let features = Features::new(
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            roads,
+            banks,
+            vec![[false; 2]; 3],
+            Vec::new(),
+        );
         // 5 m out from a road's edge (3 m from its centre), on high ground
         // (cut) or low ground (fill).
         let tags = |z: f64, ground: f32| features.apply(DVec2::new(50.0, z + 8.0), ground).tags;
@@ -1420,6 +1540,7 @@ mod tests {
             let features = Features::new(
                 vec![river()],
                 vec![vec![ValleyShape::even(reach); 2]],
+                Vec::new(),
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
@@ -1463,6 +1584,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
         );
         let level = 9.5;
         let carve = |y: f64| features.apply(DVec2::new(50.0, y), 30.0).height;
@@ -1478,7 +1600,8 @@ mod tests {
     #[test]
     fn carving_slopes_match_differences() {
         // Uneven gullied valleys round a bend and a confluence, a pond, and
-        // a road across a valley wall, cutting and filling, all on a tilted
+        // a road across a valley wall, cutting and filling, with one open
+        // end, all on a tilted
         // plane. At a grid of points the carved slope matches differences
         // of the carved heights.
         let main = FeatureLine {
@@ -1534,6 +1657,8 @@ mod tests {
             vec![pond],
             vec![road],
             vec![vec![0.8, 1.5]],
+            // Its far end stops short, as at a river bank.
+            vec![[false, true]],
             Vec::new(),
         );
         let tilt = DVec2::new(0.12, -0.05);
@@ -1644,6 +1769,7 @@ mod tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
         );
 
         // Rows and columns through the bend (100, 0), the confluence
@@ -1693,6 +1819,7 @@ mod tests {
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
+                Vec::new(),
             )
         };
         let (with, without) = (carve_with(true), carve_with(false));
@@ -1716,6 +1843,7 @@ mod tests {
         let features = Features::new(
             vec![river()],
             vec![vec![ValleyShape::even(reach); 2]],
+            Vec::new(),
             Vec::new(),
             Vec::new(),
             Vec::new(),

@@ -103,7 +103,16 @@ pub struct RoadOptions {
     /// Near a border with a steeper-roaded neighbour, both grades rise
     /// towards the neighbour's.
     pub max_grade: f32,
+    /// The tightest bend a road should take, as the radius of its centre
+    /// line, in metres. Positive, at most [`MAX_ROAD_RADIUS`]. Where the
+    /// ground leaves no room for a bend this wide, the road bends tighter
+    /// and the bend is listed as a [`SharpBend`](crate::PoiKind::SharpBend)
+    /// point of interest.
+    pub min_radius: f32,
 }
+
+/// The largest [`RoadOptions::min_radius`], in metres.
+pub const MAX_ROAD_RADIUS: f32 = 500.0;
 
 impl RoadOptions {
     /// The road grades.
@@ -160,6 +169,7 @@ impl Default for RoadOptions {
             min_width: 4.0,
             grade: 0.1,
             max_grade: 0.2,
+            min_radius: 12.0,
         }
     }
 }
@@ -525,6 +535,12 @@ impl TerrainOptions {
             |v| v >= road.grade && v <= 1.0,
             "at least features.roads.grade and at most 1",
         )?;
+        check(
+            "features.roads.min_radius",
+            road.min_radius,
+            |v| v > 0.0 && v <= MAX_ROAD_RADIUS,
+            "positive and at most MAX_ROAD_RADIUS",
+        )?;
         Ok(())
     }
 }
@@ -592,7 +608,7 @@ mod tests {
     #[test]
     fn bad_values_are_rejected() {
         type Case = (&'static str, fn(&mut TerrainOptions));
-        let cases: [Case; 15] = [
+        let cases: [Case; 16] = [
             ("base.elevation", |o| o.base.elevation = f32::NAN),
             ("base.erosion", |o| o.base.erosion = -1.0),
             ("base.swells.height", |o| o.base.swells.height = -1.0),
@@ -619,6 +635,9 @@ mod tests {
             // Below the preferred grade.
             ("features.roads.max_grade", |o| {
                 o.features.roads.max_grade = 0.05
+            }),
+            ("features.roads.min_radius", |o| {
+                o.features.roads.min_radius = 0.0
             }),
         ];
         for (field, change) in cases {

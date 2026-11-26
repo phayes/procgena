@@ -24,7 +24,7 @@ use crate::region::{
     EdgeId, Region, RegionCorner, RegionEdge, RegionId, Segment, point_at, segments,
 };
 use crate::relief::Relief;
-use crate::road::RouteStats;
+use crate::road::{RoadNetwork, RouteStats};
 use crate::scale::WorldScale;
 use crate::seam::{
     CornerOffer, EDGE_STEP, EdgeAgreement, EdgeOffer, EdgeSample, Profile, elevation_samples,
@@ -702,6 +702,7 @@ impl Terrain {
             h.ponds.clone(),
             roads.roads,
             roads.banks,
+            roads.open,
             roads.points_of_interest,
         )
     }
@@ -751,10 +752,24 @@ impl Terrain {
         &self.features.ponds
     }
 
-    /// The terrain's roads, including the short straight pieces across
-    /// borders.
+    /// The terrain's roads as carved: one line per segment of the
+    /// [`road_network`](Self::road_network), including the short straight
+    /// pieces across borders. A road stops at each river bank, so where it
+    /// crosses a river it is two lines, one ending on each bank.
     pub fn roads(&self) -> &[FeatureLine] {
         &self.features.roads
+    }
+
+    /// The terrain's roads as a network: where they start, meet and end,
+    /// their centre lines and levels, and the river crossings they leave
+    /// for the caller to span. The outline at
+    /// [`Mid`](FeatureTier::Mid), the full roads at
+    /// [`Fine`](FeatureTier::Fine); empty at [`Rough`](FeatureTier::Rough).
+    pub fn road_network(&self) -> &RoadNetwork {
+        static EMPTY: std::sync::OnceLock<RoadNetwork> = std::sync::OnceLock::new();
+        self.roads
+            .as_deref()
+            .map_or_else(|| EMPTY.get_or_init(RoadNetwork::default), |r| &r.network)
     }
 
     /// Diagnostics from planning this terrain's roads at `tier`: the
