@@ -41,8 +41,10 @@ A plan only: it contains no engine code. Status lives in
   - A regular chunk reads 4,489 points at level 0 and 6,061 at coarser
     levels (see "Read counts"). That is about 1.43 M reads a view, **80%
     of them for far ground**.
-  - With TIN streaming on, level 0 drops to 240–3,520 reads a chunk plus
-    normals, and far ground becomes 79–98% of the reads.
+  - With TIN streaming on, each level-0 chunk is read regular first and
+    then again for its TIN (316 reads for 252 chunks). Once that second
+    read is dropped, level 0 costs 240–3,520 reads a chunk plus normals,
+    and far ground becomes 79–98% of the reads.
   - At the measured busy time, about 0.9 µs a read (1.3 s for the
     1.43 M reads of the mixed world), the far reads are about 1 s of the
     worker.
@@ -53,10 +55,12 @@ A plan only: it contains no engine code. Status lives in
   - These are built from the resident ground: the TIN's integer
     centimetres at level 0, and the bare grids beyond.
   - The ring of samples outside each chunk and the side rows for finer
-    neighbours go. Their values come from the neighbours already
-    resident.
-  - Two other sources for far ground are open question 3: coarse TINs
-    built on the CPU, and `H*` itself on the GPU.
+    neighbours go. Most of their values are held by neighbours already
+    resident. The rest, at level seams, are interpolated (see "Seams
+    between levels").
+  - Coarse TINs built on the CPU, or `H*` itself on the GPU, could serve
+    far ground instead. Which is open question 3: measure one coarse TIN
+    build first.
 - **Canonical work stays on the CPU (D6b):**
   - `H*`;
   - every TIN build (probes, refinement, triangulation);
@@ -75,7 +79,7 @@ A plan only: it contains no engine code. Status lives in
 
 | # | Step | Gain, in its own unit | Effort | ROADMAP |
 |---|---|---|---|---|
-| 1 | **Bare-lattice far ground, with seams and normals from resident neighbours.** Regular chunks read only their 65 × 65 vertices. Normals, and the vertices a coarse side adds for a finer neighbour, come from the neighbours' resident heights in a GPU pass. | **Reads a chunk:** 6,061 → 4,225 at levels 1–4 (−30%) and 4,489 → 4,225 at level 0. **A default view:** 1.43 M → 1.06 M reads (−26%), about 0.33 s of the worker's 1.3 s at 0.9 µs a read. **Remeshing:** a level change needs no CPU work. | Medium: a stream change plus one compute pass | New (proposed **GPU-T1**); the far-ground part of [TE7](../ROADMAP.md#te7-intermediate-terrain-detail-levels) |
+| 1 | **Bare-lattice far ground, with seams and normals from resident neighbours.** Regular chunks read only their 65 × 65 vertices. Normals, and the vertices a coarse side adds for a finer neighbour, come from the neighbours' resident heights in a GPU pass. Samples at level seams that no chunk holds are interpolated. | **Reads a chunk:** 6,061 → 4,225 at levels 1–4 (−30%), or 4,749 (−22%) if the half-step row inside a coarse side stays an `H*` read; 4,489 → 4,225 at level 0. **A default view:** 1.43 M → 1.06 M reads (−26%), about 0.33 s of the worker's 1.3 s at 0.9 µs a read. **Remeshing:** a level change needs no CPU work. | Medium: a stream change plus one compute pass | New (proposed **GPU-T1**); the far-ground part of [TE7](../ROADMAP.md#te7-intermediate-terrain-detail-levels) |
 | 2 | **Resident TIN buffers and TIN normals on the GPU.** Every loaded TIN chunk is uploaded once, as integer-centimetre vertices and triangles. Vertex normals are area-weighted from the chunk's own faces and its neighbours' faces across shared edges. Breaklines (`is_breakline`) get hard normals. | **Reads:** 4 `H*` reads a vertex are gone, 68 of a plains chunk's 310 and 1,344 of a mountain chunk's 4,864 (22–28%), with none kept even on borders. **Per view:** 4 k–86 k reads with TIN streaming on. | Small to medium | [CT5](../ROADMAP.md#ct5-products-and-streaming)'s ready follow-up and CT7 (proposed **GPU-T2**) |
 | 3 | **The Biome painter's inputs from the resident ground, on the GPU.** Per texel: height, slope and aspect from the drawn faces, shape curvature at `SHAPE_STEP` (12 m), and height relative to the neighbourhood. All are textures with an apron, read from step 2's buffers at level 0 and step 1's grids beyond. | **BP gets every terrain input with no CPU reads.** The removed CPU painter paid 16,641 `H*` reads a chunk (129² sites), about 4.2 M a view, before its own measures. | Medium; it waits for BP to name its inputs | New, under BP (proposed **GPU-T3**) |
 
@@ -115,8 +119,20 @@ Reads of `H*` for one chunk, from the code (`ChunkSamples::sample`,
 
 - **A default view, regular:** 64 × 4,489 + 188 × 6,061 = 1.43 M reads →
   64 × 4,225 + 188 × 4,225 = 1.06 M.
-- **A default view, with TIN at level 0:** far ground is 1.14 M of
-  1.16–1.45 M reads → 0.79 M of 0.81–1.02 M.
+- **A default view, with TIN at level 0, once its second read is
+  dropped:** far ground is 1.14 M of 1.16–1.45 M reads → 0.79 M of
+  0.81–1.02 M. Today the TIN chunks also pay their regular 4,489 reads.
+- **What neighbours hold:**
+  - A level-0 chunk's ring is held by the neighbours of the same level.
+  - A coarse chunk's side rows for a finer neighbour are held as follows:
+    - the row half a step outside is the finer chunk's own lattice;
+    - the row on the side is the finer chunk's edge;
+    - the row half a step inside lies between the coarse chunk's own
+      rows, so no chunk holds it.
+  - A finer chunk's ring beyond a coarser neighbour also falls between
+    that neighbour's rows.
+  - Those samples are interpolated in step 1. Keeping the inside row as
+    `H*` reads costs 4 × 131 = 524 reads a coarse chunk.
 
 ## What runs on the GPU
 
@@ -148,8 +164,10 @@ seams must still match exactly, which "Parity" covers.
   - **Interior vertices:** each vertex's normal is the area-weighted sum
     of its faces' normals.
   - **Border vertices:** they add the faces of the chunk across the edge,
-    from its buffer. Both chunks hold the same border vertices (edge
-    contracts), so they compute the same normal.
+    from its buffer. A corner vertex also adds the faces of the three
+    chunks around it, the diagonal one included. Both chunks hold the
+    same border vertices (edge contracts), so they compute the same
+    normal.
   - **Breakline vertices:** split by side, for hard shading along
     `is_breakline` edges.
   - **Order:** a gather per vertex over its faces in index order, never
@@ -172,6 +190,13 @@ seams must still match exactly, which "Parity" covers.
     does on the CPU for TIN seams, and what the side rows read from `H*`
     today.
   - The values are the finer chunk's own, so the seam is exact.
+  - **Normals at a level seam:** the coarse side's vertices take the finer
+    chunk's edge normals. The finer chunk takes its differences across the
+    seam from the coarse chunk's surface, interpolated. So both sides
+    shade alike.
+    - These normals differ slightly from today's `H*` differences.
+    - The exact alternative keeps the coarse side's inside row as `H*`
+      reads (see "Read counts").
   - Skirts stay as the cover while a neighbour loads.
 - **Geomorphing within a level band** ([TE7](../ROADMAP.md#te7-intermediate-terrain-detail-levels)):
   - a vertex shader blends towards the parent's surface, read from the
@@ -228,18 +253,19 @@ That is question 2.
 
 **Where a build's time goes.**
 
-- CT-A's timing (load average 40–100, so only indicative):
-  - plains: 7 ms a chunk;
-  - rolling hills: 11 ms;
-  - mountains: 42–69 ms.
-- Four edge contracts, 260 reads, take 0.4 ms, about 1.5 µs a read.
-- So outside plains, the non-read work (lines, triangulation, scoring)
-  weighs as much as the reads, and on mountains several times more.
-- The post-TB load profile, with `--tin`, puts the TIN at 6% (mixed),
-  11% (hills) and 27% (mountains) of the features-off worker, up to about
-  0.5 s on mountains. Some of that is a second read: each level-0 chunk
-  is read regular, then read again for its TIN (316 reads for 252
-  chunks). Dropping that second read is a CPU stream fix, not a GPU one.
+- **After TB** (the load profile's `--tin` runs): the TIN is 6% (mixed),
+  11% (hills) and 27% (mountains) of the features-off worker. That is
+  about 54 ms, 0.2 s and 0.5 s over 64 chunks, or roughly 1, 3 and 8 ms a
+  chunk, reads included.
+- **The second read:** each level-0 chunk is also read regular before its
+  TIN (316 reads for 252 chunks). Dropping that is a CPU stream fix, not a
+  GPU one.
+- **Before TB,** CT-A timed builds at 7–69 ms a chunk under a load average
+  of 40–100, with its reads at about 1.5 µs. There, outside plains, the
+  non-read work (lines, triangulation, scoring) weighed as much as the
+  reads or more.
+- **The split between reads and non-read work after TB is not
+  measured.**
 
 **The reads cannot move.** They are `H*`.
 
@@ -337,11 +363,13 @@ Out of scope until the user brings them back. When they return:
   `H*` settles (question 3).
 - **CT8:** unchanged, as research.
 - **No new dependencies:** wgpu and naga come through Bevy.
-- **Echoes these changes would touch:**
-  - `load_profile.md`, which names "step 1a of `terrain/gpu_plan.md`" and
-    GPU2;
-  - ROADMAP's GPU2 status, which names GPU2a;
-  - the TIN design doc's milestones 8 and 10.
+- **Echoes these changes would touch** (found by searching every `.md`
+  for this plan's old step names):
+  - `load_profile.md`, which names "step 1a of `terrain/gpu_plan.md`",
+    GPU2 and GPU3;
+  - ROADMAP's GPU2 status, which names GPU2a and links this plan;
+  - `docs/coordination/away-decisions-2026-11-26.md`, which names step 1a;
+  - the TIN design doc's milestones 8 and 10 (CT6, CT7).
 
 ## Open questions (for the coordinator; a recommendation for each)
 
@@ -359,14 +387,20 @@ Out of scope until the user brings them back. When they return:
      under placed rocks), the CPU passes its placement masks as a texture,
      instead of the GPU reclassifying.
 3. **What source should far ground use?**
-   - Recommended: regular `H*` grids on the bare lattice (step 1).
-   - **Coarse TINs** (CT5's "TIN LODs") would cut reads on gentle land,
-     about 12× on plains at level 0. But:
-     - at coarser lattice steps the same tolerance leaves fewer cells
-       coarse;
-     - each chunk adds the TIN build's non-read work, 7–69 ms in CT-A's
-       loaded timing, against about 4 ms of reads for a bare grid;
-     - so measure that work first.
+   - Recommended: build step 1 on regular `H*` grids now, and measure one
+     coarse TIN build at levels 1–4 before choosing.
+   - Step 1's GPU normals, seams and LOD carry over to coarse TINs as
+     resident buffers (as in step 2).
+   - **Coarse TINs** (CT5's "TIN LODs") are the source most in line with
+     "using the TIN".
+     - **For:** after TB a level-0 TIN costs about 1–8 ms a chunk with its
+       reads, against about 4 ms for a bare 65² grid. CT-A reads about 12×
+       fewer points on plains.
+     - **Against, not measured:** at coarser lattice steps the same
+       tolerance leaves fewer cells coarse, so reads on hills and mountains
+       may not fall.
+     - **Also:** a coarse TIN's tolerance would be set per level, not the
+       world's canonical one.
    - **`H*` on the GPU** for far ground (the old GPU3) would remove the
      far reads entirely. But it is a large f32 port of relief, E and the
      border field, and the user may revisit `H*`. Park it.
