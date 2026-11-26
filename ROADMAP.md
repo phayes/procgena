@@ -180,7 +180,7 @@ flowchart TD
     RB2["RB2 Shared reverse cost field"]
     RB3["RB3 Linear-time vertical alignment"]
     RB4["RB4 Canonical road network"]
-    RB5["RB5 Cross-sections, earthworks, bridges"]
+    RB5["RB5 Cross-sections and earthworks"]
     CT0["CT0 Numeric profile, canonical mesh types"]
     CT1["CT1 Chunk edge contracts, chunk CDT"]
     CT2["CT2 Adaptive refinement"]
@@ -2166,21 +2166,27 @@ in a `tin` module of `procgena_terrain`.
 
 - **Covers:** road plan Stage 6: `RoadNetwork` with stable seed-derived
   ids, line-and-arc horizontal alignments with minimum radius per class,
-  vertical profiles from RB3, explicit junction events, and canonical
-  hashing.
+  vertical profiles from RB3, explicit junction events, river crossings
+  as linked node pairs (see below), and canonical hashing.
+- **Bridges are not road work** (decided by the user 2026-11-25). Where a
+  road crosses a river, the road network ends in two linked nodes, one
+  on each bank, like a pair of points of interest: position, height,
+  heading, width and road class at each end. The road's alignment and
+  profile stop at the nodes. A later pass fills the gap (a bridge, or
+  anything else); the road builder plans no deck, span or structure.
 - **Needs:** RB1, RB3, D6 (encodings). (RB2 was a need until it was
   deferred on 2026-11-25.)
 - **Done when:** network hashes are stable across runs and thread counts,
   and grade and curvature limits hold on the fitted alignment.
 
-#### RB5: Cross-sections, earthworks and bridges
+#### RB5: Cross-sections and earthworks
 
 - **Covers:** road plan Stage 7: cross-sections with daylight lines,
-  cut and fill volumes, bridge candidates and structures (decks separate
-  from the ground), and junction footprints.
+  cut and fill volumes, and junction footprints. Earthworks end at a
+  crossing's nodes; no bridge structures (see RB4).
 - **Needs:** RB4.
-- **Done when:** swept footprints are valid on the corpus, and bridge
-  clearance and river continuity hold.
+- **Done when:** swept footprints are valid on the corpus, and between a
+  crossing's two nodes the river channel and banks are left untouched.
 
 #### CT4: Roads in the ground
 

@@ -544,9 +544,10 @@ Each ends with a review against today's code.
 - **Roads as a canonical network.** Roads are planned on the pre-road
   surface with an incremental reverse cost field shared by every road of
   a region, then fitted as explicit alignments (lines and arcs) with
-  vertical profiles, cross-sections and bridge structures. The ground
-  takes their breaklines; the road graph stays authoritative for road
-  semantics, and bridge decks are separate from the ground.
+  vertical profiles and cross-sections. The ground takes their
+  breaklines; the road graph stays authoritative for road semantics.
+  Roads build no bridges: a river crossing is two linked nodes, one on
+  each bank, and a later pass fills the gap (decided 2026-11-25).
 - **Deterministic, CPU first.** The CPU path is the reference. A GPU
   stage may decide canonical output only once it matches the reference
   bit for bit. Canonical output never depends on request order, cache
@@ -2166,7 +2167,8 @@ scheduled as the CT and RB milestones in ROADMAP.md, behind gate D6.
   alignment in place of bisection.
 - [ ] **Canonical road network**: stable road, junction and structure
   ids; line-and-arc alignments with vertical profiles; cross-sections,
-  earthworks and bridge candidates; breaklines for the ground.
+  earthworks; river crossings as linked node pairs for a later pass to
+  fill; breaklines for the ground.
 - [ ] **Canonical TIN chunks**: chunk edge contracts, constrained
   triangulation and error-driven refinement per level-0 chunk, feature
   composition (rivers, roads, stamps), then the products built from it:

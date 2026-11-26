@@ -229,7 +229,7 @@ Resolve feature interactions explicitly before CDT:
 | Interaction | Resolution |
 |---|---|
 | Road meets road | Construct common junction footprint and compatible vertical alignment |
-| Road crosses river on bridge | Preserve ground and riverbed; separate bridge deck and approaches |
+| Road crosses river | Road breaklines end at the crossing's two bank nodes; preserve ground and riverbed between them (any bridge is a later pass's structure) |
 | Road crosses river at ford | Define one compatible ground profile and water interaction |
 | River enters lake | Match channel and shoreline/water level semantics |
 | Road or river reaches region edge | Use shared seam crossing geometry and elevation contract |
@@ -700,7 +700,7 @@ Measure height, gradient and normal error using independent validation probes, n
 | Narrow road on hillside | Explicit shoulders and cut/fill |
 | Hairpin and junction | Offset intersection and surface compatibility |
 | Meandering river and lake | Banks, shorelines and hydrology |
-| Bridge crossing | Distinct ground and deck surfaces |
+| River crossing | Road ends at both bank nodes; riverbed unchanged between them |
 | Acute intersecting constraints | Robustness and termination |
 | Adjacent independently generated regions | Seam identity and LOD cracks |
 | Large region with many features | Memory, throughput and spatial queries |

@@ -242,9 +242,11 @@ Choose weights with consistent units and calibrate against generated roads. Keep
 
 Keep two cost models: a cheap additive directional relaxed cost for global propagation and an engineering cost for candidate refinement and comparison. For an admissible field, every feasible detailed transition must correspond to a relaxed path costing no more than that transition. If the graph, physical scale or weights prevent this proof, do not claim optimality or Weighted A* bounds.
 
-### 10.5 Bridges and junctions
+### 10.5 River crossings and junctions
 
-Generate candidate bridge crossings from river centerlines, bank geometry, water width, feasible approach grades, crossing angle and estimated span. Include explicit directed crossing edges and their construction costs in the planning graph. Retain deterministic candidate expansion if the initial crossing set is infeasible; the set is an approximation rather than a proof of completeness. Validate deck clearance, approach elevation, abutment footprints and river continuity. Bridge decks are separate structures above the ground TIN; approaches and ground-contact earthworks are ground constraints. Never flatten the riverbed to deck height. Apply analogous separation for tunnels if supported later.
+**Decided (user, 2026-11-25): bridges are outside the road builder.** A river crossing is output as two linked nodes, one on each bank, like a pair of points of interest. Each node carries position, height, heading, width and road class. The road's alignment, profile and earthworks end at the nodes; a later pass fills the gap. The road builder plans no deck, span, clearance or structure, and never touches the river channel or banks between the nodes.
+
+The search still chooses where to cross, using a crossing cost that depends on the angle to the river (as today's `Bridges` cost does). Candidate crossings may come from river centerlines, bank geometry, water width, feasible approach grades and crossing angle. Retain deterministic candidate expansion if the initial crossing set is infeasible; the set is an approximation rather than a proof of completeness. Validate that both nodes sit on the banks with feasible approach grades. Never flatten the riverbed to road height.
 
 Junctions require compatible elevation, grade and footprint geometry. Resolve segment crossings and merges as explicit network events, using a deterministic intersection policy; a geometric crossing is not automatically a junction (e.g. grade-separated crossings). Validate the junction surface itself, not only centerline endpoints. Maintain connectivity from negotiated regional ports to the hub or an existing reachable road.
 
@@ -314,7 +316,7 @@ Bound retries and provide an explicit failure/fallback policy. Final validation 
 | 4 | Direct candidate extraction, Weighted A*, corridor fallback | Measured cost/quality trade-off; bounded failure policy |
 | 5 | Linear-time minimax vertical alignment | Agreement with reference solver within specified encoding tolerances |
 | 6 | Canonical road network and parametric alignments | Stable hashes, valid curvature/grade, explicit junctions |
-| 7 | Cross-sections, earthworks, bridge candidates and structures | Validated swept footprint and water crossing geometry |
+| 7 | Cross-sections and earthworks, ending at crossing nodes (§10.5) | Validated swept footprint; river untouched between crossing nodes |
 | 8 | Road breaklines, shared chunk/region edge contracts and TIN realization | Watertight independently realized chunks, physical surface agreement |
 | 9 | GPU integer costs and incremental distance propagation | Exact CPU/GPU field and canonical road parity; end-to-end speedup |
 | 10 | Variable-length motion primitives and adaptive portal graphs | Measured benefit over raster baseline, acceptable feasibility and quality |
@@ -346,7 +348,7 @@ Additional integration and conformance tests:
 | Region continuity | Negotiated crossings share positions, directions and elevations; generation order does not matter |
 | Chunk independence | Road breaklines produce identical shared intersection vertices and heights; mixed-region chunks join without cracks |
 | Road engineering | Measure grade, curvature, clearance, junction geometry, self-spacing and cross-sections on final realized surfaces |
-| Bridge separation | Deck and ground remain distinct; approach geometry and river channel are valid |
+| River crossings | Each crossing is a linked node pair on opposite banks; approach geometry is valid and the river channel between the nodes is unchanged |
 | LOD independence | Physical road geometry and network hashes remain unchanged across camera and graphics settings |
 | Streaming | Cold and warm requests, Rough/Fine transitions and parent stand-ins; provisional surfaces never used as authoritative ground |
 | Incremental correctness | Compare full vs incremental recomputation, including added network cells, incoming discounts and explicit cost-increase invalidation |
