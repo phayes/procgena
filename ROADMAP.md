@@ -2067,6 +2067,17 @@ Decided by the user 2026-11-26. The design is in
   - parity tests pass;
   - a ground-only edit redraws in one frame's work (measured);
   - weights cost no CPU for drawing.
+- **Status (2026-11-26):**
+  - **GPU2a done:** layers read only the measures they paint by
+    (`ground::SiteDetail`). Bare terrain no longer reads curvature; its
+    paint is bit-identical (`--example ground_fingerprint`).
+  - **Terrain paint off by default** (user, 2026-11-26) until adaptive
+    TIN sampling lands: `TerrainStream::paint` is off in the viewer
+    (`--paint` turns it on), the studio and the demo, and chunks draw
+    their painter's plain material. Then paint on the GPU from the TIN:
+    draw each chunk's TIN into a height and normal texture, and feed the
+    existing GPU layer pass, with no CPU paint sites. Paint is visual
+    only, so it needs no bitwise parity.
 
 ### Canonical ground and roads track
 

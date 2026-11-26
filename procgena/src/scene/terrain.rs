@@ -150,10 +150,10 @@ pub(crate) fn add_subject(app: &mut App) {
         .add_systems(Update, (apply_show, report_progress));
 }
 
-/// The stream drawing `world`, coloured with bare terrain's ground layers
-/// (grass, rock, snow, roads and riverbeds), with its region builds
-/// counted, and the overlay's source of the same world, so the overlay
-/// reads the regions the stream has built.
+/// The stream drawing `world` in plain grass (bare terrain's lowest
+/// layer: the ground isn't painted for now, so it loads faster), with its
+/// region builds counted, and the overlay's source of the same world, so
+/// the overlay reads the regions the stream has built.
 fn stream(world: WorldTerrain) -> (TerrainStream, OverlaySource) {
     let tracker = RegionTracker::default();
     let world = Arc::new(world.with_progress(tracker.hook()));
@@ -163,6 +163,7 @@ fn stream(world: WorldTerrain) -> (TerrainStream, OverlaySource) {
         rough_from: Some(ROUGH_FROM),
         mid_from: Some(MID_FROM),
         regions: Some(tracker),
+        paint: false,
         ..TerrainStream::new(world.clone())
     };
     (stream, OverlaySource::new(world, ground, &Overlay::ALL))

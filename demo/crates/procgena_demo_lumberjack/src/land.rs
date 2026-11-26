@@ -178,8 +178,10 @@ fn spawn_terrain(
     options: Res<DemoOptions>,
     mut camera: Single<&mut Transform, With<MainCamera>>,
 ) {
+    // The ground is drawn in plain grass, without paint, for now.
     commands.spawn(TerrainStream {
         regions: Some(land.regions.clone()),
+        paint: false,
         ..TerrainStream::new(land.terrain.clone())
     });
     let centre = start(&options);

@@ -27,6 +27,9 @@
 //!   `--rough-from`) at the mid tier, with roads in outline;
 //! - `--levels`, `--borders`, `--wireframe`: start with chunk levels
 //!   tinted, chunk borders drawn, or the wireframe drawn;
+//! - `--paint`: paint the ground with bare terrain's look (rock on steep
+//!   ground, snow up high, roads and riverbeds); without it the ground is
+//!   all plain grass and reads no ground sites, which loads much faster;
 //! - `--textures`: draw the ground with its texture sets, read from
 //!   `terrain/assets/textures` (download them first with
 //!   `uv run --project tools textures download terrain --sizes 128,512,1k`);
@@ -145,6 +148,8 @@ struct Scene {
     /// Draw the finest chunks from their canonical meshes, within this
     /// tolerance.
     tin: Option<TinTolerance>,
+    /// Paint the ground; otherwise it is all plain grass.
+    paint: bool,
     headless: bool,
 }
 
@@ -309,6 +314,7 @@ fn main() {
                 .map(|v| v.parse().expect("--rough-from needs a level")),
             mid_from: value("--mid-from").map(|v| v.parse().expect("--mid-from needs a level")),
             tin: tin_tolerance(has("--tin"), value("--tin-level"), value("--tin-error")),
+            paint: has("--paint"),
             headless,
         })
         .add_systems(Startup, setup)
@@ -354,6 +360,7 @@ fn setup(
         rough_from: scene.rough_from,
         mid_from: scene.mid_from,
         tin: scene.tin,
+        paint: scene.paint,
         ..TerrainStream::world(world)
     });
 
