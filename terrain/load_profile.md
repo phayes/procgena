@@ -319,7 +319,7 @@ Default world (a mix by elevation), default camera, view 4000 m: 252 chunks
 | default, 4 reads | 35–50 | 62.7 s | 158.9 s | hung at ~260 s (41 refining) | 1,011 s in 404 s | 4.47 T |
 | `--tin` | 40–70 | 53.6 s | 154.8 s | hung at ~280 s (34 refining) | 900 s in 360 s | 4.44 T |
 | `--preset mountains` | 40–70 | 166.9 s | 351.8 s | not within 360 s (170 refining) | 1,237 s in 360 s | 7.81 T |
-| mixed, Rough only (`--rough-from 0`) | 25–34 | 43.1 s | 47.2 s | **106.9 s** | 445 s | 2.32 T |
+| mixed, Rough only (`--rough-from 0`, a setting since refused) | 25–34 | 43.1 s | 47.2 s | **106.9 s** | 445 s | 2.32 T |
 | mountains, Rough only | 30–110 | 207.9 s | 216.6 s | **450.5 s** | 1,249 s | 6.75 T |
 | studio replica: hills, view 3000, Rough from 4, Mid from 2, 8 reads, 5 pool threads | 32–60 | never | never | hung from ~23 s, nothing drawn | — | — |
 | `edit_cache_plan` setup: hills, view 3000, Rough from 3, 4 reads | 26–47 | 36.9 s | — | hung at ~90 s (148 of 194 drawn) | — | — |

@@ -41,7 +41,7 @@ use std::time::Instant;
 use glam::DVec2;
 use procgena_terrain::tin::{
     CM_PER_M, ChunkEdgeKey, Cm, ContractCache, DomainTolerance, EdgeContract, ProbeAddr, TinChunk,
-    TinTolerance, TinTriangle, build_chunk, build_chunk_with, sample_heights,
+    TinTolerance, TinTriangle, build_chunk_with, sample_heights,
 };
 use procgena_terrain::{
     ChunkFeature, ChunkFeatureShape, ChunkKey, ChunkSource, Elevation, FeatureKind, FeatureLevel,
@@ -307,11 +307,15 @@ impl Stats {
         // few builds, and the heights each reads.
         let counting = Counting::new(world);
         let mut mesh = None;
+        let mut cache = ContractCache::new(tolerance);
         let (mut fastest, mut fastest_reading) = (f64::INFINITY, 0.0);
         counting.take_ms();
         for _ in 0..self.repeats {
+            cache = ContractCache::new(tolerance);
             let started = Instant::now();
-            mesh = Some(build_chunk(&counting, key, tolerance).map_err(|e| e.to_string())?);
+            mesh = Some(
+                build_chunk_with(&counting, key, tolerance, &cache).map_err(|e| e.to_string())?,
+            );
             let (took, reading) = (started.elapsed().as_secs_f64() * 1000.0, counting.take_ms());
             if took < fastest {
                 (fastest, fastest_reading) = (took, reading);
@@ -322,7 +326,9 @@ impl Stats {
         self.read_ms.push(fastest_reading);
         self.reads.push((counting.take() / self.repeats) as f64);
         let started = Instant::now();
-        mesh.shading_normals(&counting).map_err(|e| e.to_string())?;
+        // Normals from the build's own contracts, which carry the border's.
+        mesh.shading_normals_with(&counting, tolerance, &cache)
+            .map_err(|e| e.to_string())?;
         self.normal_ms
             .push(started.elapsed().as_secs_f64() * 1000.0);
         self.normal_reads.push(counting.take() as f64);

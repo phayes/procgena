@@ -71,6 +71,13 @@ const CREASE_CLEARANCE: f64 = 1.5;
 /// same chunk always gets the same mesh, whatever order chunks are built
 /// in.
 ///
+/// # Errors
+///
+/// [`TinError::NotFinest`] if `source` can't give the finest level, and
+/// [`TinError::NoGround`] or [`TinError::OutOfRange`] where the ground is
+/// missing or out of range: in the chunk, or one lattice step outside its
+/// border (where the edge contracts read their vertices' normals).
+///
 /// # Panics
 ///
 /// If `key`'s level is above [`MAX_CHUNK_LEVEL`](crate::MAX_CHUNK_LEVEL),

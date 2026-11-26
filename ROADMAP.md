@@ -1994,7 +1994,8 @@ Decided by the user 2026-11-26. The design is in
     sampled only where a crossing is wished. With it, E's noise went to
     f64 (it stepped by up to about 2 mm every few millimetres).
   - **Measured on one thread** (master 3e8d192 against TB, same
-    commands, `load_timeline --rough-from 0`): mixed world 2.67 T →
+    commands, `load_timeline --rough-from 0`, a setting since refused:
+    level 0 always reads every feature): mixed world 2.67 T →
     0.284 T instructions (9.4×), first picture 452.8 → 41.3 s, settled
     662.0 → 79.7 s; mountains 5.50 T without settling in 900 s →
     0.394 T, settled at 110.9 s. Rough per region about 165 → 7.7 ms,
@@ -2478,14 +2479,8 @@ in a `tin` module of `procgena_terrain`.
   **Left:**
   - water from CT3's shores (TIN chunks take their water from a second
     regular sampling for now, only where a river or pond reaches them);
-  - **ready follow-up, cheaper shading normals:** `shading_normals` reads
-    `H*` 1 m either side of every vertex (4 reads a vertex: 68 of a
-    plains chunk's 310 streamed reads, 1,344 of a mountain chunk's
-    4,864). Give interior vertices the area-weighted normal of the
-    chunk's own triangles, and keep `H*` differences only on border
-    vertices: both chunks hold those at the same positions and read the
-    same `H*`, so the lighting stays seamless across chunk edges. Mountains
-    would read about 200 for normals instead of 1,344;
+  - cheaper shading normals: done (interior vertices in `34e10a7`,
+    border normals carried in the edge contracts by CT-T stage 5);
   - **follow-up for when features come back, TIN on the first read:** a
     finest chunk read at an earlier tier builds its TIN at once when
     `ChunkSource::level_change_known` says the fine tier changes nothing
@@ -2580,7 +2575,10 @@ largest place range).
      carried in the edge contract, so seams stay exact without `H*`
      (since `34e10a7` interior vertices already use the TIN's own faces).
      **Status:** built (`9f3f9d4`): `shading_normals_with` reads no
-     ground; the stream adopts it in `TinRead::build`.
+     ground at shading time (the contracts read 4 heights per contract
+     vertex, once per edge). Not yet used by the stream:
+     `TinRead::build` still calls `shading_normals`, which rebuilds the
+     contracts, until the stream worker switches it.
   6. **Only if TIN building is still too slow:** move `H*` sampling and
      TIN building to the GPU. That requires an integer, fixed-point `H*`
      that gives bit-identical results on the CPU and the GPU, designed
