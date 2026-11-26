@@ -5,7 +5,9 @@
 > track). The zip library is chosen when PB1 is built. Sections still
 > marked "(proposed)" were decided with the rest. Since it was written:
 > ST0 split the flower kind out, and "level 1 by default" applies to
-> textures only (trees default to `game_level` 0 under IX).
+> textures only (trees default to `game_level` 0 under IX). Every tree
+> species now names its own `key` (the user, 2026-11-26, ROADMAP item 9),
+> so step 4 "Keep seeds" no longer writes keys out on rename.
 
 Written from ARCHITECTURE.md ("Seeds", rule 10 "One preset and file
 pattern", "Bringing your own assets"),

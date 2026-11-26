@@ -3039,14 +3039,11 @@ where the details are.
    different, though the density test still passes. Accept the look, or
    ask for per-class lattices back (which needs a different address
    scheme). Details: [docs/decisions/C2-plan.md](docs/decisions/C2-plan.md).
-9. **Tree species keys in files (C2).** Each species in a tree Scatter now
-   has a key that seeds its own trees, so editing one species no longer
-   moves another's. In `.tree_scatter.yml` and `.ecotope.yml` files a
-   species that names a tree preset may leave out `key` and takes the
-   preset's key; a species with inline tree settings must give one; two
-   species with the same key are an error. Is that the wanted policy, or
-   should every species always name its key? Details: C2-plan.md, "As
-   built".
+9. ~~**Tree species keys in files (C2).**~~ Decided by the user
+   2026-11-26: every species names its own `key`, with no fallback to
+   the preset's key, so renaming a preset never reseeds its trees (D3's
+   identity and preset keys stay apart). The code change is a follow-up
+   below.
 10. ~~**Shared renderer (R2).**~~ Decided by the user 2026-11-24:
     - *Shadows:* keep one undithered level per copy in shadow maps.
       Shadows are expensive, and the switch is unlikely to be noticed.
@@ -3167,6 +3164,13 @@ Done (2026-11-24): items 10, 15 and 16 above.
 
 ### Follow-ups noted, no decision needed
 
+- **Tree species keys are required** (item 9, the user 2026-11-26). A
+  tree Scatter species, in files and in code (`ScatterTree::new(preset)`
+  today takes the preset's key), must name its own `key`; a missing key
+  is a load error. Update the shipped files (`pine_forest_floor.ecotope.yml`
+  and any `.tree_scatter.yml`), `tree/docs/scatters.md`, and
+  saved-file-format's "Keep seeds" step, which then no longer needs to
+  write keys out on rename.
 - **High priority: documentation clean-up (milestone DS).** Work through
   [docs/coordination/doc-sweep-2026-11-25.md](docs/coordination/doc-sweep-2026-11-25.md),
   starting with its decision items.

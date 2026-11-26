@@ -4,6 +4,9 @@
 > current design is in ARCHITECTURE.md and status in ROADMAP.md. Open
 > point 1 is done (`RegionId` is in `procgena_core/src/address.rs`);
 > points 2 and 3 are ROADMAP follow-ups, and point 4 landed with C2.
+> Since it was built: a species' `key` is no longer optional (the user,
+> 2026-11-26, ROADMAP item 9); the fallback to the preset's key below is
+> superseded.
 
 Worker plan for roadmap milestone C2 (wave 5). Written 2026-11-24 before any
 code. Follows ARCHITECTURE.md ("Masks and placement", rules 4 and 5), D2,
