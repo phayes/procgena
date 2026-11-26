@@ -164,7 +164,7 @@ flowchart TD
     ST5b["ST5b Picking by part paths"]
     ST6["ST6 Texture library"]
     ST7a["ST7a Problems, overlays, stats"]
-    ST7b["ST7b Viewing distance"]
+    ST7b["ST7b Chain preview"]
     ST8["ST8 Export and commands"]
     ST9["ST9 Studio later"]
 
@@ -1100,12 +1100,10 @@ go to the few copies near the camera.
     where impostors take over for distance, and how the quality setting
     moves each. It replaces or extends today's shared LOD type and
     quality factors (R1), so the plan says what changes there.
-  - **Level 1 is the default for everything** (the user, 2026-11-24).
-    Every asset draws at detail level 1 by default, even near the camera,
-    and for meshes as well as textures; full-detail level 0 is an opt-in,
-    per game or per asset. The plan works out what this means for each
-    asset's level table, the quality setting, the studio (which may show
-    level 0 for editing), bakes and the specimen budget.
+  - **Default detail per kind** (superseded the early "level 1 is the
+    default for everything", the user, 2026-11-25): each preset names its
+    own `game_level`, and different kinds default differently (see
+    "Decided by the user" below).
   - **The question and the measures:** how close impostors can come
     (per asset kind and size) before they look wrong, and what that saves
     in frame time, draw calls, triangles, memory and bake time.
@@ -1133,14 +1131,15 @@ go to the few copies near the camera.
     waits for it.
   - **Build time as well as frame time** (added 2026-11-24 from
     [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md)): a
-    stone's level 0 is about 70% of its CPU build, so "level 1 by default"
-    also shortens loads and edits if level 0 is built only on demand.
+    stone's level 0 is about 70% of its CPU build, so a coarser
+    `game_level` also shortens loads and edits when level 0 is never
+    built.
 - **Decided by the user (2026-11-25), ahead of the planning talk:**
   - **The game level (`game_level`) is a setting of the preset** (named
     by the user 2026-11-25; first called the "near level"). It is a style, and different kinds
     of object may want different ones, so each preset says which built
-    level is the object's game level (level 1 by default; level 0
-    opt-in; tree presets default to level 0, the user, 2026-11-25). It
+    level is the object's game level. Defaults differ by kind: trees
+    level 0, stone Medium Low, mushroom and dead wood `HIGH`. It
     is more than the level drawn nearest the camera: it is
     the shape the rest of the game uses, so physics colliders, picking,
     CPU queries and impostor bakes all read it, and coarser levels exist
@@ -2253,7 +2252,7 @@ summary below is for ordering.
 | **ST5b** Picking by part paths | D3 part paths for single parts | X1's `part()`, fruit AC1 |
 | **ST6** Texture library | One `TextureCatalogue` shared with GM2, import to BC7 KTX2 with `ctt` | ST2, ST3, ST4; agreement with GM2 |
 | **ST7a** Problems, overlays, stats | Problems panel, debug overlays, live stats, one Detail and Quality control | ST0, ST1 |
-| **ST7b** Viewing distance and level 0 | View-frame distance; game default (level 1) apart from level 0 preview; level readout with its reason; game profile in the project | IX's per-view LOD distance override and default-level API |
+| **ST7b** Chain preview | IX's chain preview on the view frame: pretend a distance, force the lower mesh or the impostor, and read back which step is drawn and why. The studio shows each preset's `game_level` | IX Step 4's chain preview |
 | **ST8** Export and commands | One Export, screenshot, turntable, command palette, shortcuts | ST0; turntable after ST4 |
 | **ST9** Later | A/B compare, seed browser, node diagram, preview contexts, Biome and World kinds | B1, W1 for their kinds |
 | Far future | The studio as an extension of the Bevy editor (decided by the user 2026-11-24: not planned until Bevy offers editor extensions; research in the plan's "Bevy editor") | Bevy editor extensions |

@@ -1425,7 +1425,8 @@ Each rule says what every asset does, and which crates have to change.
    - **A preset is content; drawing is presentation.** A preset carries
      its `game_level`: the one detail that is the object's real geometry,
      which colliders, picking, CPU queries and impostor bakes read. Its
-     default is per kind (level 0 for trees, level 1 for the rest), and a
+     default is per kind (level 0 for trees, Medium Low for stone, `HIGH`
+     for mushroom and dead wood), and a
      game cannot override it.
    - **One chain for every kind** (`procgena_core::chain`): the
      `game_level` mesh, one lower mesh derived from it by the kind's
