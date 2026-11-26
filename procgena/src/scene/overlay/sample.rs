@@ -7,9 +7,6 @@
 use std::time::{Duration, Instant};
 
 use bevy::math::DVec2;
-use procgena_terrain::ground::{
-    GroundPainter, GroundSite, GroundSource, MaterialCatalogue, MaterialId,
-};
 use procgena_terrain::{
     FeatureTier, Labels, Landform, MEASURE_REACH, Measures, RegionId, SampleDetail, Terrain,
     WATER_HEIGHT_REACH, WorldTerrain,
@@ -20,8 +17,6 @@ use procgena_terrain::{
 pub enum Overlay {
     /// Each region in its own colour, with its outline.
     Regions,
-    /// The ground material with the most weight at each texel.
-    Ground,
     /// [`Measures::slope`].
     Slope,
     /// [`Measures::curvature`].
@@ -42,8 +37,6 @@ pub enum Overlay {
 pub enum Family {
     /// The region holding each texel.
     Regions,
-    /// The ground material with the most weight at each texel.
-    Ground,
     /// The [`Measures`] at each texel.
     Measures,
     /// The [`Labels`] at each texel.
@@ -52,10 +45,9 @@ pub enum Family {
 
 impl Overlay {
     /// Every overlay, in the order the picker lists them.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 7] = [
         Self::Regions,
         Self::Landform,
-        Self::Ground,
         Self::Slope,
         Self::Curvature,
         Self::HeightAboveWater,
@@ -67,7 +59,6 @@ impl Overlay {
     pub fn label(self) -> &'static str {
         match self {
             Self::Regions => "Regions",
-            Self::Ground => "Ground materials",
             Self::Slope => "Slope",
             Self::Curvature => "Curvature",
             Self::HeightAboveWater => "Height above water",
@@ -81,7 +72,6 @@ impl Overlay {
     pub fn family(self) -> Family {
         match self {
             Self::Regions => Family::Regions,
-            Self::Ground => Family::Ground,
             Self::Landform => Family::Labels,
             Self::Slope
             | Self::Curvature
@@ -96,12 +86,11 @@ impl Overlay {
     /// # Panics
     ///
     /// If `value` is of another family.
-    fn colour(self, value: &Value, catalogue: &MaterialCatalogue) -> [u8; 4] {
+    fn colour(self, value: &Value) -> [u8; 4] {
         let rgb = match (self, value) {
             (Self::Regions, Value::Region(id)) => region_colour(*id),
-            (Self::Ground, Value::Ground(Some(id))) => material_colour(*id, catalogue),
             (Self::Landform, Value::Labels(Some(labels))) => labels.landform.colour(),
-            (_, Value::Ground(None) | Value::Measures(None) | Value::Labels(None)) => NONE,
+            (_, Value::Measures(None) | Value::Labels(None)) => NONE,
             (_, Value::Measures(Some(m))) => match self {
                 Self::Slope => ramp(&SEQUENTIAL, m.slope),
                 Self::Curvature => ramp(&DIVERGING, 0.5 + 0.5 * m.curvature / CURVATURE_RANGE),
@@ -112,7 +101,7 @@ impl Overlay {
                 },
                 Self::WaterDistance => ramp(&NEAR_FAR, m.water_distance / MEASURE_REACH),
                 Self::RoadDistance => ramp(&NEAR_FAR, m.road_distance / MEASURE_REACH),
-                Self::Regions | Self::Ground | Self::Landform => {
+                Self::Regions | Self::Landform => {
                     panic!("{self:?} can't colour measures")
                 }
             },
@@ -123,12 +112,9 @@ impl Overlay {
 
     /// What one texel's `value` means, for the hover readout, such as
     /// "slope 0.42 (25°)".
-    pub fn describe(self, value: &Value, catalogue: &MaterialCatalogue) -> String {
+    pub fn describe(self, value: &Value) -> String {
         match (self, value) {
             (Self::Regions, Value::Region(id)) => format!("region {}", id.0),
-            (Self::Ground, Value::Ground(Some(id))) => {
-                format!("ground {}", catalogue.get(*id).0)
-            }
             (Self::Landform, Value::Labels(Some(labels))) => {
                 let flags = labels.flags.names();
                 if flags.is_empty() {
@@ -137,9 +123,7 @@ impl Overlay {
                     format!("landform {} ({})", labels.landform.name(), flags.join(", "))
                 }
             }
-            (_, Value::Ground(None) | Value::Measures(None) | Value::Labels(None)) => {
-                "no ground".to_string()
-            }
+            (_, Value::Measures(None) | Value::Labels(None)) => "no ground".to_string(),
             (_, Value::Measures(Some(m))) => match self {
                 Self::Slope => {
                     format!("slope {:.2} ({:.0}°)", m.slope, m.slope.asin().to_degrees())
@@ -151,7 +135,7 @@ impl Overlay {
                 },
                 Self::WaterDistance => distance_text("water", m.water_distance),
                 Self::RoadDistance => distance_text("road", m.road_distance),
-                Self::Regions | Self::Ground | Self::Landform => {
+                Self::Regions | Self::Landform => {
                     format!("{self:?} can't describe measures")
                 }
             },
@@ -159,9 +143,8 @@ impl Overlay {
         }
     }
 
-    /// The legend: what each colour means. `catalogue` names the ground
-    /// materials.
-    pub fn legend(self, catalogue: &MaterialCatalogue) -> Legend {
+    /// The legend: what each colour means.
+    pub fn legend(self) -> Legend {
         let ramp_stops = |stops: &[[u8; 3]]| stops.to_vec();
         match self {
             Self::Regions => Legend::Swatches(vec![
@@ -171,12 +154,6 @@ impl Overlay {
                 ),
                 (OUTLINE, "region outline".into()),
             ]),
-            Self::Ground => Legend::Swatches(
-                catalogue
-                    .iter()
-                    .map(|(id, key, _)| (material_colour(id, catalogue), key.to_string()))
-                    .collect(),
-            ),
             Self::Slope => Legend::Ramp {
                 stops: ramp_stops(&SEQUENTIAL),
                 low: "flat".into(),
@@ -220,7 +197,6 @@ impl Family {
     pub fn cost(self) -> &'static str {
         match self {
             Self::Regions => "a region lookup per texel",
-            Self::Ground => "a height, gradient and paint per texel",
             Self::Measures => "a height, gradient and four more heights per texel",
             Self::Labels => "the measures and eight more heights for the shape per texel",
         }
@@ -231,7 +207,7 @@ impl Family {
     pub fn texels(self) -> u32 {
         match self {
             Self::Regions => 65,
-            Self::Ground | Self::Measures | Self::Labels => 33,
+            Self::Measures | Self::Labels => 33,
         }
     }
 }
@@ -260,17 +236,14 @@ pub enum Legend {
 pub enum Value {
     /// The region holding it.
     Region(RegionId),
-    /// The ground material with the most weight, `None` where there is no
-    /// ground.
-    Ground(Option<MaterialId>),
     /// The measures, `None` where there is no ground.
     Measures(Option<Measures>),
     /// The labels, `None` where the ground has none.
     Labels(Option<Labels>),
 }
 
-/// Ground the overlay can sample: its regions, sites, measures and labels.
-pub trait OverlayGround: GroundSource {
+/// Ground the overlay can sample: its regions, measures and labels.
+pub trait OverlayGround: Sync {
     /// The region holding `p` (x and z, metres).
     fn region(&self, p: DVec2) -> RegionId;
 
@@ -352,12 +325,10 @@ pub struct AreaValues {
 
 impl AreaValues {
     /// Samples `family` over the square from `min` with side `side`, from
-    /// `ground` planned to `tier`; ground materials are painted with
-    /// `painter`.
+    /// `ground` planned to `tier`.
     pub fn sample(
         family: Family,
         ground: &(impl OverlayGround + ?Sized),
-        painter: &(impl GroundPainter + ?Sized),
         min: DVec2,
         side: f64,
         tier: FeatureTier,
@@ -371,7 +342,7 @@ impl AreaValues {
         for j in -ring..n + ring {
             for i in -ring..n + ring {
                 let p = min + DVec2::new(i as f64, j as f64) * step;
-                values.push(sample_point(family, ground, painter, p, tier));
+                values.push(sample_point(family, ground, p, tier));
             }
         }
         Self {
@@ -396,7 +367,7 @@ impl AreaValues {
     /// # Panics
     ///
     /// If `overlay` is of another family.
-    pub fn colours(&self, overlay: Overlay, catalogue: &MaterialCatalogue) -> Vec<[u8; 4]> {
+    pub fn colours(&self, overlay: Overlay) -> Vec<[u8; 4]> {
         assert_eq!(
             overlay.family(),
             self.family,
@@ -414,7 +385,7 @@ impl AreaValues {
                 out.push(if edge {
                     [OUTLINE[0], OUTLINE[1], OUTLINE[2], 255]
                 } else {
-                    overlay.colour(value, catalogue)
+                    overlay.colour(value)
                 });
             }
         }
@@ -426,33 +397,14 @@ impl AreaValues {
 pub fn sample_point(
     family: Family,
     ground: &(impl OverlayGround + ?Sized),
-    painter: &(impl GroundPainter + ?Sized),
     p: DVec2,
     tier: FeatureTier,
 ) -> Value {
     match family {
         Family::Regions => Value::Region(ground.region(p)),
-        Family::Ground => Value::Ground(dominant(painter, p, &ground.site(p, tier))),
         Family::Measures => Value::Measures(ground.measures(p, tier)),
         Family::Labels => Value::Labels(ground.labels(p, tier)),
     }
-}
-
-/// The material with the most weight at `p`, ties to the lower id; `None`
-/// where the site has no ground.
-fn dominant(
-    painter: &(impl GroundPainter + ?Sized),
-    p: DVec2,
-    site: &GroundSite,
-) -> Option<MaterialId> {
-    if !site.height.is_finite() {
-        return None;
-    }
-    painter
-        .paint(p, site)
-        .iter()
-        .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)))
-        .map(|(id, _)| id)
 }
 
 /// The distance readout, such as "road 12 m away".
@@ -527,16 +479,6 @@ fn region_colour(region: RegionId) -> [u8; 3] {
     categorical(region.0.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40)
 }
 
-/// The colour of ground material `id`.
-fn material_colour(id: MaterialId, catalogue: &MaterialCatalogue) -> [u8; 3] {
-    // Hues spaced evenly round the circle by the catalogue's size, every
-    // other one lighter, so neighbours in the catalogue differ twice over.
-    let count = catalogue.len().max(1) as f32;
-    let index = f32::from(id.0);
-    let lightness = if id.0.is_multiple_of(2) { 0.45 } else { 0.68 };
-    hsl((index / count).fract(), 0.75, lightness)
-}
-
 /// An sRGB colour from hue, saturation and lightness, each 0 to 1.
 fn hsl(h: f32, s: f32, l: f32) -> [u8; 3] {
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
@@ -558,7 +500,6 @@ fn hsl(h: f32, s: f32, l: f32) -> [u8; 3] {
 mod tests {
     use std::sync::Arc;
 
-    use procgena_terrain::ground::GroundStack;
     use procgena_terrain::{
         Elevation, MIN_EDGE, RegionGraphOptions, TerrainPreset, WorldTerrainOptions,
     };
@@ -591,16 +532,14 @@ mod tests {
     #[test]
     fn regions_are_outlined_where_they_meet() {
         let world = world();
-        let painter = GroundStack::bare(0, 1.0);
         let values = AreaValues::sample(
             Family::Regions,
             &world,
-            &painter,
             DVec2::splat(-2000.0),
             4000.0,
             FeatureTier::Rough,
         );
-        let colours = values.colours(Overlay::Regions, painter.catalogue());
+        let colours = values.colours(Overlay::Regions);
         let outline = [OUTLINE[0], OUTLINE[1], OUTLINE[2], 255];
         let edges = colours.iter().filter(|&&c| c == outline).count();
         assert!(edges > 0, "regions of 2 km meet in a 4 km square");
@@ -610,10 +549,8 @@ mod tests {
     #[test]
     fn readout_and_colours_follow_the_measures() {
         let world = world();
-        let painter = GroundStack::bare(0, 1.0);
-        let catalogue = painter.catalogue();
         let p = DVec2::new(37.0, -12.0);
-        let value = sample_point(Family::Measures, &world, &painter, p, FeatureTier::Fine);
+        let value = sample_point(Family::Measures, &world, p, FeatureTier::Fine);
         let measures = world
             .terrain_at(p)
             .unwrap()
@@ -621,18 +558,18 @@ mod tests {
             .measures
             .unwrap();
         assert_eq!(value, Value::Measures(Some(measures)));
-        let slope = Overlay::Slope.describe(&value, catalogue);
+        let slope = Overlay::Slope.describe(&value);
         assert!(
             slope.starts_with(&format!("slope {:.2}", measures.slope)),
             "{slope}"
         );
         assert_eq!(
-            Overlay::Slope.colour(&value, catalogue)[..3],
+            Overlay::Slope.colour(&value)[..3],
             ramp(&SEQUENTIAL, measures.slope)
         );
-        let region = sample_point(Family::Regions, &world, &painter, p, FeatureTier::Fine);
+        let region = sample_point(Family::Regions, &world, p, FeatureTier::Fine);
         assert_eq!(
-            Overlay::Regions.describe(&region, catalogue),
+            Overlay::Regions.describe(&region),
             format!("region {}", world.region_at(p).0)
         );
     }
@@ -640,11 +577,9 @@ mod tests {
     #[test]
     fn landforms_are_the_terrains_own_labels() {
         let world = world();
-        let painter = GroundStack::bare(0, 1.0);
-        let catalogue = painter.catalogue();
         let p = DVec2::new(37.0, -12.0);
         let tier = FeatureTier::Rough;
-        let value = sample_point(Family::Labels, &world, &painter, p, tier);
+        let value = sample_point(Family::Labels, &world, p, tier);
         let labels = world
             .terrain_tier(world.region_at(p), tier)
             .unwrap()
@@ -652,32 +587,17 @@ mod tests {
         assert_eq!(value, Value::Labels(Some(labels)));
         assert!(
             Overlay::Landform
-                .describe(&value, catalogue)
+                .describe(&value)
                 .starts_with(&format!("landform {}", labels.landform.name()))
         );
         assert_eq!(
-            Overlay::Landform.colour(&value, catalogue)[..3],
+            Overlay::Landform.colour(&value)[..3],
             labels.landform.colour()
         );
-        let Legend::Swatches(swatches) = Overlay::Landform.legend(catalogue) else {
+        let Legend::Swatches(swatches) = Overlay::Landform.legend() else {
             panic!("landforms are listed one by one");
         };
         assert_eq!(swatches.len(), Landform::ALL.len());
-    }
-
-    #[test]
-    fn ground_shows_the_heaviest_material() {
-        let world = world();
-        let painter = GroundStack::bare(0, 1.0);
-        let p = DVec2::new(-80.0, 140.0);
-        let site = GroundSource::site(&world, p, FeatureTier::Fine);
-        let mix = painter.paint(p, &site);
-        let Value::Ground(Some(id)) =
-            sample_point(Family::Ground, &world, &painter, p, FeatureTier::Fine)
-        else {
-            panic!("there is ground at {p}");
-        };
-        assert!(mix.iter().all(|(_, w)| w <= mix.weight(id)));
     }
 
     #[test]

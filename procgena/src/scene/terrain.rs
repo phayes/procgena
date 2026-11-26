@@ -166,7 +166,7 @@ fn stream(world: WorldTerrain) -> (TerrainStream, OverlaySource) {
         paint: false,
         ..TerrainStream::new(world.clone())
     };
-    (stream, OverlaySource::new(world, ground, &Overlay::ALL))
+    (stream, OverlaySource::new(world, &Overlay::ALL))
 }
 
 /// The starting camera view over `settings`' ground: from above, looking

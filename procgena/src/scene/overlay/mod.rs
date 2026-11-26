@@ -27,7 +27,6 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
 use bevy::ui::{ComputedNode, UiGlobalTransform};
-use procgena_terrain::ground::{GroundPainter, MaterialCatalogue};
 use procgena_terrain::{ChunkKey, FeatureTier};
 use procgena_terrain_bevy::{TerrainChunk, TerrainOverlay};
 
@@ -58,8 +57,6 @@ pub(crate) struct ChosenOverlay(pub Option<Overlay>);
 pub struct OverlaySource {
     /// Where regions, heights and measures come from.
     pub ground: Arc<dyn OverlayGround + Send + Sync>,
-    /// What the ground is made of, for [`Overlay::Ground`].
-    pub painter: Arc<dyn GroundPainter + Send + Sync>,
     /// The overlays this ground can show.
     pub offered: &'static [Overlay],
     /// Which ground this is, so samples of other ground are never mixed in.
@@ -67,16 +64,11 @@ pub struct OverlaySource {
 }
 
 impl OverlaySource {
-    /// A source of `ground` and its `painter`, offering `offered`.
-    pub fn new(
-        ground: Arc<dyn OverlayGround + Send + Sync>,
-        painter: Arc<dyn GroundPainter + Send + Sync>,
-        offered: &'static [Overlay],
-    ) -> Self {
+    /// A source of `ground`, offering `offered`.
+    pub fn new(ground: Arc<dyn OverlayGround + Send + Sync>, offered: &'static [Overlay]) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         Self {
             ground,
-            painter,
             offered,
             id: NEXT.fetch_add(1, Ordering::Relaxed),
         }
@@ -105,8 +97,6 @@ pub struct OverlayStatus {
     pub offered: Vec<Overlay>,
     /// The overlay drawn: the one chosen, if the shown subject offers it.
     pub drawn: Option<Overlay>,
-    /// The ground materials' names, for the legend.
-    pub catalogue: MaterialCatalogue,
     /// What sampling has cost so far for the shown ground, per family.
     pub cost: HashMap<Family, FamilyCost>,
     /// Pieces of ground being sampled now.
@@ -296,10 +286,7 @@ fn draw_overlay(
         cache.values.clear();
         cache.tasks.clear();
         cache.source = source.id;
-        *status = OverlayStatus {
-            catalogue: source.painter.catalogue().clone(),
-            ..default()
-        };
+        *status = OverlayStatus::default();
     }
     let overlay = chosen.0.filter(|o| source.offered.contains(o));
     if status.offered != source.offered {
@@ -356,7 +343,7 @@ fn draw_overlay(
         let image = match cache.images.get(&(key, overlay)) {
             Some(image) => Some(image.clone()),
             None => cache.values.get(&(key, family)).map(|values| {
-                let image = images.add(overlay_image(values, overlay, &status.catalogue));
+                let image = images.add(overlay_image(values, overlay));
                 cache.images.insert((key, overlay), image.clone());
                 image
             }),
@@ -377,16 +364,8 @@ fn draw_overlay(
                 let busy = cache.tasks.iter().any(|(k, _)| *k == (key, family));
                 if !busy && cache.tasks.len() < MAX_TASKS {
                     let ground = Arc::clone(&source.ground);
-                    let painter = Arc::clone(&source.painter);
                     let task = AsyncComputeTaskPool::get().spawn(async move {
-                        AreaValues::sample(
-                            family,
-                            &*ground,
-                            &*painter,
-                            key.min(),
-                            key.side(),
-                            key.tier,
-                        )
+                        AreaValues::sample(family, &*ground, key.min(), key.side(), key.tier)
                     });
                     cache.tasks.push(((key, family), task));
                 }
@@ -404,12 +383,8 @@ fn draw_overlay(
 
 /// An image of `values` coloured by `overlay`: one texel per sample, sharp
 /// for overlays of kinds, smooth for ramps.
-fn overlay_image(values: &AreaValues, overlay: Overlay, catalogue: &MaterialCatalogue) -> Image {
-    let data: Vec<u8> = values
-        .colours(overlay, catalogue)
-        .into_iter()
-        .flatten()
-        .collect();
+fn overlay_image(values: &AreaValues, overlay: Overlay) -> Image {
+    let data: Vec<u8> = values.colours(overlay).into_iter().flatten().collect();
     let mut image = Image::new(
         Extent3d {
             width: values.size,
@@ -423,7 +398,7 @@ fn overlay_image(values: &AreaValues, overlay: Overlay, catalogue: &MaterialCata
     );
     image.sampler = ImageSampler::Descriptor(match overlay.family() {
         Family::Measures => ImageSamplerDescriptor::linear(),
-        Family::Regions | Family::Ground | Family::Labels => ImageSamplerDescriptor::nearest(),
+        Family::Regions | Family::Labels => ImageSamplerDescriptor::nearest(),
     });
     image
 }
@@ -496,14 +471,8 @@ fn probe(
         let direction = ray.direction.as_dvec3();
         let point = hit(&*source.ground, &pieces, origin, direction)?;
         let tier = tier_at(&pieces, point)?;
-        let value = sample::sample_point(
-            overlay.family(),
-            &*source.ground,
-            &*source.painter,
-            point,
-            tier,
-        );
-        let text = overlay.describe(&value, &status.catalogue);
+        let value = sample::sample_point(overlay.family(), &*source.ground, point, tier);
+        let text = overlay.describe(&value);
         Some(Readout { point, value, text })
     })();
     if status.readout != readout {
@@ -574,7 +543,6 @@ mod tests {
 
     use bevy::asset::AssetPlugin;
     use bevy::math::DVec3;
-    use procgena_terrain::ground::GroundStack;
     use procgena_terrain::{
         Elevation, RegionId, SampleDetail, TerrainPreset, Transitions, WorldTerrain,
         WorldTerrainOptions,
@@ -591,11 +559,7 @@ mod tests {
 
     /// A source of `world`'s ground offering every overlay.
     fn source(world: &Arc<WorldTerrain>) -> OverlaySource {
-        OverlaySource::new(
-            world.clone(),
-            Arc::new(GroundStack::bare(0, 1.0)),
-            &Overlay::ALL,
-        )
+        OverlaySource::new(world.clone(), &Overlay::ALL)
     }
 
     /// The two level-0 chunks at the origin and beside it.
@@ -707,14 +671,14 @@ mod tests {
         let world = world();
         let (mut app, root, chunks) = app(&world);
         let mut ground = source(&world);
-        ground.offered = &[Overlay::Ground];
+        ground.offered = &[Overlay::Landform];
         app.world_mut().entity_mut(root).insert(ground);
         app.insert_resource(ChosenOverlay(Some(Overlay::Slope)));
         for _ in 0..3 {
             app.update();
         }
         let status = app.world().resource::<OverlayStatus>();
-        assert_eq!(status.offered, vec![Overlay::Ground]);
+        assert_eq!(status.offered, vec![Overlay::Landform]);
         assert_eq!(status.drawn, None);
         assert!(
             chunks
@@ -762,13 +726,7 @@ mod tests {
 
         // The readout's value is the ground's own.
         let tier = tier_at(&pieces, found).unwrap();
-        let value = sample::sample_point(
-            Family::Measures,
-            &*world,
-            &GroundStack::bare(0, 1.0),
-            found,
-            tier,
-        );
+        let value = sample::sample_point(Family::Measures, &*world, found, tier);
         let terrain = world.terrain_tier(world.region_at(found), tier).unwrap();
         let expected = terrain.query(found, SampleDetail::Measures).measures;
         assert_eq!(value, Value::Measures(expected));

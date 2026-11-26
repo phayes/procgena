@@ -5,7 +5,7 @@
 //! The control is shown only while the shown subject offers overlays (see
 //! [`OverlayStatus`]). Scripts switch overlays with the `overlay-off` and
 //! `overlay-<label>` commands, such as `overlay-slope` or
-//! `overlay-ground-materials`.
+//! `overlay-landform`.
 
 use bevy::feathers::controls::{FeathersSelect, OptionIndex, list_rows_from_strings};
 use bevy::feathers::display::{label_dim, label_small};
@@ -79,7 +79,6 @@ const OVERLAY_COMMANDS: [StudioCommand; Overlay::ALL.len()] = [
     overlay_command::<4>(),
     overlay_command::<5>(),
     overlay_command::<6>(),
-    overlay_command::<7>(),
 ];
 
 /// The command choosing the `I`th of [`Overlay::ALL`].
@@ -96,7 +95,6 @@ const fn overlay_command<const I: usize>() -> StudioCommand {
 const OVERLAY_NAMES: [&str; Overlay::ALL.len()] = [
     "overlay-regions",
     "overlay-landform",
-    "overlay-ground-materials",
     "overlay-slope",
     "overlay-curvature",
     "overlay-height-above-water",
@@ -253,7 +251,7 @@ fn show_legend(
     *drawn = Some(overlay);
     let colours = *colours;
     commands.entity(colours).despawn_children();
-    match overlay.legend(&status.catalogue) {
+    match overlay.legend() {
         Legend::Swatches(swatches) => {
             for (colour, text) in swatches {
                 swatch_row(&mut commands, colours, colour, text);
