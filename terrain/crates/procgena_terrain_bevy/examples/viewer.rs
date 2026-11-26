@@ -6,7 +6,8 @@
 //!
 //! Move with the free camera: W, A, S and D to fly, E and Q for up and down,
 //! and the mouse to look around while the right button is held (or after
-//! pressing M). L tints chunks by level, B draws chunk borders.
+//! pressing M). L tints chunks by level, B draws chunk borders, T draws
+//! every chunk's triangle edges (the wireframe).
 //!
 //! Options:
 //!
@@ -24,8 +25,8 @@
 //!   rough tier only, without roads;
 //! - `--mid-from <level>`: draw chunk levels from this one up (below
 //!   `--rough-from`) at the mid tier, with roads in outline;
-//! - `--levels`, `--borders`: start with chunk levels tinted, or chunk
-//!   borders drawn;
+//! - `--levels`, `--borders`, `--wireframe`: start with chunk levels
+//!   tinted, chunk borders drawn, or the wireframe drawn;
 //! - `--textures`: draw the ground with its texture sets, read from
 //!   `terrain/assets/textures` (download them first with
 //!   `uv run --project tools textures download terrain --sizes 128,512,1k`);
@@ -42,6 +43,8 @@
 //!   print how long coarse ground stayed under and near the camera; then
 //!   exit (with `--screenshot`, after an image taken at the end of the
 //!   flight, still moving);
+//! - `--tin`: draw the finest chunks from their canonical meshes (see
+//!   `TerrainStream::tin`); `--measure` then also counts those chunks;
 //! - `--reads <n>`: read up to `n` chunks at once, on `n` background
 //!   threads (by default 4 reads on Bevy's usual threads);
 //! - `--headless`: with `--screenshot` or `--measure`, render a
@@ -54,19 +57,23 @@ use bevy::app::{ScheduleRunnerPlugin, TaskPoolThreadAssignmentPolicy};
 use bevy::camera::RenderTarget;
 use bevy::camera::primitives::Aabb;
 use bevy::camera_controller::free_camera::{FreeCamera, FreeCameraPlugin};
+use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
+use bevy::render::RenderPlugin;
+use bevy::render::render_resource::{TextureFormat, WgpuFeatures};
+use bevy::render::settings::WgpuSettings;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use glam::DVec2;
+use procgena_terrain::tin::TinTolerance;
 use procgena_terrain::{
     ChunkDetail, ChunkKey, ChunkLevels, Elevation, RegionId, TerrainPreset, WorldTerrain,
     WorldTerrainOptions,
 };
 use procgena_terrain_bevy::{
-    GroundTextureSettings, TerrainChunk, TerrainDebug, TerrainPlugin, TerrainProgress,
-    TerrainStream, TerrainViewer, TerrainWater,
+    CanonicalChunk, GroundTextureSettings, TerrainChunk, TerrainDebug, TerrainPlugin,
+    TerrainProgress, TerrainStream, TerrainViewer, TerrainWater,
 };
 
 /// Frames to wait after every chunk is drawn before a screenshot, so
@@ -133,6 +140,8 @@ struct Scene {
     target: Vec3,
     rough_from: Option<u8>,
     mid_from: Option<u8>,
+    /// Draw the finest chunks from their canonical meshes.
+    tin: bool,
     headless: bool,
 }
 
@@ -244,10 +253,20 @@ fn main() {
     };
     // Assets are read from the workspace, where the ground textures live.
     // With `--reads <n>`, read up to `n` chunks at once on `n` threads.
-    let mut defaults = DefaultPlugins.set(AssetPlugin {
-        file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../..").to_owned(),
-        ..default()
-    });
+    // The wireframe needs the GPU to draw lines.
+    let mut defaults = DefaultPlugins
+        .set(AssetPlugin {
+            file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../..").to_owned(),
+            ..default()
+        })
+        .set(RenderPlugin {
+            render_creation: WgpuSettings {
+                features: WgpuFeatures::POLYGON_MODE_LINE,
+                ..default()
+            }
+            .into(),
+            ..default()
+        });
     if let Some(reads) = reads {
         defaults = defaults.set(TaskPoolPlugin {
             task_pool_options: TaskPoolOptions {
@@ -287,7 +306,12 @@ fn main() {
     if let Some(flight) = flight {
         app.insert_resource(flight);
     }
-    app.add_plugins(plugin)
+    app.add_plugins((plugin, WireframePlugin::default()))
+        .insert_resource(WireframeConfig {
+            global: has("--wireframe"),
+            default_color: Color::srgb(0.1, 0.15, 0.1),
+            ..default()
+        })
         .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.8)))
         .insert_resource(TerrainDebug {
             levels: has("--levels"),
@@ -301,6 +325,7 @@ fn main() {
             rough_from: value("--rough-from")
                 .map(|v| v.parse().expect("--rough-from needs a level")),
             mid_from: value("--mid-from").map(|v| v.parse().expect("--mid-from needs a level")),
+            tin: has("--tin"),
             headless,
         })
         .add_systems(Startup, setup)
@@ -322,6 +347,7 @@ fn setup(
     commands.spawn(TerrainStream {
         rough_from: scene.rough_from,
         mid_from: scene.mid_from,
+        tin: scene.tin.then_some(TinTolerance::GENERAL),
         ..TerrainStream::world(world)
     });
 
@@ -384,14 +410,21 @@ fn water(
     }
 }
 
-/// L toggles the level tint, B the chunk borders.
-fn toggle_debug(keys: Option<Res<ButtonInput<KeyCode>>>, mut debug: ResMut<TerrainDebug>) {
+/// L toggles the level tint, B the chunk borders, T the wireframe.
+fn toggle_debug(
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    mut debug: ResMut<TerrainDebug>,
+    mut wireframe: ResMut<WireframeConfig>,
+) {
     let Some(keys) = keys else { return };
     if keys.just_pressed(KeyCode::KeyL) {
         debug.levels = !debug.levels;
     }
     if keys.just_pressed(KeyCode::KeyB) {
         debug.borders = !debug.borders;
+    }
+    if keys.just_pressed(KeyCode::KeyT) {
+        wireframe.global = !wireframe.global;
     }
 }
 
@@ -400,6 +433,9 @@ fn toggle_debug(keys: Option<Res<ButtonInput<KeyCode>>>, mut debug: ResMut<Terra
 struct LevelFigures {
     chunks: usize,
     triangles: usize,
+    /// Chunks drawn from their canonical meshes, and their triangles.
+    canonical: usize,
+    canonical_triangles: usize,
     /// The nearest point of the nearest and of the farthest chunk, in
     /// metres from the camera.
     nearest: f32,
@@ -414,7 +450,13 @@ fn measure(
     path: Res<ScreenshotPath>,
     time: Res<Time<Real>>,
     progress: Query<&TerrainProgress>,
-    chunks: Query<(&TerrainChunk, &Mesh3d, &GlobalTransform, &Aabb)>,
+    chunks: Query<(
+        &TerrainChunk,
+        &Mesh3d,
+        &GlobalTransform,
+        &Aabb,
+        Has<CanonicalChunk>,
+    )>,
     meshes: Res<Assets<Mesh>>,
     camera: Query<(&GlobalTransform, &Projection, &Camera), With<TerrainViewer>>,
     fly: Option<Res<Fly>>,
@@ -448,7 +490,7 @@ fn measure(
     };
     let eye = eye.translation();
     let mut levels: std::collections::BTreeMap<u8, LevelFigures> = default();
-    for (chunk, mesh, transform, aabb) in &chunks {
+    for (chunk, mesh, transform, aabb, canonical) in &chunks {
         let triangles = meshes
             .get(&mesh.0)
             .and_then(|m| m.indices())
@@ -462,6 +504,10 @@ fn measure(
         });
         row.chunks += 1;
         row.triangles += triangles;
+        if canonical {
+            row.canonical += 1;
+            row.canonical_triangles += triangles;
+        }
         row.nearest = row.nearest.min(distance);
         row.farthest = row.farthest.max(distance);
     }
@@ -494,6 +540,12 @@ fn measure(
         );
         chunks_all += row.chunks;
         triangles_all += row.triangles;
+        if row.canonical > 0 {
+            println!(
+                "       level {level}: {} chunks canonical, {} triangles (skirts and split sides included)",
+                row.canonical, row.canonical_triangles
+            );
+        }
     }
     println!("total  {chunks_all} chunks, {triangles_all} triangles");
     let mut times = measure.times.clone();

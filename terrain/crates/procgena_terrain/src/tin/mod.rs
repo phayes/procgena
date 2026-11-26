@@ -18,8 +18,10 @@ mod hash;
 mod mesh;
 mod numeric;
 mod probe;
+mod product;
 mod refine;
 mod resolve;
+mod surface;
 mod tolerance;
 mod water;
 
@@ -32,5 +34,7 @@ pub use mesh::{
 };
 pub use numeric::{MAX_MM, MM_PER_M, Mm, MmHeight, NumericProfile};
 pub use probe::{ProbeAddr, TinError, sample_heights};
+pub use product::TinCollider;
 pub use refine::build_chunk;
+pub use surface::{GroundSample, GroundSurface, ResidentTins, TinIndex};
 pub use tolerance::{DomainTolerance, TinTolerance};

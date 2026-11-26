@@ -2270,6 +2270,52 @@ in a `tin` module of `procgena_terrain`.
 - **Done when:** mixed-level seams have no cracks, query throughput is
   measured against today's analytic reads, and camera and LOD never
   change a canonical hash.
+- **Status (CT5a, 2026-11-25): products and opt-in streaming built on
+  today's TIN chunks**, ahead of CT3 and CT4; nothing assumes vertices on
+  the 1 m lattice. In `procgena_terrain::tin`:
+  - **Queries:** `TinIndex` (an 8 × 8 bin grid per chunk; exact
+    millimetre tests; a point on a shared edge goes to the first triangle
+    in canonical order), and `GroundSurface` with a batched form on
+    `ResidentTins`, which answers only from loaded chunks and never reads
+    `H*`.
+  - **Render mesh:** `TinChunk::render_mesh` in `ChunkMesh`'s frame, so
+    `TerrainMaterial` and ground paint are unchanged. Shading normals come
+    from `H*` 1 m either side of each vertex, as regular chunks take
+    theirs.
+  - **Seams:** sides that meet a regular chunk get a vertex every metre,
+    and `fit_neighbour` puts the regular chunk's border on the TIN's edge,
+    so mixed seams share every vertex exactly. Skirts stay only as a
+    provisional cover.
+  - **Collision:** `TinCollider`, the canonical triangles in the chunk's
+    frame, ready for one trimesh collider per chunk (R8).
+  - **Streaming:** `TerrainStream::tin` (off by default; the viewer's
+    `--tin`) draws Fine level-0 chunks from their TIN; Rough and Mid stay
+    regular with stand-ins. The stream's `CanonicalGround` holds the
+    loaded chunks for queries. The viewer also gained a wireframe (`T`,
+    `--wireframe`).
+  - **Tests:** `tests/tin_products.rs` and the stream tests in
+    `procgena_terrain_bevy` (hashes unchanged by camera, levels and
+    quality; exact shared vertices on every TIN seam).
+  - **Measured** (load average 25–90, so times are rough):
+    - **Queries** (`--example tin_query`, 4 × 4 chunks): a TIN lookup
+      takes 40–250 ns on one thread. `H*` takes 2.3–10 µs a point, or
+      0.4–2 µs batched on every thread.
+    - **Viewer** (`--measure`, rolling hills, 600 m view): level 0 drops
+      from 557,056 to 11,832 triangles (64 chunks, skirts and split sides
+      included), and the whole view from 1.19 M to 0.64 M. Frame times,
+      12 ms regular against 21 ms TIN, came from separate runs under that
+      load and say nothing yet.
+
+  **Left:**
+  - water from CT3's shores (TIN chunks take their water from a second
+    regular sampling for now);
+  - hard normals on breaklines once CT3 or CT4 add breakline kinds;
+  - TIN LODs and height textures;
+  - canonical chunks prefetched for a gameplay radius (today they follow
+    the camera);
+  - frame times on a quiet machine;
+  - deciding whether TIN streaming becomes the default (not before CT3,
+    CT4 and a measure of mixed tiers).
 - **For the demo (the user, 2026-11-25, demo request R8):** the collision
   product should be easy for a game to turn into one physics collider per
   chunk. Until then, the demo walks on colliders built from the drawn

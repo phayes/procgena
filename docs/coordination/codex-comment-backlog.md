@@ -653,6 +653,24 @@ in these files (`git show <commits> -- <file>` shows which).
   `network_hashes`, `roads_leave_the_rivers_they_cross_open`,
   `road_networks_are_the_same_on_any_number_of_threads`, `along_river`).
 
+## procgena_terrain and procgena_terrain_bevy (CT5a TIN products and streaming, 2026-11-25)
+
+- `terrain/crates/procgena_terrain/src/tin/surface.rs` (every item),
+  `src/tin/product.rs` (every item), `tests/tin_products.rs` (every item),
+  `examples/tin_query.rs` (module docs).
+- `terrain/crates/procgena_terrain_bevy/src/canonical.rs` (every item);
+  `src/lib.rs` (`TerrainStream::tin`, `CanonicalChunk`, `Geometry`,
+  `ChunkRead`, `ChunkRead::read_with_gpu`, `ChunkRead::stand_in`,
+  `ChunkRead::tin`, `ChunkRead::mesh`, `StreamState::seams`, `seams_for`,
+  `spawn_chunk`, the seam and canonical-ground blocks in `stream_chunks`,
+  and the tests `canonical_hashes`, `Tops`, `drawn_edges`,
+  `assert_canonical_seams_close`,
+  `canonical_chunks_close_their_seams_and_keep_their_hashes`,
+  `without_the_switch_every_chunk_is_regular`); `src/stream.rs`
+  (`Stream::ground_height`); `examples/viewer.rs` (module docs for `T`,
+  `--wireframe` and `--tin`, `toggle_debug`, the wireframe setup in
+  `main`, `Scene::tin`, `LevelFigures::canonical`).
+
 ## procgena_terrain (CT3 rivers and ponds in the TIN, 2026-11-25)
 
 - `terrain/crates/procgena_terrain/src/tin/water.rs` (every item),

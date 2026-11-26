@@ -54,6 +54,7 @@
 //!     .run();
 //! ```
 
+mod canonical;
 pub mod gpu_ground;
 mod material;
 mod overlay;
@@ -73,12 +74,15 @@ use glam::{DVec2, DVec3};
 use procgena_core::chain::ViewScale;
 use procgena_core_bevy::{LodPlugin, LodQuality};
 use procgena_terrain::ground::{GroundGrid, GroundPainter, GroundSource, GroundStack};
+use procgena_terrain::tin::{ResidentTins, TinError, TinTolerance};
 use procgena_terrain::{
-    ChunkDetail, ChunkError, ChunkKey, ChunkLevels, ChunkMesh, ChunkSamples, ChunkSelection,
-    ChunkSelectionError, ChunkSource, FeatureTier, RegionStage, Transitions, WaterMesh,
+    ChunkDetail, ChunkKey, ChunkLevels, ChunkMesh, ChunkSamples, ChunkSelection,
+    ChunkSelectionError, ChunkSide, ChunkSource, FeatureTier, RegionStage, Transitions, WaterMesh,
     WorldTerrain,
 };
 
+pub use canonical::CanonicalGround;
+use canonical::{ReadError, Seams, TinRead};
 pub use material::{DEFAULT_VARIATION, TerrainExtension, TerrainMaterial, TerrainSurface};
 pub use overlay::TerrainOverlay;
 
@@ -272,6 +276,13 @@ pub struct TerrainStream {
     /// near chunks briefly lack their fine features. `false` waits for each
     /// chunk's own tier before drawing anything.
     pub coarse_first: bool,
+    /// Draw finest-level chunks at the [`Fine`](FeatureTier::Fine) tier
+    /// from their canonical meshes, built within this tolerance (see
+    /// [`procgena_terrain::tin`]), and load them into the stream's
+    /// [`CanonicalGround`]. Coarser levels and tiers stay regular. Where
+    /// the source can't give the fine tier, chunks stay regular too.
+    /// `None`, the default, draws every chunk regular.
+    pub tin: Option<TinTolerance>,
 }
 
 impl TerrainStream {
@@ -286,6 +297,7 @@ impl TerrainStream {
             mid_from: None,
             regions: None,
             coarse_first: true,
+            tin: None,
         }
     }
 
@@ -306,6 +318,7 @@ impl TerrainStream {
             mid_from: None,
             regions: Some(tracker),
             coarse_first: true,
+            tin: None,
         }
     }
 
@@ -367,6 +380,11 @@ pub struct TerrainChunk {
     pub tier: FeatureTier,
 }
 
+/// Marks a [`TerrainChunk`] drawn from its canonical mesh (see
+/// [`TerrainStream::tin`]) rather than from regular samples.
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct CanonicalChunk;
+
 /// Marks the water surface of one chunk, on a child entity of its
 /// [`TerrainChunk`]. It has a mesh and no material: add your own.
 #[derive(Component, Debug, Clone, Copy, Default)]
@@ -393,9 +411,34 @@ struct TerrainSettings {
     max_reads: usize,
 }
 
-/// One chunk as read: its samples, and its ground ready to draw.
+/// A chunk's ground as read: regular samples, or its canonical mesh.
+#[derive(Clone)]
+pub(crate) enum Geometry {
+    Regular(Box<ChunkSamples>),
+    Tin(TinRead),
+}
+
+impl Geometry {
+    /// The chunk read.
+    pub(crate) fn key(&self) -> ChunkKey {
+        match self {
+            Self::Regular(samples) => samples.key(),
+            Self::Tin(read) => read.index.chunk().key,
+        }
+    }
+
+    /// The tier of the ground read.
+    pub(crate) fn tier(&self) -> FeatureTier {
+        match self {
+            Self::Regular(samples) => samples.tier(),
+            Self::Tin(_) => FeatureTier::Fine,
+        }
+    }
+}
+
+/// One chunk as read: its ground, and its paint ready to draw.
 pub(crate) struct ChunkRead {
-    pub(crate) samples: ChunkSamples,
+    pub(crate) geometry: Geometry,
     /// The two weight images.
     images: [Image; 2],
     /// The palette and texel count; the drawing settings are filled in
@@ -415,30 +458,43 @@ impl ChunkRead {
         painter: &(impl GroundPainter + ?Sized),
         key: ChunkKey,
         tier: FeatureTier,
-    ) -> Result<Self, ChunkError> {
-        Self::read_with_gpu(source, painter, key, tier, false)
+    ) -> Result<Self, ReadError> {
+        Self::read_with_gpu(source, painter, key, tier, false, None)
     }
 
+    /// Reads chunk `key` of `source` at `tier` (from its canonical mesh,
+    /// built within `tin`, if given and the chunk is a fine finest-level
+    /// one), and paints its ground with `painter`, on the GPU if `gpu`.
     fn read_with_gpu(
         source: &(impl TerrainSource + ?Sized),
         painter: &(impl GroundPainter + ?Sized),
         key: ChunkKey,
         tier: FeatureTier,
         gpu: bool,
-    ) -> Result<Self, ChunkError> {
-        let samples = ChunkSamples::sample(source, key, tier)?;
+        tin: Option<TinTolerance>,
+    ) -> Result<Self, ReadError> {
+        let fine = source.tier(tier) == FeatureTier::Fine;
+        let canonical = tin.filter(|_| key.level == 0 && fine);
+        let geometry = match canonical.map(|tolerance| TinRead::build(source, key, &tolerance)) {
+            Some(Ok(read)) => Geometry::Tin(read),
+            // A source without the fine tier has no canonical ground.
+            None | Some(Err(ReadError::Tin(TinError::NotFine(_)))) => {
+                Geometry::Regular(Box::new(ChunkSamples::sample(source, key, tier)?))
+            }
+            Some(Err(error)) => return Err(error),
+        };
         let grid = Arc::new(GroundGrid::chunk(source, key, tier, painter.detail())?);
-        Ok(Self::paint(samples, grid, key, painter, gpu))
+        Ok(Self::paint(geometry, grid, key, painter, gpu))
     }
 
     fn paint(
-        samples: ChunkSamples,
+        geometry: Geometry,
         grid: Arc<GroundGrid>,
         from: ChunkKey,
         painter: &(impl GroundPainter + ?Sized),
         gpu: bool,
     ) -> Self {
-        let key = samples.key();
+        let key = geometry.key();
         let prepared = painter
             .layer_stack()
             .filter(|_| gpu)
@@ -458,7 +514,7 @@ impl ChunkRead {
             images = images.map(|image| weights_part(&image, from, key));
         }
         Self {
-            samples,
+            geometry,
             images,
             surface,
             gpu_paint,
@@ -469,7 +525,7 @@ impl ChunkRead {
 
     fn repaint(&self, painter: &(impl GroundPainter + ?Sized), gpu: bool) -> Self {
         Self::paint(
-            self.samples.clone(),
+            self.geometry.clone(),
             self.ground_grid.clone(),
             self.ground_key,
             painter,
@@ -483,9 +539,14 @@ impl ChunkRead {
     ///
     /// # Panics
     ///
-    /// If `key` is not inside `parent`'s chunk.
+    /// If `key` is not inside `parent`'s chunk, or `parent` is drawn from
+    /// a canonical mesh (only finest-level chunks are, and no chunk lies
+    /// inside one).
     pub(crate) fn stand_in(parent: &ChunkRead, key: ChunkKey) -> Self {
-        let from = parent.samples.key();
+        let Geometry::Regular(samples) = &parent.geometry else {
+            panic!("a canonical chunk has no chunks inside it");
+        };
+        let from = samples.key();
         let gpu_paint = parent.gpu_paint.as_ref().map(|p| p.part(key));
         // GPU weights are generated from the retained parent sites. The
         // CPU images are only placeholders, so filtering them is wasted work.
@@ -498,7 +559,7 @@ impl ChunkRead {
                 .map(|image| weights_part(&image, from, key))
         };
         Self {
-            samples: ChunkSamples::stand_in(&parent.samples, key),
+            geometry: Geometry::Regular(Box::new(ChunkSamples::stand_in(samples, key))),
             images,
             surface: parent.surface,
             gpu_paint,
@@ -506,10 +567,33 @@ impl ChunkRead {
             ground_key: parent.ground_key,
         }
     }
+
+    /// The chunk's canonical mesh, if it is drawn from one.
+    pub(crate) fn tin(&self) -> Option<&TinRead> {
+        match &self.geometry {
+            Geometry::Tin(read) => Some(read),
+            Geometry::Regular(_) => None,
+        }
+    }
+
+    /// The chunk's mesh with `transitions` and skirts `skirt` metres deep,
+    /// meeting the canonical chunks beside it as `seams` says.
+    fn mesh(&self, transitions: Transitions, skirt: f32, seams: &Seams) -> ChunkMesh {
+        match &self.geometry {
+            Geometry::Regular(samples) => {
+                let mut mesh = samples.mesh(transitions, skirt);
+                for tin in &seams.tins {
+                    tin.chunk().fit_neighbour(&mut mesh);
+                }
+                mesh
+            }
+            Geometry::Tin(read) => read.mesh(&seams.split, skirt),
+        }
+    }
 }
 
 /// Reading one chunk in the background.
-type ReadTask = Task<Result<ChunkRead, ChunkError>>;
+type ReadTask = Task<Result<ChunkRead, ReadError>>;
 
 /// A stream's state: what is drawn, wanted and being read.
 #[derive(Component, Default)]
@@ -532,6 +616,41 @@ struct StreamState {
     /// Skirts deeper than [`skirt_depth`], for chunks beside a chunk of
     /// another tier: how far that chunk's tier moved the ground.
     skirts: HashMap<ChunkKey, f32>,
+    /// How each drawn chunk was meshed to meet the canonical chunks
+    /// beside it.
+    seams: HashMap<ChunkKey, Seams>,
+}
+
+/// How chunk `key`, drawn from `read`, meets the canonical chunks drawn
+/// beside it in `stream`: a canonical chunk splits its sides that meet
+/// regular chunks, and a regular chunk fits every canonical chunk it
+/// touches.
+fn seams_for(stream: &Stream, key: ChunkKey, read: &ChunkRead) -> Seams {
+    let touching = stream.touching(key);
+    if read.tin().is_some() {
+        let regular = |other: ChunkKey| stream.read_of(other).is_some_and(|r| r.tin().is_none());
+        let split = ChunkSide::ALL
+            .into_iter()
+            .filter(|&side| {
+                touching
+                    .iter()
+                    .any(|&(other, _)| canonical::along_side(key, side, other) && regular(other))
+            })
+            .collect();
+        Seams {
+            split,
+            tins: Vec::new(),
+        }
+    } else {
+        let tins = touching
+            .iter()
+            .filter_map(|&(other, _)| Some(stream.read_of(other)?.tin()?.index.clone()))
+            .collect();
+        Seams {
+            split: Vec::new(),
+            tins,
+        }
+    }
 }
 
 /// The skirt hanging from each side of a chunk, in metres: deep enough to
@@ -688,6 +807,7 @@ fn reset_streams(
                         && last.rough_from == stream.rough_from
                         && last.mid_from == stream.mid_from
                         && last.coarse_first == stream.coarse_first
+                        && last.tin == stream.tin
                         && stream.ground.detail() <= last.ground.detail()
                 });
                 if same_ground {
@@ -700,6 +820,8 @@ fn reset_streams(
                     state.tasks.clear();
                     state.failed = 0;
                     state.skirts.clear();
+                    state.seams.clear();
+                    commands.entity(entity).remove::<CanonicalGround>();
                 }
                 state.last = Some((*stream).clone());
             }
@@ -857,8 +979,9 @@ fn stream_chunks(
             let ground = Arc::clone(&source.source);
             let painter = Arc::clone(&source.ground);
             let use_gpu = gpu.as_ref().is_some_and(|g| g.0);
+            let tin = source.tin;
             let task = AsyncComputeTaskPool::get().spawn(async move {
-                ChunkRead::read_with_gpu(&*ground, &*painter, key, tier, use_gpu)
+                ChunkRead::read_with_gpu(&*ground, &*painter, key, tier, use_gpu, tin)
             });
             state
                 .tasks
@@ -874,6 +997,7 @@ fn stream_chunks(
             }
             let Some(read) = read else {
                 state.materials.remove(&key);
+                state.seams.remove(&key);
                 return;
             };
             // Keep the material while the read is the same.
@@ -895,14 +1019,17 @@ fn stream_chunks(
                 }
             };
             let skirt = skirt_depth(key).max(state.skirts.get(&key).copied().unwrap_or(0.0));
+            let seams = seams_for(&state.stream, key, &read);
             let chunk = spawn_chunk(
                 &mut commands,
                 &mut meshes,
                 &material,
                 entity,
-                &read.samples.mesh(transitions, skirt),
+                &read.mesh(transitions, skirt, &seams),
+                read.tin().is_some(),
             );
             state.entities.insert(key, chunk);
+            state.seams.insert(key, seams);
         };
         // Every chunk drawn now, whether new to the view or read again at a
         // later tier. Chunks touching at different tiers can stand apart
@@ -918,8 +1045,12 @@ fn stream_chunks(
             drawn_now.extend(swap.add);
         }
         drawn_now.extend(state.stream.take_refreshed());
+        let changed = !drawn_now.is_empty();
+        let mut near_changes: Vec<ChunkKey> = Vec::new();
         for (key, transitions, read) in drawn_now {
-            let tier = read.as_ref().map(|r| r.samples.tier());
+            near_changes.push(key);
+            near_changes.extend(state.stream.touching(key).into_iter().map(|(k, _)| k));
+            let tier = read.as_ref().map(|r| r.geometry.tier());
             let mut deepest = 0.0f32;
             for (other, other_transitions) in state.stream.touching(key) {
                 let (Some(tier), Some(other_tier)) = (tier, state.stream.tier_of(other)) else {
@@ -950,6 +1081,37 @@ fn stream_chunks(
             let skirt = state.skirts.entry(key).or_default();
             *skirt = skirt.max(deepest);
             redraw(state, key, transitions, read);
+        }
+
+        // Chunks drawn now, and those beside them, may meet canonical
+        // chunks differently than when they were drawn: redraw those that
+        // do, so regular sides fit canonical ones and canonical sides split
+        // where regular ones meet them.
+        near_changes.sort_unstable();
+        near_changes.dedup();
+        for key in near_changes {
+            let (Some(transitions), Some(read)) =
+                (state.stream.drawn.get(key), state.stream.read_of(key))
+            else {
+                continue;
+            };
+            let seams = seams_for(&state.stream, key, &read);
+            if state.entities.contains_key(&key)
+                && !state.seams.get(&key).is_some_and(|s| s.same_as(&seams))
+            {
+                redraw(state, key, transitions, Some(read));
+            }
+        }
+
+        // The canonical chunks drawn now, for ground queries.
+        if changed && source.tin.is_some() {
+            let mut tins = ResidentTins::new();
+            for key in state.entities.keys() {
+                if let Some(tin) = state.stream.read_of(*key).as_ref().and_then(|r| r.tin()) {
+                    tins.insert(tin.index.clone());
+                }
+            }
+            commands.entity(entity).insert(CanonicalGround { tins });
         }
 
         // Region work from the hook, and chunk reads, by their usual cost;
@@ -983,13 +1145,15 @@ fn stream_chunks(
 }
 
 /// Spawns `mesh` as a chunk of `stream`, with its water as a child, and
-/// returns the chunk entity.
+/// returns the chunk entity. `canonical` says whether the mesh is a
+/// canonical chunk's.
 fn spawn_chunk(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     material: &Handle<TerrainMaterial>,
     stream: Entity,
     mesh: &ChunkMesh,
+    canonical: bool,
 ) -> Entity {
     let chunk = commands
         .spawn((
@@ -1004,6 +1168,9 @@ fn spawn_chunk(
             ChildOf(stream),
         ))
         .id();
+    if canonical {
+        commands.entity(chunk).insert(CanonicalChunk);
+    }
     if let Some(water) = &mesh.water {
         commands.spawn((
             TerrainWater,
@@ -1504,5 +1671,207 @@ mod tests {
         for (entity, _) in chunks.iter(app.world()) {
             assert!(!old.contains(&entity));
         }
+    }
+
+    use std::collections::BTreeMap;
+
+    /// The content hash of each canonical chunk the stream has loaded.
+    fn canonical_hashes(app: &mut App) -> BTreeMap<ChunkKey, u64> {
+        let mut query = app.world_mut().query::<&CanonicalGround>();
+        let ground = query.single(app.world()).unwrap();
+        ground
+            .tins
+            .iter()
+            .map(|index| (index.chunk().key, index.chunk().content_hash()))
+            .collect()
+    }
+
+    /// The highest mesh height at each world position, in whole
+    /// millimetres across.
+    type Tops = HashMap<(i64, i64), f32>;
+
+    /// Each drawn chunk: its key, whether it is canonical, and the world
+    /// position of each mesh vertex, rounded to whole millimetres across,
+    /// with the highest height at each position (so skirts hanging below
+    /// an edge are left out).
+    fn drawn_edges(app: &mut App) -> Vec<(ChunkKey, bool, Tops)> {
+        let mut query = app
+            .world_mut()
+            .query::<(&TerrainChunk, &Mesh3d, &Transform, Has<CanonicalChunk>)>();
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        query
+            .iter(app.world())
+            .map(|(chunk, mesh, transform, canonical)| {
+                let mesh = meshes.get(&mesh.0).unwrap();
+                let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("chunk meshes have positions");
+                };
+                let mut tops: HashMap<(i64, i64), f32> = HashMap::new();
+                for p in positions {
+                    let world = transform.translation.as_dvec3() + Vec3::from(*p).as_dvec3();
+                    let at = (
+                        (world.x * 1000.0).round() as i64,
+                        (world.z * 1000.0).round() as i64,
+                    );
+                    let top = tops.entry(at).or_insert(f32::NEG_INFINITY);
+                    *top = top.max(p[1]);
+                }
+                (chunk.key, canonical, tops)
+            })
+            .collect()
+    }
+
+    /// Checks that every two drawn chunks meeting along a side, one of
+    /// them canonical, have the same vertices along it at the same
+    /// heights. Returns how many seams between a canonical and a regular
+    /// chunk it checked (each counted from both sides).
+    fn assert_canonical_seams_close(app: &mut App) -> usize {
+        let chunks = drawn_edges(app);
+        let mut checked = 0;
+        for (key, canonical, edges) in &chunks {
+            for side in ChunkSide::ALL {
+                for (other, other_canonical, other_edges) in &chunks {
+                    if !(canonical | other_canonical) || !canonical::along_side(*key, side, *other)
+                    {
+                        continue;
+                    }
+                    // The shared stretch of the side, in millimetres.
+                    let (lo, hi) = (key.min_corner(), key.max_corner());
+                    let (a, b) = (other.min_corner(), other.max_corner());
+                    let mm = |m: f64| (m * 1000.0).round() as i64;
+                    let on = |p: &(i64, i64)| match side {
+                        ChunkSide::MinX | ChunkSide::MaxX => {
+                            let x = if side == ChunkSide::MinX { lo.x } else { hi.x };
+                            p.0 == mm(x) && p.1 >= mm(lo.y.max(a.y)) && p.1 <= mm(hi.y.min(b.y))
+                        }
+                        ChunkSide::MinZ | ChunkSide::MaxZ => {
+                            let z = if side == ChunkSide::MinZ { lo.y } else { hi.y };
+                            p.1 == mm(z) && p.0 >= mm(lo.x.max(a.x)) && p.0 <= mm(hi.x.min(b.x))
+                        }
+                    };
+                    let ours: BTreeMap<_, _> = edges.iter().filter(|(p, _)| on(p)).collect();
+                    let theirs: BTreeMap<_, _> =
+                        other_edges.iter().filter(|(p, _)| on(p)).collect();
+                    assert_eq!(
+                        ours.keys().collect::<Vec<_>>(),
+                        theirs.keys().collect::<Vec<_>>(),
+                        "{key} and {other} have different vertices along {side:?}"
+                    );
+                    for (p, y) in &ours {
+                        assert_eq!(y, &theirs[p], "{key} and {other} stand apart at {p:?} mm");
+                    }
+                    // Count only the seams between a canonical and a
+                    // regular chunk.
+                    if canonical != other_canonical {
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        checked
+    }
+
+    #[test]
+    fn canonical_chunks_close_their_seams_and_keep_their_hashes() {
+        let _streaming = streaming();
+        let source = hills();
+        let mut app = app();
+        app.world_mut().spawn(TerrainStream {
+            tin: Some(TinTolerance::GENERAL),
+            ..TerrainStream::new(source.clone())
+        });
+        let camera = app
+            .world_mut()
+            .spawn((TerrainViewer, Transform::from_xyz(10.0, 30.0, 10.0)))
+            .id();
+        let progress = settle(&mut app, 3000);
+        assert_eq!(progress.failed, 0);
+
+        // Only finest chunks are canonical, and every one is loaded for
+        // queries and hashes as it does when built on its own.
+        let first = canonical_hashes(&mut app);
+        assert!(!first.is_empty());
+        let drawn = drawn_edges(&mut app);
+        let canonical: Vec<ChunkKey> = drawn.iter().filter(|c| c.1).map(|c| c.0).collect();
+        assert!(canonical.iter().all(|k| k.level == 0));
+        assert_eq!(canonical.len(), first.len());
+        assert!(drawn.iter().any(|c| !c.1), "regular chunks beside them");
+        let built = |key: ChunkKey| {
+            procgena_terrain::tin::build_chunk(&*source, key, &TinTolerance::GENERAL)
+                .unwrap()
+                .content_hash()
+        };
+        for (&key, &hash) in &first {
+            assert_eq!(hash, built(key), "{key}");
+        }
+
+        // No cracks: canonical chunks meet each other and regular chunks of
+        // level 0 and 1 on the same vertices.
+        assert!(assert_canonical_seams_close(&mut app) > 0);
+
+        // Once settled, nothing is drawn again.
+        let mut chunks = app
+            .world_mut()
+            .query_filtered::<Entity, With<TerrainChunk>>();
+        let before: std::collections::BTreeSet<Entity> = chunks.iter(app.world()).collect();
+        for _ in 0..10 {
+            app.update();
+        }
+        let after: std::collections::BTreeSet<Entity> = chunks.iter(app.world()).collect();
+        assert_eq!(before, after, "a settled stream redraws nothing");
+
+        // Ground queries answer from the loaded chunks.
+        let mut query = app.world_mut().query::<&CanonicalGround>();
+        let ground = query.single(app.world()).unwrap().tins.clone();
+        use procgena_terrain::tin::GroundSurface;
+        let under = ground
+            .sample(DVec2::new(10.0, 10.0))
+            .expect("ground under the camera");
+        assert_eq!(under.chunk, ChunkKey::new(0, 0, 0));
+        assert!(
+            (f64::from(
+                source
+                    .surface(DVec2::new(10.0, 10.0), FeatureTier::Fine)
+                    .height
+            ) - under.height)
+                .abs()
+                < 0.6
+        );
+
+        // Another camera, other levels and another quality: chunks still
+        // loaded keep their hashes, and new ones hash as built alone.
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(Transform::from_xyz(150.0, 20.0, -40.0));
+        app.world_mut().resource_mut::<TerrainSettings>().levels =
+            ChunkDetail::DEFAULT.levels(400.0);
+        app.world_mut().resource_mut::<LodQuality>().0 = procgena_core::Quality::Low;
+        app.update();
+        settle(&mut app, 3000);
+        let second = canonical_hashes(&mut app);
+        assert!(second.keys().any(|k| !first.contains_key(k)), "new chunks");
+        for (&key, &hash) in &second {
+            if let Some(&before) = first.get(&key) {
+                assert_eq!(hash, before, "{key} changed");
+            }
+            assert_eq!(hash, built(key), "{key}");
+        }
+        assert!(assert_canonical_seams_close(&mut app) > 0);
+    }
+
+    #[test]
+    fn without_the_switch_every_chunk_is_regular() {
+        let _streaming = streaming();
+        let mut app = app();
+        app.world_mut().spawn(TerrainStream::new(hills()));
+        app.world_mut()
+            .spawn((TerrainViewer, Transform::from_xyz(0.0, 40.0, 0.0)));
+        settle(&mut app, 2000);
+        let mut canonical = app.world_mut().query::<&CanonicalChunk>();
+        assert_eq!(canonical.iter(app.world()).count(), 0);
+        let mut ground = app.world_mut().query::<&CanonicalGround>();
+        assert_eq!(ground.iter(app.world()).count(), 0);
     }
 }

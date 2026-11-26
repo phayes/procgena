@@ -8,7 +8,7 @@ use std::sync::Arc;
 use glam::DVec2;
 use procgena_terrain::{CHUNK_CELLS, ChunkKey, ChunkSelection, FeatureTier, Transitions};
 
-use crate::ChunkRead;
+use crate::{ChunkRead, Geometry};
 
 /// A chunk as read, or `None` if it could not be read (it is then drawn
 /// as a hole rather than holding up every other chunk).
@@ -172,7 +172,7 @@ impl Stream {
 
     /// The tier of the ground drawn, or kept, for `key`, if any.
     pub(crate) fn tier_of(&self, key: ChunkKey) -> Option<FeatureTier> {
-        Some(self.read_of(key)?.samples.tier())
+        Some(self.read_of(key)?.geometry.tier())
     }
 
     /// The ground drawn for `key`: its stand-in if it is drawn as one, or
@@ -332,16 +332,21 @@ impl Stream {
         Some(Swap { remove, add })
     }
 
-    /// The ground height under `p` from the finest samples kept, if any:
-    /// the height of the nearest vertex.
+    /// The ground height under `p` from the finest ground kept, if any:
+    /// the canonical mesh's height there, or else the height of the
+    /// nearest regular vertex.
     pub(crate) fn ground_height(&self, p: DVec2) -> Option<f32> {
         let top = self.samples.keys().map(|k| k.level).max()?;
         (0..=top).find_map(|level| {
             let key = ChunkKey::containing(p, level);
-            let samples = &self.samples.get(&key)?.as_ref()?.samples;
-            let local = (p - key.min_corner()) / key.step();
-            let cell = |x: f64| (x.round() as u32).min(CHUNK_CELLS);
-            Some(samples.vertex(cell(local.x), cell(local.y)).height)
+            match &self.samples.get(&key)?.as_ref()?.geometry {
+                Geometry::Regular(samples) => {
+                    let local = (p - key.min_corner()) / key.step();
+                    let cell = |x: f64| (x.round() as u32).min(CHUNK_CELLS);
+                    Some(samples.vertex(cell(local.x), cell(local.y)).height)
+                }
+                Geometry::Tin(read) => read.height(p),
+            }
         })
     }
 }
@@ -442,7 +447,9 @@ mod tests {
         let (key, transitions, samples) = &refreshed[0];
         assert_eq!(*key, upgrades[0]);
         assert_eq!(stream.drawn.get(*key), Some(*transitions));
-        let samples = &samples.as_ref().unwrap().samples;
+        let Geometry::Regular(samples) = &samples.as_ref().unwrap().geometry else {
+            panic!("read from regular samples");
+        };
         assert_eq!(samples.tier(), FeatureTier::Fine);
         assert_eq!(stream.tier_of(upgrades[1]), Some(FeatureTier::Rough));
         assert_eq!(samples.vertex(3, 3).height, 2.0);
@@ -548,7 +555,7 @@ mod tests {
         assert!(!stream.stand_ins.is_empty());
         for (key, _, read) in &swap.add {
             let read = read.as_ref().expect("every chunk has ground");
-            assert_eq!(read.samples.key(), *key);
+            assert_eq!(read.geometry.key(), *key);
         }
         assert!(stream.upgrades(&[viewer], |_| FeatureTier::Fine).is_empty());
 
