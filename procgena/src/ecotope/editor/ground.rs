@@ -80,6 +80,12 @@ pub(super) fn spawn_section(
             ]
         })
         .insert(ChildOf(parent));
+    commands
+        .spawn_scene(bsn! {
+            Node { flex_shrink: 0.0 }
+            Children [ @caption("Kept for Biome ground paint (ROADMAP BP)") ]
+        })
+        .insert(ChildOf(parent));
     let list = commands.spawn((column.clone(), ChildOf(parent))).id();
     let detail = commands.spawn((column.clone(), ChildOf(parent))).id();
     (list, detail)
