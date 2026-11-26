@@ -1094,6 +1094,12 @@ Asked for by the user 2026-11-24, instead of a harsher quality level:
 find out how far impostors can carry the scene, so that detail budgets
 go to the few copies near the camera.
 
+- **Kept at high priority for the demo (the user, 2026-11-25, demo request
+  R1).** IX adds an item: impostors sway in the wind, with a cheap vertex
+  wobble driven by the wind. From the demo's glider almost every tree is
+  an impostor, so a forest that stands still in a whistled gale breaks
+  the experience. See [docs/demo-lumberjack-plan.md](docs/demo-lumberjack-plan.md).
+
 - **Planning step first (with the user).** Before any build work, a
   planning session talks the experiment through in detail with the user
   and the advisor, and writes `docs/decisions/IX-plan.md`. It settles at
@@ -1389,10 +1395,10 @@ only from the edited Scatter down" were built first; the rest follows.
   - Dead wood is built once per variant, not once per copy (built
     2026-11-24: the Ecotope's logs draw through `DeadwoodPlacedParams`).
   - The render pipelines an Ecotope needs are warmed up when one opens.
-    macOS compiles them synchronously, which stalls frames. Deferred
-    (2026-11-24): with warm caches the stalls are 0.3–1.6 s and mostly
-    first compiles, so a warm-up would only move them; revisit after a
-    quiet windowed run.
+    macOS compiles them synchronously, which stalls frames (with warm
+    caches the stalls are 0.3–1.6 s, mostly first compiles). Un-deferred
+    for the demo (the user, 2026-11-25, demo request R4): a warm-up API a
+    game calls behind its loading screen, so no stall comes after it.
   - In the studio, impostors are baked only when they could be on screen:
     moved to IX's follow-up TODO "bake only impostors that can be on
     screen" (deferred by the user, 2026-11-25).
@@ -1524,6 +1530,11 @@ R3.
   Whether single-Biome streaming may start on CPU placement before GP is
   open (question 4 in [docs/decisions/ecotope-gpu.md](docs/decisions/ecotope-gpu.md);
   the recommendation is yes).
+- **Demo slice, later (the user, 2026-11-25, demo request R6):**
+  single-Biome streaming over one Terrain on CPU placement, ahead of GP,
+  so the demo's play area loses its edge. This moves GP, and R3's GPU
+  building for deadwood, mushroom and tree, later. It is approved, but
+  not scheduled yet.
 - **Done when:** the twelve user stories under "Loading by chunk" pass,
   as tests where they can be.
 
@@ -1543,6 +1554,11 @@ R3.
   to query). Hooks for the World level wait for W1.
 - **Can split:** edits, interaction and Scatter-level queries can start
   right after C2 and R4; Biome and World hooks follow their levels.
+- **Demo slice, later (the user, 2026-11-25, demo request R7):** for the
+  demo's chopping, which is deferred, a slice of R4 and X1: promoting the
+  tree under the axe, plus Remove and Replace edits for tree copies in
+  one Ecotope, kept in session memory. It is approved for when chopping
+  comes, not scheduled yet.
 
 ### Ground materials
 
@@ -1667,6 +1683,11 @@ Phase 10 textures (`terrain/textures.yml`).
   plant-align lane), and TODO "Far forest tint" (S1), as distance-gated
   tints in the chunk textures.
 - **Needs:** GM1, R3 (plant in an Ecotope), S1 (and density-field masks).
+- **Moved earlier for the demo (the user, 2026-11-25, demo request R5):**
+  before the demo's full-atmospherics step (L5), the forest tint covers
+  the land outside the demo's bounded play area, so from the glider it
+  reads as forest to the horizon before S1 lands. The density masks then
+  come from the play area's Ecotope, not from streaming.
 - **Done when:** grass and forest keep their colour past the last blade
   and the last impostor, with no seam.
 
@@ -2207,6 +2228,10 @@ in a `tin` module of `procgena_terrain`.
 - **Done when:** mixed-level seams have no cracks, query throughput is
   measured against today's analytic reads, and camera and LOD never
   change a canonical hash.
+- **For the demo (the user, 2026-11-25, demo request R8):** the collision
+  product should be easy for a game to turn into one physics collider per
+  chunk. Until then, the demo walks on colliders built from the drawn
+  chunk meshes.
 
 #### Later in the track
 
@@ -2252,6 +2277,46 @@ in a `tin` module of `procgena_terrain`.
     gully's road clearance or a shorter fade inside gaps, optionally a
     gully cost in the route search, and moves the labels and measures
     figures.
+
+### Demo: the lumberjack and the wind
+
+Asked for by the user 2026-11-25. The plan is
+[docs/demo-lumberjack-plan.md](docs/demo-lumberjack-plan.md). It is an
+experience more than a game: wander, glide when the wind is high, and
+whistle to call it, with full atmospherics (light shafts through the
+canopy, drifting leaves, the sun's lens flare, animal calls, gentle
+music).
+
+#### DM: Lumberjack demo
+
+- **Covers:** a standalone binary, `procgena_demo_lumberjack`, built only
+  on procgena's public APIs. The plan's milestones L0–L8 run from a
+  walkable slice to full atmospherics. The user's decisions (2026-11-25):
+  - a bounded play area now, replaced by streaming later;
+  - chopping deferred;
+  - third-person, with a first-person toggle;
+  - Creative Commons music stems;
+  - new dependencies allowed;
+  - macOS only for now;
+  - a painterly-realistic look;
+  - one shared wind (demo request R3) deferred, so wind may differ
+    between assets at first.
+- **Needs:** nothing blocking to start. It uses IX (R1), EP (R2), ED's
+  warm-up (R4), GM5's tint (R5), CT5's collision (R8), and later S1's
+  slice (R6) and the chopping slice of R4 and X1 (R7).
+- **Done when:** the plan's milestones are met.
+
+#### EP: Placed Ecotope copies for games
+
+- **Covers:** demo request R2 (approved by the user 2026-11-25).
+  `procgena_biome_bevy` gives games read access to a placed Ecotope's
+  copies once placing finishes: the engine-free `EcotopePlacement`, with
+  each copy's position, scale, specimen bounds and kind. Games build
+  trunk colliders, leaf emitters and sound spots from it, without placing
+  the Ecotope twice.
+- **Needs:** C3a.
+- **Done when:** a game system gets every copy of a placed Ecotope after
+  placing finishes and again after each edit, with a test.
 
 ### Studio track
 
