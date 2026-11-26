@@ -2556,7 +2556,9 @@ largest place range), whose costs are in
   regular far chunks (the draw selection stays); CT5's "level-0 only"
   canonical chunks and regular far levels; D6b's split where `H*`
   decided placement and the TIN only collision.
-- **Needs:** CT-A (done), CT5 and TF (feature edge and carve levels).
+- **Needs:** CT-A (done) and CT5. Its feature edge and carve levels
+  need TF, which is deferred until MOPMesh; until then CT-T is built for
+  feature-free ground, with roads and rivers off by default.
 - **Done when:** the stages land, and a Scatter placed on any level
   stands in the same spot at every distance.
 
@@ -2564,7 +2566,9 @@ largest place range), whose costs are in
 
 Asked for by the user 2026-11-26: each feature declares the level it runs
 at, "part of turning roads and rivers into proper features, instead of
-the embedded things they are now". Unscheduled; CT-T depends on it.
+the embedded things they are now". **Deferred (the user, 2026-11-26):
+needs MOPMesh (`/opt/mopmesh`) first.** CT-T's feature edge and carve
+levels wait on it.
 
 - **Covers:** roads and rivers stop being special cases embedded in the
   terrain plan and carve, and become features behind one interface:
