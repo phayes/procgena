@@ -138,6 +138,7 @@ flowchart TD
     CT2["CT2 Adaptive refinement"]
     CT3["CT3 Rivers, ponds, stamps in the ground"]
     CTA["CT-A Adaptive TIN sampling"]
+    CTT["CT-T Every chunk level a canonical TIN"]
     CT4["CT4 Roads in the ground"]
     CT5["CT5 TIN products and streaming"]
     G7["G7 Scale-aware terrain lengths"]
@@ -266,6 +267,8 @@ flowchart TD
     CT2 --> CT3
     CT3 --> CT4
     CT3 --> CTA
+    CTA --> CTT
+    CT5 --> CTT
     RB5 --> CT4
     CT4 --> CT5
     I1 --> IX
@@ -319,7 +322,7 @@ blocks. Until then, nothing that depends on it starts.
 | D3 | Stable named keys for Scatters and Ecotopes, instead of list positions (open question 4); a Terrain id distinct from its Biome's (open question 5); jump or rendezvous hashing for slots; hook keys in the specimen id (open question 7); addresses | C2 (ids), W0 (Biome and Terrain seeds), W1 (budget) | Decided 2026-11-23 ([docs/decisions/D3.md](docs/decisions/D3.md)): frozen `ChildKey`s with no aliases; seeds chained World → region's Biome → Ecotope → Scatter; the Terrain's noise on the World seed plus sibling region seeds for the Terrain and the Biome; `priority` on one World-wide scale; rendezvous slots with `N` ≤ 256 and no excluded slots; no hook keys (pool id = generator kind plus options hash); integer `CopyAddress` plus pinned part paths, with batched `resolve`; groups addressed where they are defined. It also decided that each region has its own Biome instance, seeded per region (corrected 2026-11-24: neighbours never share an instance but may share a Biome type), which opened D4. |
 | D4 | **Region size and shape** (world_plan open question 2): how large regions are, and whether they are even or a multi-scale mix | Nothing now | **Settled by milestone RS** (the user, 2026-11-25): region size is a World setting, regions can be about 1 km, and larger Biome areas are same-preset neighbours with invisible borders (see RS and the world-generation plan). Research record: [docs/decisions/D4.md](docs/decisions/D4.md). |
 | D5 | **World and Biome scale:** how a World sets its scale, from Minecraft-like to Valheim-like and the large open-world games (required), up to real-life (a stretch goal) | G7 (scale-aware terrain lengths), and W0's scale pair and class presets (built at scale 1; its image examples tune the class numbers) | Mechanism decided by the user 2026-11-24 ([docs/decisions/D5.md](docs/decisions/D5.md)): a World scale pair `{ horizontal, vertical }` stretches landscape lengths (Terrain presets written at scale 1, E, selector fields), with only E's background slope limit checked (cliffs and relief are not capped); World presets per class; objects, road and river widths, chunks, LOD and masks never scale; no landscape length fixed in metres; huge Biomes from many same-type regions. Scale 1 is the Valheim-like medium-small class and the default World (the user, 2026-11-24): small 0.5, medium 2, large 6 × 4, real-life 20 × 8; the earlier presets are test fixtures. Draft: the other class numbers. Open: a World-level river-size field, whether the bank reach scales (the rest of the region floor is settled by RS), Ecotope geometry, floating origin. |
-| D6 | **Canonical ground** (opened 2026-11-25 by the reviews of the road and TIN plans): D6a the deterministic profile (cross-platform bitwise with pinned maths, or same-platform first); D6b what is authoritative at a distance (TIN, `H*`, or `H*` for placement and labels with the TIN for physical ground); D6c whether region borders are mesh constraints; D6d coordinate units and range | CT0 and RB4, and everything after them. RB0–RB3 are not gated | **Decided 2026-11-25:** same-platform bitwise first; `H*` for spots, masks, slope and labels with the TIN for collision and near rest heights; chunk borders only; integer centimetres (`i64` x/z, `i32` heights; decided by the user 2026-11-26: cm, superseding mm). Details under "D6 (gate)". |
+| D6 | **Canonical ground** (opened 2026-11-25 by the reviews of the road and TIN plans): D6a the deterministic profile (cross-platform bitwise with pinned maths, or same-platform first); D6b what is authoritative at a distance (TIN, `H*`, or `H*` for placement and labels with the TIN for physical ground); D6c whether region borders are mesh constraints; D6d coordinate units and range | CT0 and RB4, and everything after them. RB0–RB3 are not gated | **Decided 2026-11-25:** same-platform bitwise first; `H*` for spots, masks, slope and labels with the TIN for collision and near rest heights (revised by the user 2026-11-26: the TIN is the ground at every chunk level, `H*` only its generator; CT-T); chunk borders only; integer centimetres (`i64` x/z, `i32` heights; decided by the user 2026-11-26: cm, superseding mm). Details under "D6 (gate)". |
 
 Questions that wait for later milestones, and are decided inside them:
 open questions 2 (Ecotope overlap, in C3), 9 (far copies on coarse
@@ -1673,7 +1676,8 @@ recommendations accepted).
 only if it turns out to be needed. Until then borders are negotiated
 once. Design: [terrain/edit_cache_plan.md](terrain/edit_cache_plan.md),
 "Border negotiation per tier". TE4 would be built as two steps; this is
-the first.
+the first. If it is ever unparked, "tier" now means chunk level: CT-T
+replaces feature tiers with a highest level per feature type.
 
 - **Covers:**
   - Each relief layer in the presets gets a band cut: low-band octaves,
@@ -1795,6 +1799,12 @@ of a block of chunks, and a per-point split) and the macOS Time Profiler.
   height read, the trace included; [TB](#tb-cheap-borders) replaced them.
 
 #### TE7: Intermediate terrain detail levels
+
+**Partly superseded by CT-T (the user, 2026-11-26):** the level
+selection by size on screen stays as the draw selection, but each drawn
+level becomes that level's canonical TIN, and the Rough and Mid feature
+tiers give way to a highest level per feature type
+([terrain/terrain_lod.md](terrain/terrain_lod.md)).
 
 Asked for by the user 2026-11-25: in the viewer, near ground shows large
 triangles, and far ground shown up close looks blurry. More intermediate
@@ -2048,7 +2058,9 @@ ground and roads" (4.2).
 Opened 2026-11-25 by the two plans' reviews. **Decided with the user on
 2026-11-25:** D6a same-platform bitwise first (keep `std` maths; pinned
 maths later); D6b `H*` for spots, masks, slope and labels, the TIN for
-collision and near rest heights, far copies on `H*`; D6c chunk borders
+collision and near rest heights, far copies on `H*` (revised by the user
+2026-11-26: the TIN is the ground at every chunk level, `H*` only its
+generator; see CT-T); D6c chunk borders
 only; D6d integer centimetres, `i64` x/z and `i32` heights (decided by
 the user 2026-11-26: cm, superseding the millimetres first chosen). CT0 uses
 spade 2.15 as the triangulator and the core `ContentHasher` for hashes,
@@ -2396,7 +2408,10 @@ in a `tin` module of `procgena_terrain`.
   queries per D6b, render meshes and LODs, collision and height textures,
   and `procgena_terrain_bevy` streaming TIN chunks (stand-ins and
   provisional Rough and Mid tiers kept). Ground paint keeps its
-  chunk-space textures.
+  chunk-space textures. **Partly superseded by CT-T (the user,
+  2026-11-26):** canonical TIN at every chunk level replaces level-0-only
+  TIN chunks with regular far levels and provisional tiers; the products
+  carry over per level.
 - **Needs:** CT4.
 - **Done when:** mixed-level seams have no cracks, query throughput is
   measured against today's analytic reads, and camera and LOD never
@@ -2473,19 +2488,27 @@ in a `tin` module of `procgena_terrain`.
   chunk. Until then, the demo walks on colliders built from the drawn
   chunk meshes.
 
-#### CT-T: The TIN is the only ground (tentative, deferred)
+#### CT-T: Every chunk level is a canonical TIN level
 
-Tentative decision by the user, 2026-11-26: "H* becomes only the generator
-the TIN samples, and everything reads the TIN." This would revise D6b to
-its option (a). Implementation is deferred. Until then, placement may move
-when a chunk's TIN is built, as today.
+Decided by the user, 2026-11-26: "this is fantastic and is the new
+design." The TIN is the ground and `H*` is only the generator the TINs
+sample; this revises D6b. The design is in
+[terrain/terrain_lod.md](terrain/terrain_lod.md). It supersedes the
+tentative CT-T of earlier the same day (one canonical level 0 out to the
+largest place range), whose costs are in
+[terrain/tin_canonical.md](terrain/tin_canonical.md).
 
 - **Covers, in stages:**
-  1. **Everything reads the TIN.** Placement height and slope (from
-     smoothed vertex normals), labels and measures, collision, and drawing
-     all read it. The canonical TIN is built out to the largest place
-     range, about 2 km. The user accepts a cold build of about 10 s on
-     mountains up front, so that later work can move to the GPU.
+  1. **Canonical TIN at every chunk level.** Level `L` (64 m × 2^L,
+     levels 5, 6, 7 and on as needed) samples 1 m × 2^L within the
+     world's base tolerance × 2^L, with edge contracts per level. Each
+     feature type has a highest level where its lines are kept and its
+     carving sampled (roads to level 1–2, rivers to 3–4, say), replacing
+     the Rough, Mid and Fine feature tiers; promotion becomes "this
+     level adds nothing to its children here". Measured
+     (`--example tin_levels`): cost per chunk stays about flat, from
+     0.3–4.5 ms at level 0 to 0.4–7.7 ms at level 6 (plains to
+     mountains, one thread).
   2. **One label definition, evaluated two ways.** The same rules and
      thresholds on the TIN, in exact integer centimetres, are evaluated:
      - as a point query, for placement (on the CPU now, on the GPU later);
@@ -2505,17 +2528,39 @@ when a chunk's TIN is built, as today.
      placement exactly at the vertices; between vertices only the
      interpolation differs. A coarse per-chunk class raster (4–8 m) is
      added only for patterns that follow neither geometry nor simple
-     fields.
-  3. **Shading normals come purely from the TIN.** Border normals are
-     carried in the edge contract, so seams stay exact without `H*`.
-  4. **Only if TIN building is still too slow:** move `H*` sampling and
+     fields. Labels are read per level, so a "cliff" on level 4 is a big
+     cliff (open: which level Biome and Ecotope rules mean).
+  3. **Placement per level.** Each Scatter places on one placement level
+     (a Scatter setting; defaults: level 0 for grass, mushrooms,
+     undergrowth, small stones and sticks; 1 for boulders, logs and dead
+     wood; 2 for bushes and small trees; 3–4 for big trees). Spots and
+     slope come from that level's TIN at every distance; near the player,
+     rest height settles onto level 0. A level is built canonically out to
+     the longest place range of the Scatters on it, apart from the draw
+     selection. Keep-off rules such as "no trees on roads" read the feature
+     lines, not the TIN. How far trees place is capped (to be chosen;
+     about 20 km today from the 1.4 px cull), with FF's far tint beyond.
+  4. **Drawing per level.** TE7 still picks levels by size on screen, and
+     draws each level's canonical TIN. Seams between drawn levels are a
+     drawing matter only (skirts or transitions).
+  5. **Shading normals come purely from the TIN.** Border normals are
+     carried in the edge contract, so seams stay exact without `H*`
+     (since `34e10a7` interior vertices already use the TIN's own faces).
+  6. **Only if TIN building is still too slow:** move `H*` sampling and
      TIN building to the GPU. That requires an integer, fixed-point `H*`
      that gives bit-identical results on the CPU and the GPU, designed
      together with D6a's pinned maths.
-- **Needs:** CT-A (done) and CT5. The feasibility numbers will be in
-  `terrain/tin_canonical.md` once measured (low priority).
-- **Done when:** the user confirms the decision, ARCHITECTURE and D6b are
-  revised, and the stages land.
+- **Open:** the tree cap, the cut-off level per feature type, labels per
+  placement level, whether a parent must refine its children at shared
+  edges, and GP placing on the level TINs (all in
+  [terrain/terrain_lod.md](terrain/terrain_lod.md)).
+- **Supersedes:** TE7's provisional Rough and Mid feature tiers and their
+  regular far chunks (the draw selection stays); CT5's "level-0 only"
+  canonical chunks and regular far levels; D6b's split where `H*`
+  decided placement and the TIN only collision.
+- **Needs:** CT-A (done) and CT5.
+- **Done when:** the stages land, and a Scatter placed on any level
+  stands in the same spot at every distance.
 
 #### Later in the track
 
@@ -2857,7 +2902,9 @@ where the details are.
       "Proposed, not decided" and "Open questions".
 32. **Canonical ground (D6).** **Decided 2026-11-25:** same-platform
     first, `H*` plus TIN split, chunk borders only, integer centimetres
-    (decided by the user 2026-11-26: cm, superseding mm).
+    (decided by the user 2026-11-26: cm, superseding mm). The `H*` plus
+    TIN split was revised by the user 2026-11-26: the TIN is the ground
+    at every chunk level, and `H*` is only its generator (CT-T).
     Only the S1 streaming question below stays open. The options were:
     - *D6a, deterministic profile:* cross-platform bitwise (pinned maths
       such as `libm` on every authoritative path, with a speed cost) or
