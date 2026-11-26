@@ -385,9 +385,9 @@ Ecotopes that cover it.
 - **Ground paint** (planned, [ROADMAP BP](ROADMAP.md#bp-biome-ground-paint-from-labels-and-segmentation)):
   what the ground is made of, from the Terrain's labels and segmentation
   only, independent of placement (the user, 2026-11-26). Each TIN vertex
-  carries canonical neighbourhood facts (landform class weights,
-  curvature, the 12 m shape) from the same label definition placement
-  uses, and the fragment shader adds per-pixel slope, height bands,
+  carries soft landform class weights only, from the same label
+  definition placement uses (raw shape may be added later if Biome rules
+  need it), and the fragment shader adds per-pixel slope, height bands,
   aspect and noise breakup, and blends the textures. A coarse class
   raster (4–8 m) only for patterns that follow neither geometry nor
   simple fields. Until it lands, the terrain draws flat grey.

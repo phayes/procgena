@@ -1566,10 +1566,12 @@ play area) waits for BP.
 - **Covers:** what the ground is made of, decided at the Biome layer from
   the terrain's labels and segmentation only, independent of placement
   (the user, 2026-11-26). No dense raster:
-  - **Vertex attributes:** each TIN vertex carries canonical
-    neighbourhood facts (landform class weights, curvature, the 12 m
-    shape), evaluated from the same label definition placement uses (see
-    CT-T stage 2).
+  - **Vertex attributes:** each TIN vertex carries soft landform class
+    weights only, evaluated from the same label definition placement uses
+    (see CT-T stage 2). The wet places (riverbed, pondbed, riverbank,
+    shore) are already classes, so there is no wetness attribute. Raw
+    continuous shape (convexity, curvature) is a maybe: built without
+    it, and added only if Biome rules turn out to need it (the user).
   - **Fragment shader:** adds per-pixel slope from the interpolated
     normal, height bands, aspect and world-space noise breakup, and
     blends the textures.
