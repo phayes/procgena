@@ -172,9 +172,9 @@ as proper features):
 - **This replaces the Rough, Mid and Fine feature tiers.** A chunk above a
   feature's carve level doesn't carry it, so a coarse level never waits
   for a costly feature, which was what the tiers were for.
-- **Promotion** becomes "this level adds nothing to its children here".
-  A coarse chunk with no feature of a finer level's kinds can stand for
-  its children in drawing, as `tier_change_known` does across tiers today.
+- **No promotion.** Today a chunk read at a cheaper tier can stand for a
+  later one. With levels, every drawn chunk is its own TIN (see "No
+  promotion" under the stream).
 - **Keep-off from vector data.** Rules such as "no trees on roads", "keep
   off rivers" and "clear of a road's edge by `d`" read the feature lines
   (`lines_within`) directly, never the TIN. So they hold at every
@@ -201,7 +201,8 @@ the two.
   `radius(L) × factor` of a viewer, measured on the ground (x and z;
   height above the ground doesn't shrink a placement range).
   - `factor` is the same quality distance scale the draw selection uses,
-    so a lower quality builds less, as it draws less.
+    so a lower quality builds less, as it draws less. It is 1 at the
+    default quality. (Coordinator's default, for the user's review.)
   - Levels 4 and up have no radius, so they are built only where drawn.
 - **Hysteresis:** a chunk built for its radius stays built until it is
   10% past the radius, like the draw selection's switching bands, so
@@ -250,33 +251,23 @@ mesh changed. This replaces today's coarse-first Rough reads and
 levels' difference along the edge. There are no cross-level constraints,
 and no transition strips (`Transitions` no longer changes a TIN mesh).
 
-### Promotion: a level that adds nothing to its children
+### No promotion
 
-Promotion means drawing a parent in place of its children. It saves only
-builds for drawing: of the 528 chunks above, the 80 drawn chunks outside
-every radius. A chunk within its radius is always built, since its
-Scatters place on it; promotion never changes what a Scatter reads.
+Every drawn chunk is its own canonical TIN: no parent is drawn in place of
+its children once they are built. (Coordinator's default, for the user's
+review.)
 
-**Rule:** chunk `P` at level `L` stands for its children at level `L − 1`
-in drawing when both of these hold:
-
-1. **No feature adds detail at `L − 1` in `P`'s footprint.** No feature
-   whose edge level or carve level is `L − 1` (it is in the children's
-   ground but not in `P`'s) reaches the footprint. This is read from the
-   feature lines (`lines_within`) without building anything, as
-   `tier_change_known` does today.
-2. **`P` already meets the children's tolerance there.** `P`'s TIN is
-   within `tolerance(L − 1)`, half its own, at every sample its build
-   took. The builder has to report the largest error it saw (ct-t-engine).
-
-Applied again, `P` can stand for its grandchildren. The decision depends
-only on `P`'s pure build and the feature lines, so it can't flicker.
-
-Unlike today's promotion this isn't bit-exact. The children would have
-sampled a finer lattice, so relief finer than `P`'s lattice step is lost.
-That is the trade size-on-screen drawing already makes one level out.
-Plains (24–27 triangles a chunk at every level) promote almost
-everywhere; mountains almost never do.
+- **What promotion would save:** only builds for drawing. Of the 528
+  chunks above, that is the 80 drawn chunks outside every radius. A chunk
+  within its radius is built anyway, since its Scatters place on it.
+- **What it would cost:** canonicality, since a parent drawn for its
+  children isn't bit-exact with them, and a maximum-error report from
+  every TIN build.
+- **A possible later optimisation:** if measurements show the draw-only
+  builds matter, a parent at level `L` could stand for its children in
+  drawing when two things hold. No feature whose edge or carve level is
+  `L − 1` reaches its footprint (read from `lines_within`), and its TIN
+  is within `tolerance(L − 1)` at every sample it took.
 
 ### Rest height at mid range
 
@@ -340,8 +331,8 @@ and the copy would then rest on ground that isn't drawn.
 - **Feature tiers** (`FeatureTier`, `WorldTerrain::terrain_tier`, `Rough`,
   `Mid`, `Fine`): superseded by each feature type's edge and carve levels
   (TF). A region still plans its features once; a level simply omits the
-  kinds above their levels. `tier_changes` and `tier_change_known` become
-  "does this level add anything to its children".
+  kinds above their levels. `tier_changes` and `tier_change_known` go,
+  with promotion (see "No promotion").
 - **CT-A** (adaptive sampling, contract cache): applies to every level as
   is; the lattice step and tolerance scale with the level.
 - **CT5** (products and streaming): `TinIndex`, `GroundSurface`,

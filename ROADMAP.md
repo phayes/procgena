@@ -2498,8 +2498,8 @@ largest place range), whose costs are in
      feature type declares an edge level (the highest keeping its lines
      as TIN edges) and a carve level (the highest sampling its effect on
      the ground), through TF. These replace the Rough, Mid and Fine
-     feature tiers; promotion becomes "this level adds nothing to its
-     children here". Defaults: roads edges to level 1, carving to 2;
+     feature tiers, and promotion goes: every drawn chunk is its own
+     TIN. Defaults: roads edges to level 1, carving to 2;
      rivers and ponds edges to 2, carving at all levels. Measured
      (`--example tin_levels`): cost per chunk stays about flat, from
      0.3–4.5 ms at level 0 to 0.4–7.7 ms at level 6 (plains to
