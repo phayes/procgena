@@ -3,4 +3,7 @@
 base: standard
 name: Lumberjack
 description: The tunables the demo plays with.
-demo: {}
+demo:
+  # No roads and no rivers: the land builds much faster without them.
+  # Set `roads: true` and a `river_density` such as 1.0 to bring them back.
+  land: { roads: false, river_density: 0.0 }

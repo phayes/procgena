@@ -39,6 +39,9 @@ bevy = { version = "0.20.1", default-features = false, features = [
     "bevy_animation",
     "gltf_animation",
     "png",
+    # glTF scenes are spawned by reflection, so every type in them must be
+    # registered.
+    "reflect_auto_register",
 ] }
 procgena_biome = { path = "../../../biome/crates/procgena_biome" }
 procgena_biome_bevy = { path = "../../../biome/crates/procgena_biome_bevy", features = ["gpu"] }

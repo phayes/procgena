@@ -9,12 +9,28 @@ use serde::{Deserialize, Serialize};
 #[derive(Resource, Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DemoOptions {
+    /// Which features the World's land is built with.
+    pub land: LandFeatures,
     /// The square of land the forest covers.
     pub play_area: PlayArea,
     /// How the lumberjack moves on foot.
     pub walking: Walking,
     /// The third- and first-person camera.
     pub camera: CameraRig,
+}
+
+/// Whether the land has roads and rivers. These values replace every
+/// Biome's own terrain settings. The default, like the built-in terrain
+/// presets, is no roads and no rivers. Both make the land slower to build.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LandFeatures {
+    /// Build roads, with each terrain's own road settings.
+    pub roads: bool,
+    /// How many rivers start in each region (the terrain setting
+    /// `features.rivers.density`), with their ponds. 0 means none; the
+    /// built-in terrains were tuned with values from 0.6 to 1.2.
+    pub river_density: f32,
 }
 
 /// The play area: a square of Ecotope tiles, centred on the start.
@@ -31,6 +47,9 @@ pub struct PlayArea {
     /// How far from the lumberjack, in metres, the ground and trunks are
     /// solid.
     pub collider_radius: f32,
+    /// Keep the forest off water, roads and cliffs. Placing takes longer:
+    /// the land is read at every spot a copy could stand.
+    pub keep_off: bool,
 }
 
 impl Default for PlayArea {
@@ -40,6 +59,7 @@ impl Default for PlayArea {
             tiles: 6,
             tile_size: 256.0,
             collider_radius: 100.0,
+            keep_off: true,
         }
     }
 }
@@ -156,6 +176,25 @@ impl DemoOptions {
             .demo
     }
 
+    /// Reads a `.demo.yml` file, which may name the built-in `standard`
+    /// set as its `base`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message if the file can't be read or isn't a valid demo
+    /// preset.
+    pub fn read(path: &str) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+        let key = std::path::Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_suffix(".demo.yml"))
+            .unwrap_or("file");
+        DemoPreset::from_yaml(key, &text)
+            .map(|preset| preset.demo)
+            .map_err(|e| format!("{path}: {e}"))
+    }
+
     /// Checks that every value is in range.
     ///
     /// # Errors
@@ -177,6 +216,9 @@ impl DemoOptions {
             if !(value > 0.0 && value.is_finite()) {
                 return Err(format!("{name} must be above 0"));
             }
+        }
+        if !(self.land.river_density >= 0.0 && self.land.river_density.is_finite()) {
+            return Err("land.river_density must be 0 or above".to_owned());
         }
         if self.play_area.tiles == 0 {
             return Err("play_area.tiles must be at least 1".to_owned());

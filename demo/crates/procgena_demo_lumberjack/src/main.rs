@@ -16,6 +16,8 @@
 //! Options:
 //!
 //! - `--seed <n>`: the World seed, instead of the demo's own;
+//! - `--settings <file.demo.yml>`: read the demo's tunables from this file
+//!   instead of its own `presets/lumberjack.demo.yml`;
 //! - `--quality <low|medium|high|ultra>`: how far each level of detail
 //!   reaches (default high);
 //! - `--screenshot <file.png>`: once everything is loaded and has settled,
@@ -28,6 +30,7 @@
 //!   sank through the ground, got stuck or went into a trunk, and exit
 //!   (with an error if he did). A screenshot or measurement is taken
 //!   during the walk;
+//! - `--load-limit <seconds>`: exit with an error if loading takes longer;
 //! - `--headless`: with `--screenshot`, `--measure` or `--autowalk`, draw
 //!   into an image instead of a window, with frames uncapped;
 //! - `--resolution <w> <h>`: the image size with `--headless` (default
@@ -98,6 +101,8 @@ fn main() {
         screenshot: value("--screenshot"),
         measure: value("--measure").map(|n| n.parse().expect("--measure needs a number of frames")),
         stay: autowalk,
+        load_limit: value("--load-limit")
+            .map(|s| s.parse().expect("--load-limit needs a number of seconds")),
     };
     let headless = has("--headless");
     assert!(
@@ -157,8 +162,12 @@ fn main() {
     }
 
     // The demo's own plugins.
+    let options = match value("--settings") {
+        Some(path) => DemoOptions::read(&path).unwrap_or_else(|e| panic!("{e}")),
+        None => DemoOptions::lumberjack(),
+    };
     app.init_state::<GameState>()
-        .insert_resource(DemoOptions::lumberjack())
+        .insert_resource(options)
         .insert_resource(launch)
         .insert_resource(capture)
         .add_plugins((

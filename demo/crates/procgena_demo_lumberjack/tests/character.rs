@@ -13,8 +13,6 @@ use bevy::animation::AnimationTargetId;
 use bevy::asset::{LoadState, RecursiveDependencyLoadState};
 use bevy::gltf::{Gltf, GltfMaterial};
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
-use bevy::render::settings::{RenderCreation, WgpuSettings};
 use bevy::time::TimeUpdateStrategy;
 use bevy::winit::WinitPlugin;
 
@@ -48,18 +46,15 @@ fn app() -> App {
                 exit_condition: bevy::window::ExitCondition::DontExit,
                 ..default()
             })
-            .set(RenderPlugin {
-                render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
-                    backends: None,
-                    ..default()
-                })),
-                ..default()
-            })
             .disable::<WinitPlugin>(),
     )
     .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
         1.0 / 60.0,
     )));
+    // What `App::run` would do before the first update: the renderer's
+    // device reaches the main world here.
+    app.finish();
+    app.cleanup();
     app
 }
 
@@ -169,7 +164,8 @@ fn every_clip_moves_the_lumberjack() {
         .insert(AnimationGraphHandle(graph));
     app.update();
     let rest = pose(&mut app);
-    assert_eq!(rest.len(), 65, "every joint is animated");
+    // The 65 joints, the armature and the mesh's node.
+    assert_eq!(rest.len(), 67, "every joint can be animated");
 
     // Each clip, played alone for a third of a second, turns his joints.
     for (clip, node) in CLIPS.iter().zip(&nodes) {

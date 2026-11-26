@@ -139,6 +139,23 @@ for o in parts:
 delete([o for o in bpy.data.objects if o != armature and o not in meshes])
 fix_image_paths()
 
+# One UV map per part, under one name, so joining keeps each part's UVs in
+# the first set (the only one the materials read), and no vertex colours.
+for o in meshes:
+    uvs = o.data.uv_layers
+    keep = next((layer for layer in uvs if layer.active_render), uvs[0]).name
+    # Removing a layer invalidates references to the others: go by name.
+    for name in [layer.name for layer in uvs if layer.name != keep]:
+        uvs.remove(uvs[name])
+    uvs[0].name = "UVMap"
+    colours = o.data.color_attributes
+    for name in [colour.name for colour in colours]:
+        colours.remove(colours[name])
+for material in bpy.data.materials:
+    for node in material.node_tree.nodes if material.node_tree else []:
+        if getattr(node, "uv_map", ""):
+            node.uv_map = "UVMap"
+
 # One skinned mesh.
 bpy.ops.object.select_all(action="DESELECT")
 for o in meshes:

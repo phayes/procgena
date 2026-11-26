@@ -19,6 +19,8 @@ pub struct Capture {
     pub measure: Option<u32>,
     /// Don't exit after capturing: something else ends the run.
     pub stay: bool,
+    /// If loading takes longer than this, in seconds, exit with an error.
+    pub load_limit: Option<f32>,
 }
 
 /// Saves the screenshot and measures frames, as [`Capture`] asks.
@@ -26,8 +28,25 @@ pub struct CapturePlugin;
 
 impl Plugin for CapturePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Frames>()
-            .add_systems(Update, capture.run_if(in_state(GameState::Playing)));
+        app.init_resource::<Frames>().add_systems(
+            Update,
+            (
+                capture.run_if(in_state(GameState::Playing)),
+                give_up.run_if(in_state(GameState::Loading)),
+            ),
+        );
+    }
+}
+
+/// Exits with an error once loading has taken longer than
+/// [`Capture::load_limit`].
+fn give_up(request: Res<Capture>, time: Res<Time<Real>>, mut exit: MessageWriter<AppExit>) {
+    let Some(limit) = request.load_limit else {
+        return;
+    };
+    if time.elapsed_secs() > limit {
+        error!("loading took longer than {limit} s");
+        exit.write(AppExit::error());
     }
 }
 

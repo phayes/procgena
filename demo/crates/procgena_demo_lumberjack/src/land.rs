@@ -7,7 +7,7 @@ use std::sync::Arc;
 use avian3d::prelude::*;
 use bevy::math::DVec2;
 use bevy::prelude::*;
-use procgena_biome::{Ecotope, EcotopePreset, ScatterCopies};
+use procgena_biome::{BiomePreset, BiomeTerrain, Ecotope, EcotopePreset, ScatterCopies};
 use procgena_biome_bevy::{
     EcotopeCopies, EcotopeFinished, EcotopeParams, EcotopePlacing, EcotopePlugin,
 };
@@ -18,7 +18,7 @@ use procgena_deadwood_bevy::{DeadwoodGenerating, DeadwoodPlugin};
 use procgena_mushroom_bevy::{MushroomGenerating, MushroomPlugin};
 use procgena_plant_bevy::PlantPlugins;
 use procgena_stone_bevy::{StoneGenerating, StonePlugin};
-use procgena_terrain::{ChunkDetail, Flags, Landform, WorldTerrain};
+use procgena_terrain::{ChunkDetail, Flags, Landform, TerrainOptions, TerrainPreset, WorldTerrain};
 use procgena_terrain_bevy::{
     RegionTracker, TerrainChunk, TerrainPlugin, TerrainProgress, TerrainStream, TerrainWater,
 };
@@ -27,7 +27,7 @@ use procgena_world::{World, WorldPreset};
 
 use crate::camera::MainCamera;
 use crate::player::{Player, Spawn};
-use crate::settings::DemoOptions;
+use crate::settings::{DemoOptions, LandFeatures};
 use crate::{GameState, Launch};
 
 /// How far the terrain is drawn, in metres.
@@ -62,15 +62,28 @@ pub struct LandPlugin;
 impl Plugin for LandPlugin {
     fn build(&self, app: &mut App) {
         let launch = app.world().resource::<Launch>().clone();
-        let land = Land::new(launch.seed);
+        let features = app.world().resource::<DemoOptions>().land.clone();
+        let land = Land::new(launch.seed, &features);
         let plugin = TerrainPlugin::detailed(ChunkDetail::DEFAULT, VIEW_DISTANCE)
             .expect("the view distance is positive");
         app.add_plugins((
             plugin,
-            TreePlugin::default(),
-            StonePlugin::default(),
-            DeadwoodPlugin::default(),
-            MushroomPlugin::default(),
+            TreePlugin {
+                texture_root: Some("tree/assets/textures".to_owned()),
+                ..default()
+            },
+            StonePlugin {
+                texture_root: Some("stone/assets/textures".to_owned()),
+                ..default()
+            },
+            DeadwoodPlugin {
+                texture_root: Some("deadwood/assets/textures".to_owned()),
+                ..default()
+            },
+            MushroomPlugin {
+                texture_root: Some("mushroom/assets/textures".to_owned()),
+                ..default()
+            },
             PlantPlugins,
             EcotopePlugin,
         ))
@@ -105,9 +118,9 @@ pub struct Land {
 }
 
 impl Land {
-    /// The demo's World, with `seed` instead of its own if given, and its
-    /// forest.
-    fn new(seed: Option<u32>) -> Self {
+    /// The demo's World, with `seed` instead of its own if given and only
+    /// the land `features` asked for, and its forest.
+    fn new(seed: Option<u32>, features: &LandFeatures) -> Self {
         let mut options = WorldPreset::from_yaml("lumberjack", WORLD_FILE)
             .expect("the demo's World preset is valid")
             .world;
@@ -115,7 +128,7 @@ impl Land {
             options.seed = seed;
         }
         let regions = RegionTracker::default();
-        let world = World::new(options)
+        let world = World::with_biomes(options, biomes(features))
             .expect("the demo's World builds")
             .with_progress(regions.hook());
         let forest = EcotopePreset::from_yaml("lumberjack_forest", FOREST_FILE)
@@ -132,6 +145,32 @@ impl Land {
     pub fn height(&self, p: Vec2) -> f32 {
         Ground::height(&*self.terrain, p.as_dvec2())
     }
+}
+
+/// The built-in Biomes, each with its terrain's roads and rivers set as
+/// `features` asks.
+fn biomes(features: &LandFeatures) -> Vec<BiomePreset> {
+    BiomePreset::all()
+        .map(|preset| {
+            let mut options = match &preset.biome.terrain {
+                BiomeTerrain::Preset(key) => TerrainPreset::named(key)
+                    .unwrap_or_else(|| panic!("Biome {} names no terrain preset {key}", preset.key))
+                    .terrain
+                    .clone(),
+                BiomeTerrain::Inline(options) => options.clone(),
+            };
+            switch_features(&mut options, features);
+            let mut preset = preset.clone();
+            preset.biome.terrain = BiomeTerrain::Inline(options);
+            preset
+        })
+        .collect()
+}
+
+/// Sets `options`' roads and river density to what `features` asks.
+fn switch_features(options: &mut TerrainOptions, features: &LandFeatures) {
+    options.features.roads.enabled = features.roads;
+    options.features.rivers.density = features.river_density;
 }
 
 /// The ground, trunks and stones the lumberjack can't walk through.
@@ -203,8 +242,9 @@ fn spawn_tiles(mut commands: Commands, land: Res<Land>, options: Res<DemoOptions
     let area = &options.play_area;
     let ground: Arc<dyn Ground> = land.terrain.clone();
     let terrain = land.terrain.clone();
-    let coverage: Arc<dyn procgena_core::scatter::Mask> =
-        Arc::new(move |p: DVec2| if plantable(&terrain, p) { 1.0 } else { 0.0 });
+    let coverage: Option<Arc<dyn procgena_core::scatter::Mask>> = area.keep_off.then(|| {
+        Arc::new(move |p: DVec2| if plantable(&terrain, p) { 1.0_f32 } else { 0.0 }) as Arc<_>
+    });
     let [cx, cz] = area.centre;
     let half = f64::from(area.size()) * 0.5;
     let size = f64::from(area.tile_size);
@@ -219,7 +259,7 @@ fn spawn_tiles(mut commands: Commands, land: Res<Land>, options: Res<DemoOptions
                 seed: land.forest.default_seed,
                 ground: ground.clone(),
                 area: ScatterArea::new(centre, Vec2::splat(area.tile_size)),
-                coverage: Some(coverage.clone()),
+                coverage: coverage.clone(),
                 patch: None,
             });
         }
@@ -253,6 +293,9 @@ fn count_tile(finished: On<EcotopeFinished>, mut tiles: ResMut<Tiles>, mut solid
                 summary.place_time,
                 summary.copies()
             );
+            for layer in &summary.layers {
+                debug!("  {}: {} copies", layer.key, layer.copies);
+            }
         }
         Err(error) => error!("a forest tile could not be placed: {error}"),
     }
