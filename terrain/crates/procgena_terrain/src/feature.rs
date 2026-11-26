@@ -94,14 +94,17 @@ impl FeatureLevel {
 /// up (below `rough_from`) at [`Mid`](FeatureTier::Mid); the rest at
 /// [`Fine`](FeatureTier::Fine).
 ///
-/// The default reads every level but `COARSEST` at the fine tier.
+/// The default reads every level but `COARSEST` at the fine tier. Level 0
+/// ([`FeatureLevel::FINEST`]) is always read at the fine tier, so a valid
+/// table never starts a tier there (see [`is_valid`](Self::is_valid)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct TierLevels {
     /// The first level read at the mid tier, with the costly features in
     /// outline (today the roads on a coarse route), or `None` for none.
+    /// From 1 to 254.
     pub mid_from: Option<u8>,
     /// The first level read at the rough tier, without the costly features
-    /// (today the roads), or `None` for none but `COARSEST`.
+    /// (today the roads), or `None` for none but `COARSEST`. From 1 to 254.
     pub rough_from: Option<u8>,
 }
 
@@ -112,6 +115,15 @@ impl TierLevels {
         mid_from: Some(1),
         rough_from: Some(2),
     };
+
+    /// Whether each threshold is from 1 to 254, so the finest level reads
+    /// every feature and each tier's canonical level is its own.
+    pub fn is_valid(self) -> bool {
+        [self.mid_from, self.rough_from]
+            .into_iter()
+            .flatten()
+            .all(|from| (1..u8::MAX).contains(&from))
+    }
 
     /// The tier read at `level`.
     pub fn tier(self, level: FeatureLevel) -> FeatureTier {
@@ -299,6 +311,51 @@ impl FeatureIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_finest_level_reads_every_feature_and_tiers_keep_their_own_level() {
+        let thresholds = [None, Some(1), Some(2), Some(5), Some(254)];
+        for mid_from in thresholds {
+            for rough_from in thresholds {
+                let levels = TierLevels {
+                    mid_from,
+                    rough_from,
+                };
+                assert!(levels.is_valid());
+                assert_eq!(levels.tier(FeatureLevel::FINEST), FeatureTier::Fine);
+                assert_eq!(levels.tier(FeatureLevel::COARSEST), FeatureTier::Rough);
+                for level in (0..=u8::MAX).map(FeatureLevel) {
+                    // A level's canonical level reads the same tier, and
+                    // finer tiers have smaller canonical levels.
+                    let tier = levels.tier(level);
+                    assert_eq!(levels.tier(levels.canonical(level)), tier, "{levels:?}");
+                    for other in FeatureTier::ALL {
+                        assert_eq!(
+                            levels.level(tier) < levels.level(other),
+                            tier > other,
+                            "{levels:?}"
+                        );
+                    }
+                }
+            }
+        }
+        for from in [Some(0), Some(u8::MAX)] {
+            assert!(
+                !TierLevels {
+                    mid_from: from,
+                    rough_from: None
+                }
+                .is_valid()
+            );
+            assert!(
+                !TierLevels {
+                    mid_from: None,
+                    rough_from: from
+                }
+                .is_valid()
+            );
+        }
+    }
 
     #[test]
     fn every_kind_is_fine_and_never_drawn_before_what_it_reads() {

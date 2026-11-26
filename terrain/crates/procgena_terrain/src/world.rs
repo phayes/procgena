@@ -384,8 +384,14 @@ impl WorldTerrain {
     /// [`TierLevels::default`], reads every level at the fine tier. The
     /// regions and their terrains don't change, only which tier a chunk
     /// read asks for.
+    ///
+    /// # Panics
+    ///
+    /// If `levels` is not [valid](TierLevels::is_valid): level 0 must read
+    /// every feature.
     #[must_use]
     pub fn with_tier_levels(mut self, levels: TierLevels) -> Self {
+        assert!(levels.is_valid(), "invalid tier levels {levels:?}");
         self.tier_levels = levels;
         self
     }

@@ -22,9 +22,10 @@
 //!   `900 0 -300`, respectively.
 //! - `--view <metres>` sets the view distance (default: 4000).
 //! - `--rough-from <level>` and `--mid-from <level>` limit feature detail at
-//!   that chunk level and above. Higher levels cover coarser chunks. Rough detail
-//!   omits roads; mid detail uses coarse road routes. Rough takes precedence;
-//!   other levels finish at fine detail.
+//!   that chunk level and above (from 1: level 0 always has every feature).
+//!   Higher levels cover coarser chunks. Rough detail omits roads; mid detail
+//!   uses coarse road routes. Rough takes precedence; other levels finish at
+//!   fine detail.
 //! - `--tin` requests adaptive triangle meshes for the finest chunks at fine
 //!   detail, instead of the default regular meshes.
 //! - `--roads` turns roads on in every region, and `--rivers <n>` gives
@@ -33,8 +34,8 @@
 //! - `--timeout <s>` stops recording after this many seconds (default: 900),
 //!   checked each frame. This is not a hard deadline for the process.
 //! - `--footprint` counts drawn chunks containing roads at mid and fine detail
-//!   after recording ends, including after a timeout. Use `--rough-from 0` to
-//!   defer road generation until this extra measurement. Its work is timed
+//!   after recording ends, including after a timeout. Use `--rough-from 1` to
+//!   leave roads to level 0 only during loading. Its work is timed
 //!   separately and is not included in the CSV files.
 //!
 //! The output directory is created if needed. Each run overwrites two files:
