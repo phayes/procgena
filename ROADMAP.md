@@ -2513,7 +2513,15 @@ in a `tin` module of `procgena_terrain`.
 
   **Left:**
   - water from CT3's shores (TIN chunks take their water from a second
-    regular sampling for now);
+    regular sampling for now, only where a river or pond reaches them);
+  - **ready follow-up, cheaper shading normals:** `shading_normals` reads
+    `H*` 1 m either side of every vertex (4 reads a vertex: 68 of a
+    plains chunk's 310 streamed reads, 1,344 of a mountain chunk's
+    4,864). Give interior vertices the area-weighted normal of the
+    chunk's own triangles, and keep `H*` differences only on border
+    vertices: both chunks hold those at the same positions and read the
+    same `H*`, so the lighting stays seamless across chunk edges. Mountains
+    would read about 200 for normals instead of 1,344;
   - hard normals on breaklines once CT3 or CT4 add breakline kinds;
   - TIN LODs and height textures;
   - canonical chunks prefetched for a gameplay radius (today they follow
