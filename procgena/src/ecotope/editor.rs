@@ -71,6 +71,9 @@ pub struct EcotopeEditor {
     detail: Entity,
     /// The tree Scatter editor shown for a selected tree Scatter.
     tree_editor: Option<Entity>,
+    /// The ground layers edited, kept apart from the Ecotope: they are
+    /// neither saved nor drawn.
+    ground_layers: ground::GroundLayers,
     /// The ground layer whose settings are shown, if any.
     layer: Option<ChildKey>,
     /// The node holding one row per ground layer.
@@ -98,9 +101,6 @@ impl EcotopeEditor {
     /// part of the editor.
     fn show(&mut self, ecotope: Ecotope) {
         self.selected = ecotope.order().first().map(|(key, _)| (*key).clone());
-        self.layer = ground::layers_top_first(&ecotope)
-            .first()
-            .map(|(key, _)| (*key).clone());
         self.ecotope = ecotope;
         self.stale = Stale::all();
     }
@@ -382,6 +382,7 @@ pub fn spawn_ecotope_editor(commands: &mut Commands, parent: Entity, key: &str) 
         list,
         detail,
         tree_editor: None,
+        ground_layers: ground::GroundLayers::new(),
         layer: None,
         ground_list,
         ground_detail,

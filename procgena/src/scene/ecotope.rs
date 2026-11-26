@@ -11,7 +11,6 @@ use procgena_biome_bevy::{
 };
 use procgena_core::scatter::ScatterArea;
 use procgena_core::{FlatGround, Ground, HeightGrid};
-use procgena_terrain::ground::GroundStack;
 
 use super::environment::EnvironmentSettings;
 use super::orbit::{OrbitCamera, OrbitLimits};
@@ -77,27 +76,19 @@ impl Subject for EcotopeSubject {
 
     fn spawn(world: &mut World, settings: &EcotopeSettings) -> Entity {
         let ground = build_ground(settings);
-        world.spawn(params(settings, ground, base(settings))).id()
+        world.spawn(params(settings, ground)).id()
     }
 
     fn update(world: &mut World, shown: &mut Shown, old: &EcotopeSettings, new: &EcotopeSettings) {
         // Keep the ground while its choice and size stay the same, so an
-        // edit to the Ecotope alone redraws only the Scatters it changes,
-        // and its base look while its seed stays the same.
-        let current = world.get::<EcotopeParams>(shown.entity);
-        let ground = current
+        // edit to the Ecotope alone redraws only the Scatters it changes.
+        let ground = world
+            .get::<EcotopeParams>(shown.entity)
             .filter(|_| old.ground == new.ground && old.size == new.size)
             .map(|params| params.ground.clone())
             .unwrap_or_else(|| build_ground(new));
-        let base = current
-            .and_then(|params| params.patch.as_ref())
-            .filter(|_| old.ecotope.default_seed == new.ecotope.default_seed)
-            .map(|patch| patch.base.clone())
-            .unwrap_or_else(|| base(new));
         shown.start_build(world);
-        world
-            .entity_mut(shown.entity)
-            .insert(params(new, ground, base));
+        world.entity_mut(shown.entity).insert(params(new, ground));
     }
 
     fn view(_: &World, settings: &EcotopeSettings) -> OrbitCamera {
@@ -120,12 +111,8 @@ impl Subject for EcotopeSubject {
 }
 
 /// The component that places and draws the Ecotope `settings` on `ground`,
-/// with its ground layers over `base`.
-fn params(
-    settings: &EcotopeSettings,
-    ground: Arc<dyn Ground>,
-    base: Arc<GroundStack>,
-) -> EcotopeParams {
+/// over a grey patch of that ground.
+fn params(settings: &EcotopeSettings, ground: Arc<dyn Ground>) -> EcotopeParams {
     EcotopeParams {
         ecotope: Arc::new(settings.ecotope.clone()),
         seed: settings.ecotope.default_seed,
@@ -133,17 +120,10 @@ fn params(
         area: ScatterArea::new(DVec2::ZERO, Vec2::splat(settings.size)),
         coverage: None,
         patch: Some(GroundPatch {
-            base,
             margin: GROUND_MARGIN,
             cell: GROUND_CELL,
         }),
     }
-}
-
-/// The ground the Ecotope's layers lie over: bare terrain's look, seeded
-/// with the Ecotope's own seed.
-fn base(settings: &EcotopeSettings) -> Arc<GroundStack> {
-    Arc::new(GroundStack::bare(settings.ecotope.default_seed, 1.0))
 }
 
 /// Adds the Ecotope subject, the ground drawn under it, and its reports.
