@@ -43,9 +43,11 @@ lives in ROADMAP.md ("Canonical ground and roads track").
   the user 2026-11-26: cm, superseding mm. spade works in exact
   chunk-local `f64`.
 - **Feature tiers.** Superseded by the user 2026-11-26: every chunk level is
-  canonical, with edge contracts per level, and each feature type has a
-  highest level where its lines are kept (roads to level 1–2, rivers to
-  3–4, say), replacing Rough, Mid and Fine. See `terrain/terrain_lod.md`.
+  canonical, with edge contracts per level, and each feature type declares
+  an edge level (lines kept as TIN edges) and a carve level (ground effect
+  sampled): roads to 1 and 2, rivers and ponds to 2 and all levels
+  (coordinator's defaults), replacing Rough, Mid and Fine (ROADMAP TF).
+  See `terrain/terrain_lod.md`.
   (Until then: only the Fine tier was canonical; Rough and Mid were
   provisional, with skirts and stand-ins.)
 

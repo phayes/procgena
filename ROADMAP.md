@@ -139,6 +139,7 @@ flowchart TD
     CT3["CT3 Rivers, ponds, stamps in the ground"]
     CTA["CT-A Adaptive TIN sampling"]
     CTT["CT-T Every chunk level a canonical TIN"]
+    TF["TF Terrain features as proper features"]
     CT4["CT4 Roads in the ground"]
     CT5["CT5 TIN products and streaming"]
     G7["G7 Scale-aware terrain lengths"]
@@ -268,6 +269,7 @@ flowchart TD
     CT3 --> CT4
     CT3 --> CTA
     CTA --> CTT
+    TF --> CTT
     CT5 --> CTT
     RB5 --> CT4
     CT4 --> CT5
@@ -2502,10 +2504,12 @@ largest place range), whose costs are in
   1. **Canonical TIN at every chunk level.** Level `L` (64 m × 2^L,
      levels 5, 6, 7 and on as needed) samples 1 m × 2^L within the
      world's base tolerance × 2^L, with edge contracts per level. Each
-     feature type has a highest level where its lines are kept and its
-     carving sampled (roads to level 1–2, rivers to 3–4, say), replacing
-     the Rough, Mid and Fine feature tiers; promotion becomes "this
-     level adds nothing to its children here". Measured
+     feature type declares an edge level (the highest keeping its lines
+     as TIN edges) and a carve level (the highest sampling its effect on
+     the ground), through TF. These replace the Rough, Mid and Fine
+     feature tiers; promotion becomes "this level adds nothing to its
+     children here". Defaults: roads edges to level 1, carving to 2;
+     rivers and ponds edges to 2, carving at all levels. Measured
      (`--example tin_levels`): cost per chunk stays about flat, from
      0.3–4.5 ms at level 0 to 0.4–7.7 ms at level 6 (plains to
      mountains, one thread).
@@ -2533,13 +2537,16 @@ largest place range), whose costs are in
   3. **Placement per level.** Each Scatter places on one placement level
      (a Scatter setting; defaults: level 0 for grass, mushrooms,
      undergrowth, small stones and sticks; 1 for boulders, logs and dead
-     wood; 2 for bushes and small trees; 3–4 for big trees). Spots and
+     wood; 2 for bushes and small trees; 3 for big trees). Spots and
      slope come from that level's TIN at every distance; near the player,
-     rest height settles onto level 0. A level is built canonically out to
-     the longest place range of the Scatters on it, apart from the draw
-     selection. Keep-off rules such as "no trees on roads" read the feature
-     lines, not the TIN. How far trees place is capped (to be chosen;
-     about 20 km today from the 1.4 px cull), with FF's far tint beyond.
+     rest height settles onto level 0. Each level is built canonically out
+     to its build radius around the camera, apart from the draw
+     selection, and a Scatter's place range is clamped to it: level 0 to
+     150 m (also colliders), 1 to 500 m, 2 to 1.5 km, 3 to 4 km (the tree
+     cap; FF's forest tint beyond); levels 4 and up are drawn only. That
+     is about 365 chunks: about 0.15 s cold on plains, 1.6–2.8 s on
+     mountains. Keep-off rules such as "no trees on roads" read the
+     feature lines, not the TIN.
   4. **Drawing per level.** TE7 still picks levels by size on screen, and
      draws each level's canonical TIN. Seams between drawn levels are a
      drawing matter only (skirts or transitions).
@@ -2550,17 +2557,43 @@ largest place range), whose costs are in
      TIN building to the GPU. That requires an integer, fixed-point `H*`
      that gives bit-identical results on the CPU and the GPU, designed
      together with D6a's pinned maths.
-- **Open:** the tree cap, the cut-off level per feature type, labels per
-  placement level, whether a parent must refine its children at shared
-  edges, and GP placing on the level TINs (all in
+- **Defaults:** the build radii, tree cap, placement levels and feature
+  levels above are the coordinator's defaults, chosen on the user's
+  instruction (2026-11-26) for performance, for the user to review.
+- **Open:** labels per placement level, whether a parent must refine its
+  children at shared edges, and GP placing on the level TINs (all in
   [terrain/terrain_lod.md](terrain/terrain_lod.md)).
 - **Supersedes:** TE7's provisional Rough and Mid feature tiers and their
   regular far chunks (the draw selection stays); CT5's "level-0 only"
   canonical chunks and regular far levels; D6b's split where `H*`
   decided placement and the TIN only collision.
-- **Needs:** CT-A (done) and CT5.
+- **Needs:** CT-A (done), CT5 and TF (feature edge and carve levels).
 - **Done when:** the stages land, and a Scatter placed on any level
   stands in the same spot at every distance.
+
+#### TF: Terrain features as proper features
+
+Asked for by the user 2026-11-26: each feature declares the level it runs
+at, "part of turning roads and rivers into proper features, instead of
+the embedded things they are now". Unscheduled; CT-T depends on it.
+
+- **Covers:** roads and rivers stop being special cases embedded in the
+  terrain plan and carve, and become features behind one interface:
+  - their lines;
+  - a carve function (the feature's effect on the ground);
+  - an edge level and a carve level (see CT-T);
+  - keep-off vectors for Scatters' masks;
+  - crossings and ports between regions.
+
+  So further kinds (gullies, stamps, paths, and later cliffs and lakes)
+  are added the same way.
+- **Until then:** roads and rivers stay embedded, and stay off by default
+  in the built-in presets.
+- **Needs:** nothing new; it reorganizes `plan.rs`, `carve.rs`,
+  `river.rs` and `road/`.
+- **Done when:** roads and rivers are features behind the interface, with
+  results unchanged at level 0, and a new feature kind needs no change
+  outside its own module.
 
 #### Later in the track
 

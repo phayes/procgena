@@ -1014,9 +1014,11 @@ Each stage is cached on its own, so a far chunk can stop after any of them.
   (2026-11-25, TE7), with near chunks refined in the background and
   skirts sized by how far each tier moves the ground.
   **Superseded as the direction (the user, 2026-11-26):** feature tiers
-  give way to a highest chunk level per feature type, above which the
-  canonical TIN of that level doesn't carry the feature (roads up to
-  level 1–2, rivers up to 3–4, say). A coarse level then isn't
+  give way to two levels each feature type declares (TF): an edge level
+  (the highest level keeping its lines as TIN edges) and a carve level
+  (the highest level sampling its effect on the ground). Defaults: roads
+  edges to level 1 and carving to 2; rivers and ponds edges to 2 and
+  carving at all levels. A coarse level then isn't
   provisional: it is canonical ground for the Scatters placed on it.
   Keep-off rules read the feature lines, not the TIN. See
   [terrain/terrain_lod.md](terrain/terrain_lod.md).
@@ -1039,8 +1041,9 @@ and per chunk, not per chunk.
   per-Scatter multiplier. It is worked out, not set by hand: about 30 m
   for mushrooms, and today about 20 km for big trees (the cull at 0.002
   of the screen's height, about 1.4 px at 720p; measured 2026-11-26).
-  How far trees place is to be capped, with the far field (FF) tinting
-  beyond the cap; the cap is still to be chosen.
+  A Scatter's place range is clamped to its placement level's build
+  radius (below), so big trees place out to 4 km (the tree cap), with
+  the far field's (FF) forest tint beyond.
 - **Place range.** A Scatter masks every Scatter after it in priority, so
   it must be placed wherever any of them is. Its place range is the largest
   draw range of itself and every Scatter after it, including the Scatters
@@ -1083,10 +1086,15 @@ placement never depends on chunk size, load tier or load order.
   the user 2026-11-26; see [terrain/terrain_lod.md](terrain/terrain_lod.md)).
   Each Scatter places on exactly one chunk level: by default level 0 for
   grass, mushrooms, small stones and sticks, level 1 for boulders and
-  logs, level 2 for bushes and small trees, and level 3–4 for big trees.
+  logs, level 2 for bushes and small trees, and level 3 for big trees.
   Its spots, height and slope come from that level's TIN at every
-  distance, never from what is drawn. A level is built canonically out
-  to the longest place range of the Scatters on it. Near the player a
+  distance, never from what is drawn. Each level is built canonically out
+  to its build radius around the camera, and a Scatter's place range is
+  clamped to it. The coordinator's defaults (on the user's instruction,
+  2026-11-26, for the user's review) are level 0 to 150 m (also
+  colliders), level 1 to 500 m, level 2 to 1.5 km and level 3 to 4 km;
+  levels 4 and up are drawn only. That is about 365 chunks. Near the
+  player a
   copy's rest height settles onto level 0; a copy's identity never
   includes its rest height (gate D6, open question 11). Keep-off rules
   ("no trees on roads") read the feature lines, not the TIN, so they
