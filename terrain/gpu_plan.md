@@ -105,6 +105,129 @@ change.
   worker is idle for much of it. So read savings show up as load time only
   once the worker is kept fed.
 
+## Frame time: drawing the terrain
+
+The steps above are about load. This section is about drawing, ranked by
+expected frame-time saving.
+
+**What the demo measured** (bare terrain, no Scatters, 7 × 7 tiles,
+2560 × 1440, load average about 70):
+
+- the render schedule took 29 ms a frame with shadows and 20.5 ms
+  without;
+- the main schedule took about 9–10 ms.
+
+So shadows cost about 8.5 ms, and drawing the terrain alone takes most of
+a 16.7 ms frame.
+
+[TE7](../ROADMAP.md#te7-intermediate-terrain-detail-levels) measured the
+regular mesh at its 7 px target: 2.2 M triangles over 252 chunks, each
+chunk 8,192 triangles plus skirts.
+
+**How triangles turn into time.** TE7's viewer, at 720p and a load
+average of about 20, gives the only slope there is:
+
+- 0.56 M triangles: about 7 ms a frame;
+- 2.2 M triangles: 10–13 ms.
+
+That is roughly 2–4 ms per million triangles in the main pass. Each
+shadow cascade a chunk lands in draws its triangles again. Both
+measurements were taken under load, so read them as orders of magnitude.
+
+### Ranked
+
+| # | Change | Expected frame-time saving | Effort | ROADMAP |
+|---|---|---|---|---|
+| 1 | **Cheaper terrain shadows.** First cap what terrain casts (a, b), then replace its shadow pass (c). | **Up to about 8.5 ms**, the whole shadow cost, if the terrain's casting is most of it (to measure, E1) | (a, b) small; (c) medium | New (proposed **GPU-T4**) |
+| 2 | **Fewer triangles: the TIN at level 0, then coarse TINs beyond.** | **Level 0:** about 0.5 M of 2.2 M triangles go (−23%), about 1–2 ms in the main pass. More comes off in the shadow pass, where level-0 chunks are the casters. **With coarse TINs at every level:** 2.2 M → roughly 0.02–0.3 M (252 chunks × 24–678 triangles, plus the split sides), about 4–9 ms in the main pass, before shadows. | Level 0 is built (`--tin`). Coarse TINs: medium to large (open question 3). | [CT5](../ROADMAP.md#ct5-products-and-streaming) (streaming TIN by default) and its "TIN LODs" |
+| 3 | **GPU-driven terrain draws.** All resident chunks are culled and drawn on the GPU, per camera and per shadow cascade, with geomorphing in the vertex shader (steps 1 and 2's buffers). | Smaller: the main thread's per-chunk draw preparation, for 252 chunks times 1 view plus 4 cascades, perhaps 1–2 ms. Also fewer casters per cascade than whole-chunk culling gives. To measure. | Medium: the shared instanced renderer in `procgena_core_bevy` already culls on the GPU | Steps 1 and 2 (proposed GPU-T1/T2) |
+
+**Measure before building.** At a load average of 70 these are estimates.
+Three cheap experiments split the costs.
+
+- **E1:** put `NotShadowCaster` on every terrain chunk. Terrain still
+  receives shadows, so this splits the shadow cost into terrain casting
+  and shadow receiving and filtering.
+- **E2:** run the same view with `--tin` and without. Only level 0
+  changes, so this shows how much triangles cost the main pass and the
+  shadow pass.
+- **E3:** run with `--cell-pixels 14` against 7. This gives about 4× fewer
+  triangles at every level, so it is the same question across the whole
+  view.
+
+### 1. Terrain shadows
+
+The demo's sun uses 4 cascades out to 220 m, the first ending at 12 m
+(`sky.rs`). A directional cascade draws every caster between it and the
+light, not only those in view. A whole chunk lands in every cascade its
+box touches. So the near 8,192-triangle chunks are drawn up to four times
+more each frame.
+
+- **(a) Fewer casters.**
+  - Chunks beyond the last cascade, or at levels ≥ 2, get
+    `NotShadowCaster` (`bevy_light` 0.20.1).
+  - Shadow receiving and its filtering
+    (`ShadowFilteringMethod::Hardware2x2` against the default `Gaussian`)
+    are a separate knob, and E1 says which half matters.
+- **(b) A coarse shadow proxy.**
+  - Chunks cast from a cheaper mesh than they draw: the level-0 TIN (0.5 m
+    tolerance, about 47× fewer triangles in CT5's measure) or a coarser
+    level.
+  - Shadows at that tolerance look the same.
+  - It needs a shadow-only entity per chunk. Whether Bevy 0.20 can draw a
+    mesh into shadow maps without drawing it in the main pass is **to
+    verify**.
+- **(c) Terrain self-shadow from heights, on the GPU.**
+  - Terrain stops casting into the shadow maps altogether.
+  - A compute pass marches the resident heights from steps 1 and 2
+    toward the sun and writes a horizon or shadow texture. It reruns when
+    the sun moves or a chunk loads, not every frame.
+  - The terrain material samples that texture, and still receives shadows
+    from Scatters through the shadow maps.
+  - For ridges to shade trees in valleys, Scatter materials sample the same
+    texture: one shared shader module in `procgena_core_bevy`.
+  - It saves the terrain's whole share of the shadow pass, and gives
+    terrain shadows past 220 m for free.
+  - Recommended once E1 confirms that casting is the cost.
+
+### 2. Triangles from the TIN
+
+- **Level 0 (built):**
+  - CT5 measured 557,056 → 11,832 triangles over 64 chunks, skirts and
+    split sides included, and the whole 600 m view from 1.19 M to
+    0.64 M.
+  - In TE7's 252-chunk view, level 0 is about 0.52 M of the 2.2 M
+    triangles.
+  - CT-A's `GENERAL` TINs hold 24 (plains), 102 (hills) and 678
+    (mountains) triangles a chunk, against 8,192 regular.
+- **Coarser levels (open question 3):**
+  - A coarse TIN per level-`k` chunk would hold its error fixed on screen,
+    at the open-land tolerance × 2^k (0.5 m at level 0, 8 m at level 4),
+    which is what TE7's 7 px rule does for cells.
+  - If such chunks hold triangles in the range level-0 TINs do, the 188 far
+    chunks drop from about 1.54 M triangles to roughly 5 k–130 k.
+  - That is the biggest triangle saving available, and it also cuts the
+    reads (step 1). It is not measured: build one level and count.
+- **Larger triangles also help the fragment side.** At 14 px a cell on a
+  1440p screen, regular cells are small, so GPU shading is wasted on the
+  thin triangles' edge pixels. A TIN's large flat facets waste less.
+
+### 3. What moves to the GPU for drawing
+
+- **Per frame:**
+  - culling of every resident chunk per camera and per cascade;
+  - one indirect draw per material;
+  - geomorphing in the vertex shader.
+- **Per chunk load or level change:**
+  - normals (steps 1 and 2);
+  - level seams (step 1);
+  - the shadow texture (1c);
+  - the Biome painter's inputs (step 3).
+- **Stays on the CPU:**
+  - choosing levels by size on screen (`ChunkDetail`);
+  - deciding what to load;
+  - bounding boxes (exact from the integer heights).
+
 ## Read counts
 
 Reads of `H*` for one chunk, from the code (`ChunkSamples::sample`,
@@ -355,6 +478,10 @@ Out of scope until the user brings them back. When they return:
   hard breaklines.
   - **Done when:** TIN chunks read no `H*` for normals, and the shading
     across TIN-to-TIN and TIN-to-regular seams matches.
+- **GPU-T4 (new): cheaper terrain shadows.** Run E1–E3 first, then cap
+  the casters (1a, 1b), then terrain self-shadow from heights (1c).
+  - **Done when:** the shadow pass's terrain share is measured before
+    and after on a quiet machine.
 - **GPU-T3 (new, under BP):** the painter's terrain inputs as textures
   with aprons, once BP lists them.
 - **CT6:** recast as "batched refinement, CPU reference first; GPU scoring
