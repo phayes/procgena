@@ -77,15 +77,18 @@ lives in ROADMAP.md ("Canonical ground and roads track").
   triangle at its worst sample, using exact integer orientation tests and
   `i128` interpolation. Ties go to the sample nearest the centre, then by row
   and column.
-- **Tolerance:** `TinTolerance { height, max_edge, vertex_budget }`. `GENERAL`
-  is 0.5 m, 32 m and 4,096 vertices. `min_spacing` was removed.
+- **Tolerance:** since CT3, `TinTolerance { general, water, water_band, chord,
+  vertex_budget }`. `general` and `water` are each a
+  `DomainTolerance { height, gradient, max_edge }`. CT2's `GENERAL` was 0.5 m,
+  32 m and 4,096 vertices. `min_spacing` was removed.
 - **Edge contracts:** `EdgeContract::build` samples every 1 m along the edge and
-  splits at the worst sample, or at the midpoint when a segment is too long. A
-  contract is a pure function of the edge key and `H*`.
+  splits at the worst sample, or at the midpoint when a segment is too long.
+  Since CT3 a contract also carries `crossings`. It is a pure function of the
+  edge key, `H*` and the feature lines from `lines_within` over the edge.
 - **Winding:** triangles face up, with negative orientation in the (x, z) plane.
   spade's counter-clockwise faces are flipped to `[a, c, b]`.
 - **Pinned hash:** `GOLDEN_PLANE` in `tests/tin.rs`, for chunk (-1, 2) at
   `GENERAL`.
-- **Moved to CT3:** `ChunkSource::lines_within`.
-- **Not yet done:** gradient error, per-domain tolerance profiles and a contract
-  cache.
+- **Built in CT3:** `ChunkSource::lines_within`, gradient error, and tolerance
+  profiles per domain.
+- **Not yet done:** a contract cache.

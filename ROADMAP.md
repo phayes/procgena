@@ -2153,9 +2153,9 @@ in a `tin` module of `procgena_terrain`.
   | rolling hills | 66 | 0.33 / 0.54 m | 2.5 ms |
   | mountains | 657 | 0.38 / 0.79 m (grid 1.04 m) | 6.1 ms |
 
-  Not yet: gradient error, per-domain tolerance profiles (CT3/CT4), a
-  contract cache, and `ChunkSource::lines_within`, moved to CT3, which is
-  its first user.
+  Gradient error, per-domain tolerance profiles and
+  `ChunkSource::lines_within` were built in CT3. A contract cache is still
+  not built.
 
 #### CT3: Rivers, ponds and stamps in the ground
 
